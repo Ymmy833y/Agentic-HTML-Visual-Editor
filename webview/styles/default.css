@@ -1,0 +1,215 @@
+/* Default stylesheet bundled with the extension. */
+/* Applies a modern look to plain HTML rendered inside the WYSIWYG view. */
+/* Inline `style` attributes on elements always win over rules defined here */
+/* because inline styles outrank selector specificity in the cascade. */
+
+:root {
+  color-scheme: light dark;
+  --hw-bg: var(--vscode-editor-background, #ffffff);
+  --hw-fg: var(--vscode-editor-foreground, #1f2328);
+  --hw-muted: var(--vscode-descriptionForeground, #57606a);
+  --hw-border: var(--vscode-panel-border, #d0d7de);
+  --hw-accent: var(--vscode-textLink-foreground, #0969da);
+  --hw-code-bg: var(--vscode-textCodeBlock-background, #f6f8fa);
+  --hw-selection: var(--vscode-editor-selectionBackground, rgba(9, 105, 218, 0.2));
+  --hw-comment-bg: rgba(99, 102, 241, 0.08);
+  --hw-comment-border: #6366f1;
+  --hw-comment-label: #4338ca;
+}
+
+html,
+body {
+  background: var(--hw-bg);
+  color: var(--hw-fg);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#hw-root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 6rem;
+  outline: none;
+}
+
+#hw-root ::selection {
+  background: var(--hw-selection);
+}
+
+/* Headings */
+#hw-root h1,
+#hw-root h2,
+#hw-root h3,
+#hw-root h4,
+#hw-root h5,
+#hw-root h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.6em 0 0.6em;
+}
+#hw-root h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--hw-border);
+  padding-bottom: 0.3em;
+}
+#hw-root h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--hw-border);
+  padding-bottom: 0.25em;
+}
+#hw-root h3 { font-size: 1.25em; }
+#hw-root h4 { font-size: 1em; }
+#hw-root h5 { font-size: 0.9em; color: var(--hw-muted); }
+#hw-root h6 { font-size: 0.85em; color: var(--hw-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Paragraphs and generic blocks */
+#hw-root p {
+  margin: 0.6em 0;
+}
+#hw-root div {
+  margin: 0.4em 0;
+}
+
+/* Inline elements */
+#hw-root a {
+  color: var(--hw-accent);
+  text-decoration: none;
+}
+#hw-root a:hover {
+  text-decoration: underline;
+}
+#hw-root strong { font-weight: 700; }
+#hw-root em { font-style: italic; }
+#hw-root code {
+  background: var(--hw-code-bg);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+#hw-root span {
+  /* No default styling; <span> is a transparent inline container. */
+}
+
+/* Blockquote */
+#hw-root blockquote {
+  border-left: 4px solid var(--hw-border);
+  color: var(--hw-muted);
+  margin: 1em 0;
+  padding: 0.4em 1em;
+}
+#hw-root blockquote > :first-child { margin-top: 0; }
+#hw-root blockquote > :last-child { margin-bottom: 0; }
+
+/* Horizontal rule */
+#hw-root hr {
+  border: 0;
+  border-top: 1px solid var(--hw-border);
+  margin: 2em 0;
+}
+
+/* Lists */
+#hw-root ul,
+#hw-root ol {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+#hw-root li {
+  margin: 0.2em 0;
+}
+#hw-root li > ul,
+#hw-root li > ol {
+  margin: 0.2em 0;
+}
+
+/* Code block */
+#hw-root pre {
+  background: var(--hw-code-bg);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+#hw-root pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Tables */
+#hw-root table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+#hw-root th,
+#hw-root td {
+  border: 1px solid var(--hw-border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+#hw-root th {
+  background: var(--hw-code-bg);
+  font-weight: 600;
+}
+#hw-root tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--hw-code-bg) 50%, transparent);
+}
+
+/* Images */
+#hw-root img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Forms: rendered but inert (CSP blocks submission, JS blocks the event). */
+#hw-root form {
+  margin: 1em 0;
+  padding: 0.75em;
+  border: 1px dashed var(--hw-border);
+  border-radius: 4px;
+}
+#hw-root form::before {
+  content: 'form (inactive)';
+  display: block;
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hw-muted);
+  margin-bottom: 0.4em;
+}
+
+/* Custom <comment> tag */
+#hw-root comment {
+  display: block;
+  background: var(--hw-comment-bg);
+  border-left: 3px solid var(--hw-comment-border);
+  border-radius: 4px;
+  padding: 0.5em 0.875em;
+  margin: 1em 0;
+  font-size: 0.95em;
+}
+#hw-root comment::before {
+  content: 'COMMENT';
+  display: block;
+  font-size: 0.65em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--hw-comment-label);
+  margin-bottom: 0.25em;
+}

@@ -1,0 +1,169 @@
+/* Chrome around the editable area: sticky toolbar at the top and the */
+/* selection-driven floating menu. Loaded together with default.css. */
+
+#hw-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--hw-bg);
+  border-bottom: 1px solid var(--hw-border);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  flex-wrap: wrap;
+}
+
+.hw-tb-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--hw-fg);
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.2;
+  min-height: 26px;
+}
+.hw-tb-btn:hover {
+  background: var(--hw-code-bg);
+  border-color: var(--hw-border);
+}
+.hw-tb-btn:active {
+  transform: translateY(1px);
+}
+#hw-tb-bold { font-weight: 700; }
+#hw-tb-italic { font-style: italic; }
+#hw-tb-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.hw-tb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--hw-border);
+  margin: 0 6px;
+  display: inline-block;
+}
+
+#hw-floating-menu {
+  position: absolute;
+  z-index: 20;
+  background: var(--hw-bg);
+  border: 1px solid var(--hw-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  display: flex;
+  gap: 2px;
+}
+#hw-floating-menu[hidden] {
+  display: none;
+}
+
+.hw-fm-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--hw-fg);
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.hw-fm-btn:hover {
+  background: var(--hw-code-bg);
+}
+
+/* Modal dialog (e.g. link insertion). */
+.hw-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.hw-dialog {
+  background: var(--hw-bg);
+  color: var(--hw-fg);
+  border: 1px solid var(--hw-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  min-width: 360px;
+  max-width: 480px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hw-dialog-title {
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.hw-dialog-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85em;
+  color: var(--hw-muted);
+}
+
+.hw-dialog-input {
+  font: inherit;
+  font-size: 0.95em;
+  color: var(--hw-fg);
+  background: var(--vscode-input-background, var(--hw-bg));
+  border: 1px solid var(--vscode-input-border, var(--hw-border));
+  border-radius: 4px;
+  padding: 6px 8px;
+  outline: none;
+}
+.hw-dialog-input:focus {
+  border-color: var(--hw-accent);
+  box-shadow: 0 0 0 1px var(--hw-accent);
+}
+
+.hw-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hw-dialog-btn {
+  font: inherit;
+  font-size: 0.9em;
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--hw-border);
+  background: transparent;
+  color: var(--hw-fg);
+  cursor: pointer;
+}
+.hw-dialog-btn:hover {
+  background: var(--hw-code-bg);
+}
+.hw-dialog-primary {
+  background: var(--vscode-button-background, var(--hw-accent));
+  color: var(--vscode-button-foreground, #ffffff);
+  border-color: transparent;
+}
+.hw-dialog-primary:hover {
+  background: var(--vscode-button-hoverBackground, var(--hw-accent));
+}
+.hw-dialog-danger {
+  color: var(--vscode-errorForeground, #d13438);
+  border-color: var(--vscode-errorForeground, #d13438);
+}
+.hw-dialog-danger:hover {
+  background: rgba(209, 52, 56, 0.08);
+}

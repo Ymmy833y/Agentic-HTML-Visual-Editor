@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>WYSIWYG E2E Host</title>
+    <link rel="stylesheet" href="../../../dist/webview.css" />
+    <script>
+      // Capture every postMessage the bundle sends so tests can assert on the
+      // outbound message stream without involving the real VSCode webview API.
+      window.__vscodeMessages = [];
+      window.__lastState = undefined;
+      window.acquireVsCodeApi = function () {
+        return {
+          postMessage: function (message) {
+            window.__vscodeMessages.push(message);
+          },
+          setState: function (state) {
+            window.__lastState = state;
+          },
+          getState: function () {
+            return window.__lastState;
+          },
+        };
+      };
+    </script>
+  </head>
+  <body>
+    <div id="hw-root" role="document"></div>
+    <script src="../../../dist/webview.js"></script>
+  </body>
+</html>

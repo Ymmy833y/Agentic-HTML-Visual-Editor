@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HTML WYSIWYG Sample</title>
+  </head>
+  <body>
+    <h1>HTML WYSIWYG Sample</h1>
+
+    <comment>This document exercises every tag that is officially supported by the WYSIWYG view. It also doubles as a round-trip fixture.</comment>
+
+    <p>
+      This paragraph contains <strong>bold text</strong>, <em>italic text</em>,
+      <code>inline code</code>, a <a href="https://example.com">hyperlink</a>,
+      and a <span style="background: #fff3a0;">highlighted span</span>.</p>
+
+    <h2>Headings</h2>
+    <h3>Level 3 heading</h3>
+    <h4>Level 4 heading</h4>
+    <h5>Level 5 heading</h5>
+    <h6>Level 6 heading</h6>
+
+    <h2>Lists</h2>
+    <ul>
+      <li>Unordered item 1</li>
+      <li>Unordered item 2
+        <ul>
+          <li>Nested item</li>
+        </ul>
+      </li>
+    </ul>
+    <ol>
+      <li>Ordered item 1</li>
+      <li>Ordered item 2</li>
+    </ol>
+
+    <h2>Table</h2>
+    <table>
+      <thead>
+        <tr><th>Column A</th><th>Column B</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>2</td></tr>
+        <tr><td>3</td><td>4</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Blockquote and Code Block</h2>
+    <blockquote>
+      <p>A blockquote contains a paragraph.</p>
+    </blockquote>
+    <pre><code>function hello() {
+  return "world";
+}</code></pre>
+
+    <h2>Generic Block and Image</h2>
+    <div>A plain &lt;div&gt; block used for grouping.</div>
+    <img src="https://placehold.co/240x80" alt="placeholder">
+
+    <hr>
+
+    <h2>Inline Style Precedence</h2>
+    <p style="color: crimson; font-weight: 600;">
+      This paragraph uses an inline <code>style</code> attribute, which should
+      override the bundled default CSS.
+    </p>
+
+    <comment>End of fixture.</comment>
+    <p onclick="alert(1)">click</p>
+    <script>alert('xss')</script>
+    <iframe src="https://evil.example"></iframe>
+    <a href="javascript:alert(1)">link</a>
+    <link rel="stylesheet" href="https://evil.example/style.css">
+    <form action="https://evil.example"><input type="submit"></form>
+
+  </body>
+</html>

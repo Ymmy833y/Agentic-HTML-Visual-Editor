@@ -1,0 +1,9 @@
+out
+out-test
+dist
+coverage
+playwright-report
+test-results
+node_modules
+.vscode-test/
+*.vsix

@@ -1,0 +1,101 @@
+{
+  "name": "html-wysiwyg",
+  "displayName": "HTML WYSIWYG",
+  "description": "A WYSIWYG editor for facilitating interactions between AI and humans through HTML",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:html"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "htmlWysiwyg.openInWysiwyg",
+        "title": "WYSIWYG で開く",
+        "category": "HTML WYSIWYG",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "htmlWysiwyg.copyAsHtml",
+        "title": "Copy as HTML",
+        "category": "HTML WYSIWYG"
+      },
+      {
+        "command": "htmlWysiwyg.copyAsConfluenceHtml",
+        "title": "Copy as Confluence-compatible HTML",
+        "category": "HTML WYSIWYG"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "htmlWysiwyg.editor",
+        "displayName": "HTML WYSIWYG",
+        "selector": [
+          {
+            "filenamePattern": "*.html"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "htmlWysiwyg.openInWysiwyg",
+          "when": "resourceExtname == .html && activeCustomEditorId != htmlWysiwyg.editor",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "htmlWysiwyg.openInWysiwyg",
+          "when": "resourceExtname == .html"
+        },
+        {
+          "command": "htmlWysiwyg.copyAsHtml",
+          "when": "activeCustomEditorId == htmlWysiwyg.editor"
+        },
+        {
+          "command": "htmlWysiwyg.copyAsConfluenceHtml",
+          "when": "activeCustomEditorId == htmlWysiwyg.editor"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "vscode:prepublish": "node esbuild.config.js --production",
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "pretest:integration": "npm run build && tsc -p tsconfig.test.json",
+    "test:integration": "vscode-test",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/jsdom": "^28.0.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.20.0",
+    "glob": "^13.0.6",
+    "jsdom": "^29.1.1",
+    "mocha": "^11.7.6",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.7"
+  }
+}
