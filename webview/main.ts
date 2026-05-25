@@ -13,6 +13,11 @@ import { prepareCopy } from './copy';
 import * as cmd from './commands';
 import * as cdom from './comment-dom';
 import { mountCommentPopup } from './comment-popup';
+import { mountTablePicker } from './table-picker';
+import { mountTableMenu } from './table-menu';
+import { mountTableResize } from './table-resize';
+import * as tcmd from './table-commands';
+import { findCell, findTable } from './table-dom';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
@@ -22,6 +27,7 @@ import type {
 import './styles/default.css';
 import './styles/editor-chrome.css';
 import './styles/comment-popup.css';
+import './styles/table.css';
 
 interface VsCodeApi {
   postMessage(message: WebviewToExtensionMessage): void;
@@ -134,6 +140,27 @@ root.addEventListener('click', (e: MouseEvent) => {
   commentPopup.open(comment);
 });
 
+// Pinned merge anchor for the table context menu. A plain click on a cell
+// records it as the "from" endpoint; a subsequent Shift+click on another
+// cell promotes that endpoint into the active merge anchor. The right-click
+// menu then offers "Merge cells" using (anchor -> clicked cell).
+let lastClickedCell: HTMLTableCellElement | null = null;
+let mergeAnchor: HTMLTableCellElement | null = null;
+
+function setMergeAnchor(cell: HTMLTableCellElement | null): void {
+  if (mergeAnchor) mergeAnchor.classList.remove('hw-tc-merge-anchor');
+  mergeAnchor = cell;
+  if (mergeAnchor) mergeAnchor.classList.add('hw-tc-merge-anchor');
+}
+
+const tablePicker = mountTablePicker({
+  onPick: (rows, cols, withHeader) => {
+    root!.focus();
+    tcmd.insertTable({ rows, cols, withHeader }, ctx);
+    editor.notifyChanged();
+  },
+});
+
 // Toolbar above the editor.
 const toolbar = createToolbar(root, {
   onCommand: () => editor.notifyChanged(),
@@ -142,8 +169,49 @@ const toolbar = createToolbar(root, {
   },
   onAddComment: handleAddComment,
   onCopy: (format) => doCopy(format),
+  onInsertTable: (anchor) => tablePicker.open(anchor),
 });
 document.body.insertBefore(toolbar, root);
+
+mountTableMenu(root, {
+  onCommand: () => {
+    setMergeAnchor(null);
+    editor.notifyChanged();
+  },
+  getMergeAnchor: () => mergeAnchor,
+});
+
+mountTableResize(root, {
+  onCommand: () => editor.notifyChanged(),
+});
+
+// Track the most recently clicked cell so a follow-up Shift+click can pin
+// it as the merge anchor. Clicking outside any cell clears both.
+root.addEventListener('click', (e: MouseEvent) => {
+  const cell = findCell(e.target as Node, root);
+  if (!cell || !root.contains(cell)) {
+    if (!e.shiftKey) {
+      lastClickedCell = null;
+      setMergeAnchor(null);
+    }
+    return;
+  }
+  if (e.shiftKey) {
+    const table = findTable(cell, root);
+    if (
+      lastClickedCell &&
+      lastClickedCell !== cell &&
+      table &&
+      table.contains(lastClickedCell)
+    ) {
+      setMergeAnchor(lastClickedCell);
+    }
+    return;
+  }
+  // Plain click on a cell: remember it and clear any prior merge anchor.
+  lastClickedCell = cell;
+  setMergeAnchor(null);
+});
 
 // Selection-driven floating menu.
 mountFloatingMenu(root, {
@@ -196,6 +264,35 @@ root.addEventListener('submit', (e: Event) => {
 // Keyboard shortcuts for the main inline / block commands.
 root.addEventListener('keydown', (e: KeyboardEvent) => {
   const mod = e.ctrlKey || e.metaKey;
+
+  // Tab / Shift+Tab navigation inside table cells.
+  if (e.key === 'Tab' && !mod && !e.altKey) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const cell = findCell(range.startContainer, root!);
+      if (cell) {
+        e.preventDefault();
+        const direction = e.shiftKey ? 'prev' : 'next';
+        let target = tcmd.adjacentCell(cell, direction);
+        if (!target && direction === 'next') {
+          const table = findTable(cell, root!);
+          if (table) {
+            target = tcmd.appendRowAtEnd(table);
+            editor.notifyChanged();
+          }
+        }
+        if (target) {
+          const r = document.createRange();
+          r.selectNodeContents(target);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+        return;
+      }
+    }
+  }
 
   if (mod && !e.shiftKey && !e.altKey) {
     const key = e.key.toLowerCase();

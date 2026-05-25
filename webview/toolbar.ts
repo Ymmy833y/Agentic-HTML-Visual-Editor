@@ -14,6 +14,8 @@ export interface ToolbarOptions {
   onAddComment: () => void;
   /** Trigger a copy in the requested format. */
   onCopy: (format: CopyFormat) => void;
+  /** Open the table picker, anchored to the clicked toolbar button. */
+  onInsertTable: (anchor: HTMLElement) => void;
 }
 
 export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElement {
@@ -46,6 +48,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
 
   group([
     btn('HR', 'Horizontal rule', () => cmd.insertHr(ctx)),
+    tableBtn(opts.onInsertTable),
     btn('Comment', 'Comment on selection', opts.onAddComment, undefined, 'hw-tb-comment'),
   ]);
 
@@ -72,11 +75,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   bar.addEventListener('click', (e) => {
     const target = e.target as Element | null;
     if (!target?.classList.contains('hw-tb-btn')) return;
-    // Link, Comment, and Copy buttons manage their own follow-up actions.
+    // Link, Comment, Copy, and Table buttons manage their own follow-up actions.
     if (
       target.classList.contains('hw-tb-link') ||
       target.classList.contains('hw-tb-copy') ||
-      target.classList.contains('hw-tb-comment')
+      target.classList.contains('hw-tb-comment') ||
+      target.classList.contains('hw-tb-table')
     ) {
       return;
     }
@@ -110,6 +114,16 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
   b.title = 'Link (Ctrl+K)';
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
+  return b;
+}
+
+function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-tb-btn hw-tb-table';
+  b.title = 'Insert table';
+  b.textContent = 'Table';
+  b.addEventListener('click', () => onInsertTable(b));
   return b;
 }
 

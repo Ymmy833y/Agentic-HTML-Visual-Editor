@@ -21,7 +21,7 @@ The AI outputs HTML that is as simple as possible, while users can view and edit
 - Inline: `strong`, `em`, `code`, `a`, `span`, and others
 - Block: `h1`–`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
 - Lists: `ul`, `ol`, `li`
-- Tables: `table`, `thead`, `tbody`, `tr`, `th`, `td`
+- Tables: `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
 - Media: `img`
 - Custom tags: `<comment>`, `<comment-body>`, `<comment-reply>` described below
 
@@ -41,6 +41,9 @@ Common formatting can be invoked from both the keyboard and toolbar:
 - Keyboard: Ctrl+B (`<strong>`), Ctrl+I (`<em>`), Ctrl+K (`<a>`), converting text to headings with `#`, and more
 - Floating menu: Shows relevant actions based on the current selection
 - Toolbar: One-click access to major tags
+
+### Table Editing
+Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units.
 
 ### Clipboard Copy
 The entire document, or a selected range, can be copied in two formats:
