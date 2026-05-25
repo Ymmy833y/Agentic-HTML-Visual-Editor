@@ -2,23 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { toConfluenceHtml } from '../../webview/confluence';
 
 describe('toConfluenceHtml', () => {
-  it('rewrites <comment> to a labelled <blockquote>', () => {
-    const out = toConfluenceHtml('<comment>note</comment>');
-    expect(out).toBe('<blockquote><p><strong>Comment: </strong>note</p></blockquote>');
-  });
-
-  it('rewrites multiple <comment> elements', () => {
-    const out = toConfluenceHtml('<comment>a</comment><p>x</p><comment>b</comment>');
-    expect(out).toBe(
-      '<blockquote><p><strong>Comment: </strong>a</p></blockquote>' +
-        '<p>x</p>' +
-        '<blockquote><p><strong>Comment: </strong>b</p></blockquote>',
+  it('strips <comment-body> and <comment-reply> children and unwraps <comment>', () => {
+    const out = toConfluenceHtml(
+      '<p>x <comment id="c1">target<comment-body>note</comment-body><comment-reply>r</comment-reply></comment> y</p>',
     );
+    expect(out).toBe('<p>x target y</p>');
   });
 
-  it('preserves inline children inside <comment>', () => {
-    const out = toConfluenceHtml('<comment>a <strong>bold</strong> b</comment>');
-    expect(out).toContain('<strong>Comment: </strong>a <strong>bold</strong> b');
+  it('strips multiple <comment> annotations independently', () => {
+    const out = toConfluenceHtml(
+      '<p><comment id="c1">a<comment-body>na</comment-body></comment></p>' +
+        '<p>x</p>' +
+        '<p><comment id="c2">b<comment-body>nb</comment-body></comment></p>',
+    );
+    expect(out).toBe('<p>a</p><p>x</p><p>b</p>');
+  });
+
+  it('preserves inline element children of <comment> when unwrapping', () => {
+    const out = toConfluenceHtml(
+      '<p><comment id="c1">a <strong>bold</strong> b<comment-body>note</comment-body></comment></p>',
+    );
+    expect(out).toBe('<p>a <strong>bold</strong> b</p>');
   });
 
   it('adds border="1" to <table> elements that lack it', () => {

@@ -10,6 +10,8 @@ export interface ToolbarOptions {
   onCommand: () => void;
   /** Open the link dialog and apply the result. */
   onLink: () => void;
+  /** Add a comment to the current selection and open its popup. */
+  onAddComment: () => void;
   /** Trigger a copy in the requested format. */
   onCopy: (format: CopyFormat) => void;
 }
@@ -44,7 +46,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
 
   group([
     btn('HR', 'Horizontal rule', () => cmd.insertHr(ctx)),
-    btn('Comment', 'Wrap selection in <comment>', () => cmd.wrapInComment(ctx)),
+    btn('Comment', 'Comment on selection', opts.onAddComment, undefined, 'hw-tb-comment'),
   ]);
 
   group([
@@ -70,8 +72,14 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   bar.addEventListener('click', (e) => {
     const target = e.target as Element | null;
     if (!target?.classList.contains('hw-tb-btn')) return;
-    // Link and Copy buttons manage their own follow-up actions.
-    if (target.classList.contains('hw-tb-link') || target.classList.contains('hw-tb-copy')) return;
+    // Link, Comment, and Copy buttons manage their own follow-up actions.
+    if (
+      target.classList.contains('hw-tb-link') ||
+      target.classList.contains('hw-tb-copy') ||
+      target.classList.contains('hw-tb-comment')
+    ) {
+      return;
+    }
     opts.onCommand();
   });
 

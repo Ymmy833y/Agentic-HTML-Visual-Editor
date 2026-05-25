@@ -2,6 +2,8 @@
 // markdown-style shortcuts. Each command operates on the current Selection
 // inside the WYSIWYG root and mutates the DOM directly.
 
+import { newCommentId, setBody } from './comment-dom';
+
 export interface CommandContext {
   root: HTMLElement;
 }
@@ -12,6 +14,14 @@ export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquo
 const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
+]);
+
+// Containers within which a single inline <comment> may legally wrap the
+// selection. Includes table cells and captions on top of the regular block
+// tags so that comments can be attached to text inside a <td>/<th>.
+const COMMENT_SCOPE_TAGS = new Set([
+  ...BLOCK_TAGS,
+  'TD', 'TH', 'CAPTION',
 ]);
 
 /** Toggle an inline wrapper (strong/em/code) around the current selection. */
@@ -83,20 +93,48 @@ export function insertHr(ctx: CommandContext): void {
   sel.addRange(r);
 }
 
-/** Wrap the selection (or insert an empty <comment> at the cursor). */
-export function wrapInComment(ctx: CommandContext): void {
+/**
+ * Wrap the selection in an inline <comment> highlight with an empty body
+ * child, ready for the popup to populate. Returns the created <comment>
+ * element so the caller can immediately open the popup on it.
+ *
+ * Returns null and makes no DOM change when:
+ *   - the selection is collapsed, or
+ *   - the selection crosses block boundaries (start/end live in different
+ *     block ancestors); the highlight model only supports single-block
+ *     ranges and a multi-block surround would split DOM structure.
+ */
+export function addComment(ctx: CommandContext): HTMLElement | null {
   const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
+  if (!sel || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
+  if (range.collapsed) return null;
+
+  const startScope = findCommentScopeAncestor(range.startContainer, ctx.root);
+  const endScope = findCommentScopeAncestor(range.endContainer, ctx.root);
+  if (!startScope || startScope !== endScope) return null;
 
   const comment = document.createElement('comment');
-  if (range.collapsed) {
-    comment.appendChild(document.createElement('br'));
-    range.insertNode(comment);
-  } else {
+  comment.setAttribute('id', newCommentId(ctx.root));
+  try {
     surroundSelection(range, comment);
+  } catch {
+    return null;
   }
+  setBody(comment, '');
   selectContents(sel, comment);
+  return comment;
+}
+
+/** Remove a comment highlight, keeping its target text but discarding body and replies. */
+export function removeComment(_ctx: CommandContext, comment: HTMLElement): void {
+  for (const child of Array.from(comment.children)) {
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'comment-body' || tag === 'comment-reply') {
+      child.remove();
+    }
+  }
+  unwrap(comment);
 }
 
 /** Insert or update a link. Pass an empty string to remove an existing link wrapper. */
@@ -153,6 +191,15 @@ function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | null {
   let cur: Node | null = node;
   while (cur && cur !== stopAt) {
     if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) return cur;
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
+function findCommentScopeAncestor(node: Node, stopAt: Element): HTMLElement | null {
+  let cur: Node | null = node;
+  while (cur && cur !== stopAt) {
+    if (cur instanceof HTMLElement && COMMENT_SCOPE_TAGS.has(cur.tagName)) return cur;
     cur = cur.parentNode;
   }
   return null;

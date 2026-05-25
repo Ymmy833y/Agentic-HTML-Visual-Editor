@@ -30,10 +30,12 @@ describe('prepareCopy', () => {
   });
 
   it('applies the Confluence transform when format=confluence', () => {
-    const root = makeRoot('<comment>note</comment>');
+    const root = makeRoot(
+      '<p><comment id="c1">target<comment-body>note</comment-body></comment></p>',
+    );
     window.getSelection()?.removeAllRanges();
     const out = prepareCopy(root, 'confluence');
-    expect(out).toBe('<blockquote><p><strong>Comment: </strong>note</p></blockquote>');
+    expect(out).toBe('<p>target</p>');
   });
 
   it('ignores a selection that lies outside the root', () => {

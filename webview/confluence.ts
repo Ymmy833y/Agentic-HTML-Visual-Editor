@@ -18,23 +18,20 @@ function transform(root: ParentNode): void {
 }
 
 /**
- * <comment>text</comment> is unknown to Confluence and would either be dropped
- * or rendered as raw text. Convert each into a labelled <blockquote> so the
- * intent (a side note for AI/human context) survives the round trip.
+ * Strip comment annotations from the exported HTML: drop the <comment-body>
+ * and <comment-reply> children, then unwrap the <comment> element so only
+ * the highlighted target text remains. Confluence sees clean source HTML
+ * with no trace of the annotation layer.
  */
 function rewriteComments(root: ParentNode): void {
-  const comments = Array.from((root as ParentNode).querySelectorAll('comment'));
-  for (const comment of comments) {
-    const blockquote = document.createElement('blockquote');
-    const para = document.createElement('p');
-    const label = document.createElement('strong');
-    label.textContent = 'Comment: ';
-    para.appendChild(label);
-    while (comment.firstChild) {
-      para.appendChild(comment.firstChild);
-    }
-    blockquote.appendChild(para);
-    comment.replaceWith(blockquote);
+  for (const child of Array.from(root.querySelectorAll('comment-body, comment-reply'))) {
+    child.remove();
+  }
+  for (const comment of Array.from(root.querySelectorAll('comment'))) {
+    const parent = comment.parentNode;
+    if (!parent) continue;
+    while (comment.firstChild) parent.insertBefore(comment.firstChild, comment);
+    comment.remove();
   }
 }
 

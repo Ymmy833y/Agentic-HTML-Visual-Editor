@@ -7,12 +7,13 @@
   <body>
     <h1>HTML WYSIWYG Sample</h1>
 
-    <comment>This document exercises every tag that is officially supported by the WYSIWYG view. It also doubles as a round-trip fixture.</comment>
-
     <p>
       This paragraph contains <strong>bold text</strong>, <em>italic text</em>,
       <code>inline code</code>, a <a href="https://example.com">hyperlink</a>,
-      and a <span style="background: #fff3a0;">highlighted span</span>.</p>
+      and a <span style="background: #fff3a0;">highlighted span</span>. It also
+      shows an inline comment annotation on
+      <comment id="c-sample">this phrase<comment-body contenteditable="false">This document exercises every tag that is officially supported by the WYSIWYG view. It also doubles as a round-trip fixture.</comment-body><comment-reply contenteditable="false">Looks good!</comment-reply></comment> so the popup has something to display.
+    </p>
 
     <h2>Headings</h2>
     <h3>Level 3 heading</h3>
@@ -31,7 +32,7 @@
     </ul>
     <ol>
       <li>Ordered item 1</li>
-      <li>Ordered item 2</li>
+      <li>O<comment id="c-rtg4yrv2">rdered item 2<comment-body contenteditable="false">This is comment</comment-body></comment></li>
     </ol>
 
     <h2>Table</h2>
@@ -40,7 +41,7 @@
         <tr><th>Column A</th><th>Column B</th></tr>
       </thead>
       <tbody>
-        <tr><td>1</td><td>2</td></tr>
+        <tr><td>1</td><td><comment id="c-8xxil1fa">2<comment-body contenteditable="false"></comment-body><comment-reply contenteditable="false">Sample Comment</comment-reply></comment></td></tr>
         <tr><td>3</td><td>4</td></tr>
       </tbody>
     </table>
@@ -65,12 +66,11 @@
       override the bundled default CSS.
     </p>
 
-    <comment>End of fixture.</comment>
-    <p onclick="alert(1)">click</p>
-    <script>alert('xss')</script>
-    <iframe src="https://evil.example"></iframe>
-    <a href="javascript:alert(1)">link</a>
-    <link rel="stylesheet" href="https://evil.example/style.css">
+    <p>click</p>
+    
+    
+    <a>link</a>
+    
     <form action="https://evil.example"><input type="submit"></form>
 
   </body>

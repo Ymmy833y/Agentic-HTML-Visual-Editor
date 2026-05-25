@@ -11,6 +11,8 @@ import { mountFloatingMenu } from './floating-menu';
 import { openLinkDialog } from './link-dialog';
 import { prepareCopy } from './copy';
 import * as cmd from './commands';
+import * as cdom from './comment-dom';
+import { mountCommentPopup } from './comment-popup';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
@@ -19,6 +21,7 @@ import type {
 
 import './styles/default.css';
 import './styles/editor-chrome.css';
+import './styles/comment-popup.css';
 
 interface VsCodeApi {
   postMessage(message: WebviewToExtensionMessage): void;
@@ -51,6 +54,9 @@ function mountFromSource(source: string): void {
     suffix = '';
     root.replaceChildren(parseBodyContent(source));
   }
+  // Mark <comment-body>/<comment-reply> in the freshly mounted DOM as
+  // non-editable so contenteditable does not let the user type inside them.
+  for (const c of cdom.commentsInDocumentOrder(root)) cdom.lockChildren(c);
 }
 
 function serialize(): string | null {
@@ -108,12 +114,33 @@ function doCopy(format: CopyFormat): void {
   vscode.postMessage({ type: 'clipboardWrite', text, format });
 }
 
+const commentPopup = mountCommentPopup(root, {
+  onChange: () => editor.notifyChanged(),
+});
+
+function handleAddComment(): void {
+  const comment = cmd.addComment(ctx);
+  if (!comment) return;
+  editor.notifyChanged();
+  commentPopup.open(comment);
+}
+
+// Open the popup when an existing comment highlight is clicked.
+root.addEventListener('click', (e: MouseEvent) => {
+  const target = e.target as Element | null;
+  if (!target) return;
+  const comment = target.closest('comment[id]') as HTMLElement | null;
+  if (!comment || !root.contains(comment)) return;
+  commentPopup.open(comment);
+});
+
 // Toolbar above the editor.
 const toolbar = createToolbar(root, {
   onCommand: () => editor.notifyChanged(),
   onLink: () => {
     void handleLink();
   },
+  onAddComment: handleAddComment,
   onCopy: (format) => doCopy(format),
 });
 document.body.insertBefore(toolbar, root);
@@ -124,6 +151,7 @@ mountFloatingMenu(root, {
   onLink: () => {
     void handleLink();
   },
+  onAddComment: handleAddComment,
 });
 
 // Sanitize HTML pasted from outside the editor (clipboard data from

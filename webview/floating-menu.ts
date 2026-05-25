@@ -6,6 +6,7 @@ import * as cmd from './commands';
 export interface FloatingMenuOptions {
   onCommand: () => void;
   onLink: () => void;
+  onAddComment: () => void;
 }
 
 const MARGIN_TOP = 8;
@@ -23,15 +24,18 @@ export function mountFloatingMenu(root: HTMLElement, opts: FloatingMenuOptions):
   menu.appendChild(btn('I', 'Italic', () => cmd.toggleInline('em', ctx)));
   menu.appendChild(btn('< >', 'Inline code', () => cmd.toggleInline('code', ctx)));
   menu.appendChild(linkBtn(opts.onLink));
-  menu.appendChild(btn('Comment', 'Wrap in <comment>', () => cmd.wrapInComment(ctx)));
+  menu.appendChild(commentBtn(opts.onAddComment));
 
   menu.addEventListener('mousedown', (e) => e.preventDefault());
   menu.addEventListener('click', (e) => {
     const target = e.target as Element | null;
-    if (target?.classList.contains('hw-fm-btn') && !target.classList.contains('hw-fm-link')) {
-      opts.onCommand();
-      updatePosition(menu, root);
+    if (!target?.classList.contains('hw-fm-btn')) return;
+    // Link and Comment buttons manage their own follow-up actions.
+    if (target.classList.contains('hw-fm-link') || target.classList.contains('hw-fm-comment')) {
+      return;
     }
+    opts.onCommand();
+    updatePosition(menu, root);
   });
 
   document.body.appendChild(menu);
@@ -59,6 +63,16 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
   b.title = 'Link';
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
+  return b;
+}
+
+function commentBtn(onAddComment: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-fm-btn hw-fm-comment';
+  b.title = 'Comment on selection';
+  b.textContent = 'Comment';
+  b.addEventListener('click', onAddComment);
   return b;
 }
 

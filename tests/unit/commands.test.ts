@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  addComment,
   type CommandContext,
   findInlineAncestor,
   insertHr,
   insertLink,
+  removeComment,
   setBlockTag,
   toggleInline,
-  wrapInComment,
 } from '../../webview/commands';
 import { caretAtStart, clearDom, makeRoot, selectContents, selectTextRange } from './helpers/selection';
 
@@ -113,20 +114,92 @@ describe('insertHr', () => {
   });
 });
 
-describe('wrapInComment', () => {
-  it('wraps the selected range in <comment>', () => {
+describe('addComment', () => {
+  it('wraps the selected range in <comment id> with an empty <comment-body>', () => {
     const root = makeRoot('<p>hello world</p>');
     const text = root.querySelector('p')!.firstChild!;
     selectTextRange(text, 0, 5);
-    wrapInComment(ctxOf(root));
-    expect(root.innerHTML).toBe('<p><comment>hello</comment> world</p>');
+    const created = addComment(ctxOf(root));
+    expect(created).not.toBeNull();
+    const id = created!.getAttribute('id');
+    expect(id).toMatch(/^c-[a-z0-9]+$/);
+    expect(root.innerHTML).toBe(
+      `<p><comment id="${id}">hello<comment-body contenteditable="false"></comment-body></comment> world</p>`,
+    );
   });
 
-  it('inserts an empty <comment> at the caret when the selection is collapsed', () => {
+  it('returns null and does nothing when the selection is collapsed', () => {
     const root = makeRoot('<p>hello</p>');
     caretAtStart(root.querySelector('p')!);
-    wrapInComment(ctxOf(root));
-    expect(root.innerHTML).toBe('<p><comment><br></comment>hello</p>');
+    expect(addComment(ctxOf(root))).toBeNull();
+    expect(root.innerHTML).toBe('<p>hello</p>');
+  });
+
+  it('returns null and does nothing when the selection spans multiple block ancestors', () => {
+    const root = makeRoot('<p>first</p><p>second</p>');
+    const firstText = root.querySelectorAll('p')[0].firstChild!;
+    const secondText = root.querySelectorAll('p')[1].firstChild!;
+    const sel = window.getSelection()!;
+    const r = document.createRange();
+    r.setStart(firstText, 0);
+    r.setEnd(secondText, 3);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    expect(addComment(ctxOf(root))).toBeNull();
+    expect(root.innerHTML).toBe('<p>first</p><p>second</p>');
+  });
+
+  it('wraps a selection inside a table cell (<td>)', () => {
+    const root = makeRoot(
+      '<table><tbody><tr><td>hello world</td></tr></tbody></table>',
+    );
+    const text = root.querySelector('td')!.firstChild!;
+    selectTextRange(text, 0, 5);
+    const created = addComment(ctxOf(root));
+    expect(created).not.toBeNull();
+    const id = created!.getAttribute('id')!;
+    expect(root.innerHTML).toBe(
+      '<table><tbody><tr><td>' +
+        `<comment id="${id}">hello<comment-body contenteditable="false"></comment-body></comment>` +
+        ' world</td></tr></tbody></table>',
+    );
+  });
+
+  it('wraps a selection inside a header cell (<th>)', () => {
+    const root = makeRoot(
+      '<table><thead><tr><th>column header</th></tr></thead></table>',
+    );
+    const text = root.querySelector('th')!.firstChild!;
+    selectTextRange(text, 0, 6);
+    const created = addComment(ctxOf(root));
+    expect(created).not.toBeNull();
+    expect(root.querySelector('th > comment')?.textContent?.startsWith('column')).toBe(true);
+  });
+
+  it('returns null when the selection spans two different table cells', () => {
+    const root = makeRoot(
+      '<table><tbody><tr><td>aaa</td><td>bbb</td></tr></tbody></table>',
+    );
+    const cells = root.querySelectorAll('td');
+    const sel = window.getSelection()!;
+    const r = document.createRange();
+    r.setStart(cells[0].firstChild!, 0);
+    r.setEnd(cells[1].firstChild!, 3);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    expect(addComment(ctxOf(root))).toBeNull();
+    expect(root.querySelector('comment')).toBeNull();
+  });
+});
+
+describe('removeComment', () => {
+  it('unwraps the comment and discards body/replies, leaving only the target text', () => {
+    const root = makeRoot(
+      '<p>before <comment id="c1">target<comment-body>note</comment-body><comment-reply>r1</comment-reply></comment> after</p>',
+    );
+    const comment = root.querySelector('comment')!;
+    removeComment(ctxOf(root), comment as HTMLElement);
+    expect(root.innerHTML).toBe('<p>before target after</p>');
   });
 });
 

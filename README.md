@@ -23,12 +23,17 @@ The AI outputs HTML that is as simple as possible, while users can view and edit
 - Lists: `ul`, `ol`, `li`
 - Tables: `table`, `thead`, `tbody`, `tr`, `th`, `td`
 - Media: `img`
-- Custom tag: `<comment>` described below
+- Custom tags: `<comment>`, `<comment-body>`, `<comment-reply>` described below
 
-### Custom Tag
-A custom element that balances visibility for users with contextual input for AI:
+### Custom Tags
+Inline review-style annotation that is fully expressed in HTML so AI agents can read it as ordinary elements:
 
-- `<comment>...</comment>`: A block representing annotations or background information. In the WYSIWYG view, it is visualized with a styled frame, while AI can read it as a normal element.
+- `<comment id="...">target text<comment-body>body</comment-body><comment-reply>reply</comment-reply>...</comment>`
+  - `<comment>` wraps the annotated text range inline. In the WYSIWYG view it is rendered as an amber highlight with an underline; clicking the highlight opens a popup with the body and reply thread.
+  - `<comment-body>` (zero or one per `<comment>`) holds the body text.
+  - `<comment-reply>` (zero or more per `<comment>`) each holds one reply, in document order.
+  - The body and replies are hidden from the document flow visually but remain in the HTML source so any reader (human or AI) can see the full thread by inspecting the markup.
+  - When copying as Confluence-compatible HTML, all of these tags are stripped and only the highlighted text survives.
 
 ### Shortcuts
 Common formatting can be invoked from both the keyboard and toolbar:

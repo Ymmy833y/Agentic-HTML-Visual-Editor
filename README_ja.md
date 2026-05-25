@@ -23,11 +23,17 @@ AI には極力シンプルな HTML を出力させ、ユーザーにはモダ�
 - リスト: `ul`, `ol`, `li`
 - テーブル: `table`, `thead`, `tbody`, `tr`, `th`, `td`
 - メディア: `img`
-- 独自タグ: `<comment>`（後述）
+- 独自タグ: `<comment>` / `<comment-body>` / `<comment-reply>`（後述）
 
 ### 独自タグ
-ユーザーへの可視性と AI への文脈注入を両立するためのカスタム要素:
-- `<comment>...</comment>`: 注釈・背景情報を表すブロック。WYSIWYG では装飾枠で可視化され、AI からは通常の要素として読み取れる
+HTML だけでレビュー風の注釈を表現するインラインカスタム要素。AI から通常の要素として読み取れる:
+
+- `<comment id="...">対象テキスト<comment-body>本文</comment-body><comment-reply>返信</comment-reply>...</comment>`
+  - `<comment>` は注釈対象のテキスト範囲をインラインで囲み、WYSIWYG ではアンバー系のハイライト+下線で表示される。ハイライトをクリックすると本文・返信スレッドのポップアップが開く
+  - `<comment-body>`（`<comment>` ごとに 0 または 1 個）は本文を保持
+  - `<comment-reply>`（`<comment>` ごとに 0 個以上）は返信を 1 件ずつ、DOM 順に保持
+  - 本文と返信は WYSIWYG 上では非表示だが HTML ソースには残るので、人間も AI もマークアップを読めばスレッド全体を確認できる
+  - 「HTML for Confluence Paste」ではこれらのタグはすべて剥がされ、対象テキストだけが残る
 
 ### ショートカット
 よく使う表記をキーボードとツールバーの両方から呼び出せる:
