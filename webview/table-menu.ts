@@ -165,7 +165,7 @@ export function mountTableMenu(
     // Column-header is only meaningful for tbody/tfoot cells; thead is
     // managed by the row-header item above.
     if (!inThead) {
-      const table = cell.closest('table') as HTMLTableElement | null;
+      const table = cell.closest('table');
       const model = table ? buildTableModel(table) : null;
       const pos = model ? findCellPosition(model, cell) : null;
       const isHeaderCol = !!(table && pos && tcmd.isColumnHeader(table, pos.col));
@@ -181,7 +181,7 @@ export function mountTableMenu(
 
     // Width-unit toggle for the whole table.
     {
-      const table = cell.closest('table') as HTMLTableElement | null;
+      const table = cell.closest('table');
       if (table) {
         const mode = tcmd.getTableWidthMode(table);
         items.push({
@@ -218,7 +218,7 @@ export function mountTableMenu(
       label: 'Delete table',
       enabled: true,
       onPick: () => {
-        const table = cell.closest('table') as HTMLTableElement | null;
+        const table = cell.closest('table');
         if (table) tcmd.deleteTable(table, ctx);
       },
     });
@@ -254,7 +254,7 @@ function separator(): HTMLElement {
 }
 
 function canMerge(a: HTMLTableCellElement, b: HTMLTableCellElement): boolean {
-  const table = a.closest('table') as HTMLTableElement | null;
+  const table = a.closest('table');
   if (!table) return false;
   const model = buildTableModel(table);
   const rect = boundingRect(model, a, b);

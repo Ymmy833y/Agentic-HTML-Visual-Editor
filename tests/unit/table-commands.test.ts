@@ -232,7 +232,7 @@ describe('insertColumn / deleteColumn', () => {
     // Insert a column at logical index 1 by anchoring on cell "a" (anchorCol=0
     // in row 1). 'right' produces insertColIndex = 1, which falls inside the
     // colspan=2 wide cell on row 0.
-    const a = root.querySelectorAll('td')[2] as HTMLTableCellElement;
+    const a = root.querySelectorAll('td')[2];
     insertColumn(a, 'right');
     const wide = root.querySelector('td[colspan]') as HTMLTableCellElement;
     expect(wide.getAttribute('colspan')).toBe('3');
@@ -458,7 +458,7 @@ describe('mergeCells / splitCell', () => {
       '</tbody></table>',
     );
     const cells = root.querySelectorAll('td');
-    mergeCells(cells[0] as HTMLTableCellElement, cells[3] as HTMLTableCellElement);
+    mergeCells(cells[0], cells[3]);
     const survivors = tableOf(root).querySelectorAll('td');
     expect(survivors.length).toBe(1);
     const survivor = survivors[0];
@@ -475,7 +475,7 @@ describe('mergeCells / splitCell', () => {
       '</tbody></table>',
     );
     const wide = root.querySelector('td[colspan]') as HTMLTableCellElement;
-    const a = root.querySelectorAll('td')[2] as HTMLTableCellElement; // first td in row 1
+    const a = root.querySelectorAll('td')[2]; // first td in row 1
     mergeCells(wide, a);
     const cells = tableOf(root).querySelectorAll('td');
     // wide(2x2) absorbs row 1 cells a & b. Remaining anchors: merged, x, c.
@@ -552,10 +552,10 @@ describe('adjacentCell / appendRowAtEnd', () => {
       '<table><tbody><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></tbody></table>',
     );
     const cells = root.querySelectorAll('td');
-    expect(adjacentCell(cells[0] as HTMLTableCellElement, 'next')?.textContent).toBe('b');
-    expect(adjacentCell(cells[1] as HTMLTableCellElement, 'next')?.textContent).toBe('c');
-    expect(adjacentCell(cells[3] as HTMLTableCellElement, 'next')).toBeNull();
-    expect(adjacentCell(cells[0] as HTMLTableCellElement, 'prev')).toBeNull();
+    expect(adjacentCell(cells[0], 'next')?.textContent).toBe('b');
+    expect(adjacentCell(cells[1], 'next')?.textContent).toBe('c');
+    expect(adjacentCell(cells[3], 'next')).toBeNull();
+    expect(adjacentCell(cells[0], 'prev')).toBeNull();
   });
 
   it('appends a fresh row when called and returns its first cell', () => {

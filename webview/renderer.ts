@@ -69,7 +69,7 @@ export function parseBodyContent(bodyInner: string): DocumentFragment {
  */
 export function sanitizeFragment(root: ParentNode): void {
   const toRemove: Element[] = [];
-  const walker = document.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
   let node: Node | null = walker.currentNode;
   while (node) {
     if (node instanceof Element) {

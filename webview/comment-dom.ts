@@ -26,7 +26,7 @@ export function getBody(comment: HTMLElement): string {
 }
 
 export function setBody(comment: HTMLElement, text: string): void {
-  let body = comment.querySelector(':scope > comment-body') as HTMLElement | null;
+  let body = comment.querySelector(':scope > comment-body');
   if (!body) {
     body = document.createElement('comment-body');
     body.setAttribute('contenteditable', 'false');
@@ -43,7 +43,7 @@ export function setBody(comment: HTMLElement, text: string): void {
 }
 
 export function getReplies(comment: HTMLElement): HTMLElement[] {
-  return Array.from(comment.querySelectorAll(':scope > comment-reply')) as HTMLElement[];
+  return Array.from(comment.querySelectorAll(':scope > comment-reply'));
 }
 
 export function addReply(comment: HTMLElement, text: string): HTMLElement {
@@ -63,7 +63,7 @@ export function removeReply(reply: HTMLElement): void {
 }
 
 export function commentsInDocumentOrder(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll('comment[id]')) as HTMLElement[];
+  return Array.from(root.querySelectorAll('comment[id]'));
 }
 
 /** Mark body/reply children as non-editable so contenteditable does not let the user type inside them. */

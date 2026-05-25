@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { caretAtEnd, focusEditor, getRootHtml, mountEditor } from './helpers/page';
 
-async function pasteHtml(page: import('@playwright/test').Page, html: string): Promise<void> {
+async function pasteHtml(page: Page, html: string): Promise<void> {
   await page.evaluate((payload) => {
     const dt = new DataTransfer();
     dt.setData('text/html', payload);

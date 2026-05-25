@@ -80,7 +80,7 @@ describe('findTable / findCell / findCellPosition', () => {
       '</tbody></table>',
     );
     const model = buildTableModel(table(root));
-    const cell = root.querySelectorAll('td')[3] as HTMLTableCellElement;
+    const cell = root.querySelectorAll('td')[3];
     expect(findCellPosition(model, cell)).toEqual({ row: 1, col: 1 });
   });
 });
@@ -95,7 +95,7 @@ describe('boundingRect / tightenRect / anchorsInRect', () => {
     );
     const model = buildTableModel(table(root));
     const cells = root.querySelectorAll('td');
-    const rect = boundingRect(model, cells[0] as HTMLTableCellElement, cells[4] as HTMLTableCellElement);
+    const rect = boundingRect(model, cells[0], cells[4]);
     expect(rect).toEqual({ row1: 0, col1: 0, row2: 1, col2: 1 });
   });
 

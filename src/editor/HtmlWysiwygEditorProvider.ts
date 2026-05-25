@@ -27,6 +27,7 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   public async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
@@ -123,12 +124,12 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
-    <link rel="stylesheet" href="${styleUri}" />
+    <link rel="stylesheet" href="${styleUri.toString()}" />
     <title>HTML WYSIWYG</title>
   </head>
   <body>
     <div id="hw-root" role="document"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
+    <script nonce="${nonce}" src="${scriptUri.toString()}"></script>
   </body>
 </html>`;
   }

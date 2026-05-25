@@ -100,7 +100,7 @@ function splitBlockAndInsert(
   let target: HTMLElement = block;
   let splitRange: Range = range;
   if (block.tagName === 'LI') {
-    const list = block.closest('ul, ol') as HTMLElement | null;
+    const list = block.closest('ul, ol');
     if (list && list !== root) {
       target = list;
       const r = document.createRange();
@@ -137,7 +137,7 @@ function splitBlockAndInsert(
 }
 
 function placeCaretInFirstCell(table: HTMLTableElement): void {
-  const cell = table.querySelector('td, th') as HTMLElement | null;
+  const cell = table.querySelector('td, th');
   if (!cell) return;
   const sel = window.getSelection();
   if (!sel) return;
@@ -154,7 +154,7 @@ export type RowPosition = 'above' | 'below';
 
 /** Insert a new row above or below the row that contains the given cell. */
 export function insertRow(cell: HTMLTableCellElement, position: RowPosition): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -222,7 +222,7 @@ function buildRowAt(
  * paragraph at the table's location.
  */
 export function deleteRow(cell: HTMLTableCellElement, ctx: CommandContext): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -312,7 +312,7 @@ function anchorColOf(
 export type ColumnPosition = 'left' | 'right';
 
 export function insertColumn(cell: HTMLTableCellElement, position: ColumnPosition): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -366,7 +366,7 @@ function extendColgroup(table: HTMLTableElement, insertColIndex: number): void {
 
 /** Delete the column containing the given cell. */
 export function deleteColumn(cell: HTMLTableCellElement, ctx: CommandContext): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -405,7 +405,7 @@ export function deleteColumn(cell: HTMLTableCellElement, ctx: CommandContext): v
 export function convertRowToHeader(cell: HTMLTableCellElement): void {
   const tr = cell.parentElement;
   if (!(tr instanceof HTMLTableRowElement)) return;
-  const table = tr.closest('table') as HTMLTableElement | null;
+  const table = tr.closest('table');
   if (!table) return;
 
   // Change all td -> th, preserving attributes and contents.
@@ -416,7 +416,7 @@ export function convertRowToHeader(cell: HTMLTableCellElement): void {
   }
 
   // Move the row into <thead> (creating one if needed).
-  let thead = table.querySelector(':scope > thead') as HTMLTableSectionElement | null;
+  let thead = table.querySelector(':scope > thead');
   if (!thead) {
     thead = document.createElement('thead');
     table.insertBefore(thead, table.firstChild);
@@ -437,7 +437,7 @@ export function convertRowToHeader(cell: HTMLTableCellElement): void {
 export function removeHeader(cell: HTMLTableCellElement): void {
   const tr = cell.parentElement;
   if (!(tr instanceof HTMLTableRowElement)) return;
-  const table = tr.closest('table') as HTMLTableElement | null;
+  const table = tr.closest('table');
   if (!table) return;
 
   for (const child of Array.from(tr.children)) {
@@ -446,7 +446,7 @@ export function removeHeader(cell: HTMLTableCellElement): void {
     }
   }
 
-  let tbody = table.querySelector(':scope > tbody') as HTMLTableSectionElement | null;
+  let tbody = table.querySelector(':scope > tbody');
   if (!tbody) {
     tbody = document.createElement('tbody');
     // Place tbody right after thead if any.
@@ -491,7 +491,7 @@ function changeCellTag(
  * the row-header feature and are already <th>.
  */
 export function convertColumnToHeader(cell: HTMLTableCellElement): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -514,7 +514,7 @@ export function convertColumnToHeader(cell: HTMLTableCellElement): void {
 
 /** Demote the column containing the given cell back to a body column. */
 export function convertColumnToBody(cell: HTMLTableCellElement): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   const model = buildTableModel(table);
   const pos = findCellPosition(model, cell);
@@ -562,7 +562,7 @@ export function mergeCells(
   a: HTMLTableCellElement,
   b: HTMLTableCellElement,
 ): HTMLTableCellElement | null {
-  const table = a.closest('table') as HTMLTableElement | null;
+  const table = a.closest('table');
   if (!table || !table.contains(b)) return null;
   const model = buildTableModel(table);
 
@@ -595,7 +595,7 @@ export function mergeCells(
 
 /** Split a merged cell back into its constituent (rowSpan * colSpan) cells. */
 export function splitCell(cell: HTMLTableCellElement): void {
-  const table = cell.closest('table') as HTMLTableElement | null;
+  const table = cell.closest('table');
   if (!table) return;
   if (cell.rowSpan <= 1 && cell.colSpan <= 1) return;
 
@@ -780,7 +780,7 @@ function clampPercent(value: number): number {
 }
 
 function ensureColgroup(table: HTMLTableElement, model: TableModel): HTMLElement {
-  let cg = table.querySelector(':scope > colgroup') as HTMLElement | null;
+  let cg = table.querySelector(':scope > colgroup');
   if (!cg) {
     cg = document.createElement('colgroup');
     table.insertBefore(cg, table.firstChild);
@@ -792,7 +792,7 @@ function ensureColgroup(table: HTMLTableElement, model: TableModel): HTMLElement
 }
 
 function measureColumnWidths(model: TableModel): number[] {
-  const widths: number[] = new Array(model.cols).fill(0);
+  const widths: number[] = new Array<number>(model.cols).fill(0);
   for (let r = 0; r < model.rows; r++) {
     const row = model.grid[r];
     if (!row) continue;
@@ -818,7 +818,7 @@ export function adjacentCell(
 ): HTMLTableCellElement | null {
   const table = cell.closest('table');
   if (!table) return null;
-  const cells = Array.from(table.querySelectorAll('td, th')) as HTMLTableCellElement[];
+  const cells = Array.from(table.querySelectorAll('td, th'));
   const idx = cells.indexOf(cell);
   if (idx < 0) return null;
   const next = direction === 'next' ? cells[idx + 1] : cells[idx - 1];
@@ -835,7 +835,7 @@ export function appendRowAtEnd(table: HTMLTableElement): HTMLTableCellElement | 
   const cellTag: 'td' | 'th' = section.tagName === 'THEAD' ? 'th' : 'td';
   const newTr = buildRowAt(model, model.rows, cellTag);
   section.insertBefore(newTr, lastTr.nextSibling);
-  return newTr.querySelector('td, th') as HTMLTableCellElement | null;
+  return newTr.querySelector('td, th');
 }
 
 // ---------- helpers ----------

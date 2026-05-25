@@ -17,7 +17,7 @@ suite('Command: htmlWysiwyg.openInWysiwyg', () => {
 
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
     assert.ok(tab, 'an active tab is expected after opening the custom editor');
-    const input = tab!.input as { viewType?: string; uri?: vscode.Uri } | undefined;
+    const input = tab.input as { viewType?: string; uri?: vscode.Uri } | undefined;
     assert.strictEqual(input?.viewType, CUSTOM_EDITOR_VIEW_TYPE);
     assert.strictEqual(input?.uri?.fsPath, uri.fsPath);
   });

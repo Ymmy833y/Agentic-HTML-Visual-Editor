@@ -135,7 +135,7 @@ function handleAddComment(): void {
 root.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as Element | null;
   if (!target) return;
-  const comment = target.closest('comment[id]') as HTMLElement | null;
+  const comment = target.closest('comment[id]');
   if (!comment || !root.contains(comment)) return;
   commentPopup.open(comment);
 });
@@ -155,7 +155,7 @@ function setMergeAnchor(cell: HTMLTableCellElement | null): void {
 
 const tablePicker = mountTablePicker({
   onPick: (rows, cols, withHeader) => {
-    root!.focus();
+    root.focus();
     tcmd.insertTable({ rows, cols, withHeader }, ctx);
     editor.notifyChanged();
   },
@@ -270,13 +270,13 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
-      const cell = findCell(range.startContainer, root!);
+      const cell = findCell(range.startContainer, root);
       if (cell) {
         e.preventDefault();
         const direction = e.shiftKey ? 'prev' : 'next';
         let target = tcmd.adjacentCell(cell, direction);
         if (!target && direction === 'next') {
-          const table = findTable(cell, root!);
+          const table = findTable(cell, root);
           if (table) {
             target = tcmd.appendRowAtEnd(table);
             editor.notifyChanged();

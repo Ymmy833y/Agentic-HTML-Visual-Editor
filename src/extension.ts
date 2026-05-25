@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { registerOpenInWysiwygCommand } from './commands/openInWysiwyg';
 import { registerCopyCommands } from './commands/copy';
 import { HtmlWysiwygEditorProvider } from './editor/HtmlWysiwygEditorProvider';

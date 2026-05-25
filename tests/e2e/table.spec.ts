@@ -291,7 +291,7 @@ test.describe('Table editing', () => {
     await focusEditor(page);
     await page.evaluate(() => {
       const cells = document.querySelectorAll('#hw-root td');
-      const last = cells[cells.length - 1]!;
+      const last = cells[cells.length - 1];
       const r = document.createRange();
       r.selectNodeContents(last);
       r.collapse(false);
