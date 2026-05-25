@@ -10,11 +10,14 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 12px;
-  flex-wrap: wrap;
+  padding: 4px 12px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .hw-tb-btn {
+  flex-shrink: 0;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -34,10 +37,78 @@
 .hw-tb-btn:active {
   transform: translateY(1px);
 }
-#hw-tb-bold { font-weight: 700; }
-#hw-tb-italic { font-style: italic; }
-#hw-tb-code {
+.hw-tb-btn.hw-tb-active {
+  background: var(--hw-code-bg);
+  border-color: var(--hw-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.hw-tb-icon {
+  width: 28px;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.hw-tb-bold { font-weight: 700; }
+.hw-tb-italic { font-style: italic; }
+.hw-tb-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* --- Custom block-type dropdown --- */
+
+.hw-tb-blk-wrap {
+  flex-shrink: 0;
+}
+
+.hw-tb-blk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 96px;
+  justify-content: space-between;
+}
+
+.hw-tb-blk-arrow {
+  font-size: 0.75em;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Drop panel is appended to <body> and positioned via getBoundingClientRect()
+   so it is never clipped by the toolbar's overflow:auto context. */
+.hw-tb-blk-drop {
+  position: fixed;
+  z-index: 100;
+  background: var(--hw-bg);
+  border: 1px solid var(--hw-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  min-width: 130px;
+  padding: 3px 0;
+}
+
+.hw-tb-blk-opt {
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 0.85em;
+  color: var(--hw-fg);
+  white-space: nowrap;
+  border-radius: 3px;
+  margin: 0 2px;
+}
+.hw-tb-blk-opt:hover {
+  background: var(--hw-code-bg);
+}
+.hw-tb-blk-opt[aria-selected="true"] {
+  background: var(--hw-code-bg);
+  font-weight: 600;
+}
+
+.hw-tb-blk-divider {
+  height: 1px;
+  background: var(--hw-border);
+  margin: 3px 0;
 }
 
 .hw-tb-sep {

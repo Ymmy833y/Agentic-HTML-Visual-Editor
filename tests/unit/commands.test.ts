@@ -3,6 +3,7 @@ import {
   addComment,
   type CommandContext,
   findInlineAncestor,
+  getCurrentBlockTag,
   insertHr,
   insertLink,
   removeComment,
@@ -240,6 +241,73 @@ describe('insertLink', () => {
     caretAtStart(root.querySelector('p')!);
     insertLink('', ctxOf(root));
     expect(root.innerHTML).toBe('<p>foo</p>');
+  });
+});
+
+describe('toggleInline — strikethrough (s)', () => {
+  it('wraps the selected range in <s>', () => {
+    const root = makeRoot('<p>hello world</p>');
+    const text = root.querySelector('p')!.firstChild!;
+    selectTextRange(text, 0, 5);
+    toggleInline('s', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><s>hello</s> world</p>');
+  });
+
+  it('unwraps an existing <s> wrapper', () => {
+    const root = makeRoot('<p><s>hello</s> world</p>');
+    const s = root.querySelector('s')!;
+    selectContents(s);
+    toggleInline('s', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>hello world</p>');
+  });
+});
+
+describe('setBlockTag — pre', () => {
+  it('converts a <p> to <pre>', () => {
+    const root = makeRoot('<p>code here</p>');
+    caretAtStart(root.querySelector('p')!);
+    setBlockTag('pre', ctxOf(root));
+    expect(root.innerHTML).toBe('<pre>code here</pre>');
+  });
+
+  it('converts a <pre> back to <p>', () => {
+    const root = makeRoot('<pre>code here</pre>');
+    caretAtStart(root.querySelector('pre')!);
+    setBlockTag('p', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>code here</p>');
+  });
+});
+
+describe('getCurrentBlockTag', () => {
+  it('returns "p" when cursor is in a paragraph', () => {
+    const root = makeRoot('<p>text</p>');
+    expect(getCurrentBlockTag(root.querySelector('p')!.firstChild!, root)).toBe('p');
+  });
+
+  it('returns "h2" when cursor is in an h2', () => {
+    const root = makeRoot('<h2>heading</h2>');
+    expect(getCurrentBlockTag(root.querySelector('h2')!.firstChild!, root)).toBe('h2');
+  });
+
+  it('returns "blockquote" when cursor is in a blockquote', () => {
+    const root = makeRoot('<blockquote>quote</blockquote>');
+    expect(getCurrentBlockTag(root.querySelector('blockquote')!.firstChild!, root)).toBe('blockquote');
+  });
+
+  it('returns "pre" when cursor is in a pre element', () => {
+    const root = makeRoot('<pre>code</pre>');
+    expect(getCurrentBlockTag(root.querySelector('pre')!.firstChild!, root)).toBe('pre');
+  });
+
+  it('returns the nearest block tag even when cursor is inside inline elements', () => {
+    const root = makeRoot('<p><strong><em>text</em></strong></p>');
+    const text = root.querySelector('em')!.firstChild!;
+    expect(getCurrentBlockTag(text, root)).toBe('p');
+  });
+
+  it('returns "" when cursor is directly in the root with no block ancestor', () => {
+    const root = makeRoot('plain text');
+    expect(getCurrentBlockTag(root.firstChild!, root)).toBe('');
   });
 });
 

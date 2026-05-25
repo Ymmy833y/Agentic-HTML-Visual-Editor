@@ -8,8 +8,8 @@ export interface CommandContext {
   root: HTMLElement;
 }
 
-export type InlineTag = 'strong' | 'em' | 'code';
-export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote';
+export type InlineTag = 'strong' | 'em' | 'code' | 's';
+export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
 
 const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -165,6 +165,18 @@ export function insertLink(href: string, ctx: CommandContext): void {
     surroundSelection(range, a);
   }
   selectContents(sel, a);
+}
+
+/** Return the lowercase tag name of the nearest block ancestor inside root, or '' if none. */
+export function getCurrentBlockTag(node: Node, root: Element): string {
+  let cur: Node | null = node;
+  while (cur && cur !== root) {
+    if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) {
+      return cur.tagName.toLowerCase();
+    }
+    cur = cur.parentNode;
+  }
+  return '';
 }
 
 /** Look up the nearest ancestor of the given tag inside the editor root. */

@@ -5,6 +5,38 @@
 import * as cmd from './commands';
 import type { CopyFormat } from '../src/shared/messages';
 
+// --- SVG icon strings (16×16, currentColor) ---
+
+const ICON_STRIKETHROUGH = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10"/><path d="M5.5 5.5c0-1 .9-2.5 2.5-2.5s2.5 1 2.5 2.5"/><path d="M10.5 10.5c0 1-.9 2.5-2.5 2.5s-2.5-1-2.5-2.5"/></svg>`;
+
+const ICON_CODEBLOCK = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4L2 8l3 4"/><path d="M11 4l3 4-3 4"/><path d="M9.5 3l-3 10"/></svg>`;
+
+const ICON_CLIPBOARD = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`;
+
+// ---
+
+// Display labels for the block-type dropdown.
+const BLOCK_LABELS: Record<string, string> = {
+  p: 'Plain',
+  h1: 'H1', h2: 'H2', h3: 'H3', h4: 'H4', h5: 'H5', h6: 'H6',
+  blockquote: 'Blockquote',
+};
+const DROPDOWN_BLOCK_VALUES = new Set(Object.keys(BLOCK_LABELS));
+
+type DropdownOption = { value: string; label: string } | null;
+
+const BLOCK_OPTIONS: DropdownOption[] = [
+  { value: 'p',          label: 'Plain' },
+  { value: 'h1',         label: 'H1' },
+  { value: 'h2',         label: 'H2' },
+  { value: 'h3',         label: 'H3' },
+  { value: 'h4',         label: 'H4' },
+  { value: 'h5',         label: 'H5' },
+  { value: 'h6',         label: 'H6' },
+  null,                              // visual separator
+  { value: 'blockquote', label: 'Blockquote' },
+];
+
 export interface ToolbarOptions {
   /** Called after a synchronous command finishes mutating the DOM. */
   onCommand: () => void;
@@ -26,72 +58,231 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
 
   const ctx: cmd.CommandContext = { root };
 
-  const group = (children: HTMLElement[]): void => {
-    for (const c of children) bar.appendChild(c);
-    bar.appendChild(sep());
-  };
+  // Selection snapshot taken just before the dropdown receives focus.
+  // The dropdown button is NOT covered by e.preventDefault() so focus may
+  // temporarily leave the editor; we restore the range before applying commands.
+  let savedRange: Range | null = null;
 
-  group([
-    btn('P', 'Paragraph', () => cmd.setBlockTag('p', ctx)),
-    btn('H1', 'Heading 1 (Ctrl+Shift+1)', () => cmd.setBlockTag('h1', ctx)),
-    btn('H2', 'Heading 2 (Ctrl+Shift+2)', () => cmd.setBlockTag('h2', ctx)),
-    btn('H3', 'Heading 3 (Ctrl+Shift+3)', () => cmd.setBlockTag('h3', ctx)),
-    btn('“ ”', 'Blockquote', () => cmd.setBlockTag('blockquote', ctx)),
-  ]);
+  // --- Buttons that need active-state tracking ---
 
-  group([
-    btn('B', 'Bold (Ctrl+B)', () => cmd.toggleInline('strong', ctx), 'hw-tb-bold'),
-    btn('I', 'Italic (Ctrl+I)', () => cmd.toggleInline('em', ctx), 'hw-tb-italic'),
-    btn('< >', 'Inline code', () => cmd.toggleInline('code', ctx), 'hw-tb-code'),
-    linkBtn(opts.onLink),
-  ]);
+  const boldBtn = textBtn('B', 'Bold (Ctrl+B)', () => {
+    cmd.toggleInline('strong', ctx);
+    opts.onCommand();
+  }, 'hw-tb-bold');
 
-  group([
-    btn('HR', 'Horizontal rule', () => cmd.insertHr(ctx)),
+  const italicBtn = textBtn('I', 'Italic (Ctrl+I)', () => {
+    cmd.toggleInline('em', ctx);
+    opts.onCommand();
+  }, 'hw-tb-italic');
+
+  const strikeBtn = iconBtn(ICON_STRIKETHROUGH, 'Strikethrough', () => {
+    cmd.toggleInline('s', ctx);
+    opts.onCommand();
+  });
+
+  const codeInlineBtn = textBtn('< >', 'Inline code', () => {
+    cmd.toggleInline('code', ctx);
+    opts.onCommand();
+  }, 'hw-tb-code');
+
+  const codeBlockBtn = iconBtn(ICON_CODEBLOCK, 'Code block', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const tag = cmd.getCurrentBlockTag(sel.getRangeAt(0).startContainer, root);
+    cmd.setBlockTag(tag === 'pre' ? 'p' : 'pre', ctx);
+    opts.onCommand();
+  });
+
+  // --- Custom block-type dropdown (Plain / H1–H6 / Blockquote) ---
+  const { wrapper: blockWrap, updateLabel } = buildBlockDropdown(
+    ctx, opts, root, () => savedRange,
+  );
+
+  // --- Assemble groups ---
+  group(bar, [blockWrap]);
+  group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn]);
+  group(bar, [linkBtn(opts.onLink)]);
+  group(bar, [
+    textBtn('HR', 'Horizontal rule', () => { cmd.insertHr(ctx); opts.onCommand(); }),
     tableBtn(opts.onInsertTable),
-    btn('Comment', 'Comment on selection', opts.onAddComment, undefined, 'hw-tb-comment'),
+    commentBtn(opts.onAddComment),
   ]);
+  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy('html'), undefined, 'hw-tb-copy'));
 
-  group([
-    btn('Copy', 'Copy as HTML', () => opts.onCopy('html'), undefined, 'hw-tb-copy'),
-    btn(
-      'Copy (Confluence)',
-      'Copy as Confluence-compatible HTML',
-      () => opts.onCopy('confluence'),
-      undefined,
-      'hw-tb-copy',
-    ),
-  ]);
-
-  // Drop the trailing separator from the last group.
   const last = bar.lastElementChild;
   if (last && last.classList.contains('hw-tb-sep')) last.remove();
 
-  // Preserve the editor's selection when the toolbar receives a click.
+  // Toolbar mousedown handling:
+  //   - For the block dropdown wrapper: save the current selection and let the
+  //     click propagate naturally so the button's click handler fires.
+  //   - For everything else: prevent default to keep focus in the editor.
   bar.addEventListener('mousedown', (e) => {
+    if (blockWrap.contains(e.target as Node)) {
+      const sel = window.getSelection();
+      if (sel?.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
+      return; // do NOT preventDefault — the click must reach the button
+    }
     e.preventDefault();
   });
 
-  bar.addEventListener('click', (e) => {
-    const target = e.target as Element | null;
-    if (!target?.classList.contains('hw-tb-btn')) return;
-    // Link, Comment, Copy, and Table buttons manage their own follow-up actions.
-    if (
-      target.classList.contains('hw-tb-link') ||
-      target.classList.contains('hw-tb-copy') ||
-      target.classList.contains('hw-tb-comment') ||
-      target.classList.contains('hw-tb-table')
-    ) {
-      return;
-    }
-    opts.onCommand();
+  // Sync toolbar active states whenever the cursor moves inside the editor.
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return;
+
+    const node = range.startContainer;
+    const blockTag = cmd.getCurrentBlockTag(node, root);
+
+    updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p');
+
+    boldBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'STRONG', root));
+    italicBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'EM', root));
+    strikeBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'S', root));
+    codeInlineBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'CODE', root));
+    codeBlockBtn.classList.toggle('hw-tb-active', blockTag === 'pre');
   });
 
   return bar;
 }
 
-function btn(
+// --- Custom block-type dropdown ---
+//
+// Uses position:fixed positioning calculated from getBoundingClientRect() so
+// the panel escapes the toolbar's overflow:auto clipping context.
+
+function buildBlockDropdown(
+  ctx: cmd.CommandContext,
+  opts: ToolbarOptions,
+  root: HTMLElement,
+  getSavedRange: () => Range | null,
+): { wrapper: HTMLElement; updateLabel: (blockTag: string) => void } {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'hw-tb-blk-wrap';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'hw-tb-btn hw-tb-blk-btn';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+
+  const labelSpan = document.createElement('span');
+  labelSpan.textContent = 'Plain';
+
+  const arrowSpan = document.createElement('span');
+  arrowSpan.className = 'hw-tb-blk-arrow';
+  arrowSpan.setAttribute('aria-hidden', 'true');
+  arrowSpan.textContent = '▾';
+
+  button.appendChild(labelSpan);
+  button.appendChild(arrowSpan);
+
+  // Drop panel is appended to <body> so it is never clipped by the toolbar's
+  // overflow:auto. Its position is updated via getBoundingClientRect() on open.
+  const drop = document.createElement('div');
+  drop.className = 'hw-tb-blk-drop';
+  drop.setAttribute('role', 'listbox');
+  drop.hidden = true;
+  document.body.appendChild(drop);
+
+  for (const opt of BLOCK_OPTIONS) {
+    if (opt === null) {
+      const divider = document.createElement('div');
+      divider.className = 'hw-tb-blk-divider';
+      drop.appendChild(divider);
+    } else {
+      const item = document.createElement('div');
+      item.className = 'hw-tb-blk-opt';
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', 'false');
+      item.dataset.value = opt.value;
+      item.textContent = opt.label;
+      item.addEventListener('mousedown', (e) => {
+        // Prevent this click from losing focus before the click handler fires.
+        e.preventDefault();
+      });
+      item.addEventListener('click', () => {
+        // Restore editor selection (may have been lost when the dropdown opened).
+        const saved = getSavedRange();
+        root.focus();
+        if (saved) {
+          const sel = window.getSelection();
+          if (sel) { sel.removeAllRanges(); sel.addRange(saved); }
+        }
+        cmd.setBlockTag(opt.value as cmd.BlockTag, ctx);
+        opts.onCommand();
+        closeDropdown();
+      });
+      drop.appendChild(item);
+    }
+  }
+
+  const openDropdown = (): void => {
+    const rect = button.getBoundingClientRect();
+    drop.style.top  = `${rect.bottom + 3}px`;
+    drop.style.left = `${rect.left}px`;
+    drop.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+  };
+
+  const closeDropdown = (): void => {
+    drop.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+  };
+
+  button.addEventListener('click', () => {
+    if (drop.hidden) openDropdown();
+    else closeDropdown();
+  });
+
+  // Close when clicking outside the button + drop panel.
+  document.addEventListener('mousedown', (e) => {
+    if (!drop.hidden && !wrapper.contains(e.target as Node) && !drop.contains(e.target as Node)) {
+      closeDropdown();
+    }
+  });
+
+  // Recompute position if the window is resized while the panel is open.
+  window.addEventListener('resize', () => {
+    if (!drop.hidden) {
+      const rect = button.getBoundingClientRect();
+      drop.style.top  = `${rect.bottom + 3}px`;
+      drop.style.left = `${rect.left}px`;
+    }
+  });
+
+  wrapper.appendChild(button);
+
+  const updateLabel = (blockTag: string): void => {
+    labelSpan.textContent = BLOCK_LABELS[blockTag] ?? 'Plain';
+    for (const item of drop.querySelectorAll<HTMLElement>('[data-value]')) {
+      item.setAttribute('aria-selected', item.dataset.value === blockTag ? 'true' : 'false');
+    }
+  };
+
+  return { wrapper, updateLabel };
+}
+
+// --- Button factory helpers ---
+
+function textBtn(
   label: string,
+  title: string,
+  onClick: () => void,
+  extraClass?: string,
+): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-tb-btn' + (extraClass ? ' ' + extraClass : '');
+  b.title = title;
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function iconBtn(
+  svgHtml: string,
   title: string,
   onClick: () => void,
   id?: string,
@@ -99,10 +290,10 @@ function btn(
 ): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn' + (extraClass ? ' ' + extraClass : '');
+  b.className = 'hw-tb-btn hw-tb-icon' + (extraClass ? ' ' + extraClass : '');
   if (id) b.id = id;
   b.title = title;
-  b.textContent = label;
+  b.innerHTML = svgHtml;
   b.addEventListener('click', onClick);
   return b;
 }
@@ -125,6 +316,21 @@ function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonEleme
   b.textContent = 'Table';
   b.addEventListener('click', () => onInsertTable(b));
   return b;
+}
+
+function commentBtn(onAddComment: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-tb-btn hw-tb-comment';
+  b.title = 'Comment on selection';
+  b.textContent = 'Comment';
+  b.addEventListener('click', onAddComment);
+  return b;
+}
+
+function group(bar: HTMLElement, children: HTMLElement[]): void {
+  for (const c of children) bar.appendChild(c);
+  bar.appendChild(sep());
 }
 
 function sep(): HTMLElement {
