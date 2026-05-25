@@ -270,11 +270,12 @@ function textBtn(
   label: string,
   title: string,
   onClick: () => void,
-  extraClass?: string,
+  id?: string,
 ): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn' + (extraClass ? ' ' + extraClass : '');
+  b.className = 'hw-tb-btn';
+  if (id) b.id = id;
   b.title = title;
   b.textContent = label;
   b.addEventListener('click', onClick);

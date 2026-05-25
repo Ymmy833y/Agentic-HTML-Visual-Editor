@@ -48,10 +48,11 @@ test.describe('Toolbar editing', () => {
     expect(await getRootHtml(page)).toBe('<p><code>hello</code> world</p>');
   });
 
-  test('Heading buttons swap the block tag', async ({ page }) => {
+  test('Block-type dropdown swaps the block tag', async ({ page }) => {
     await mountEditor(page, '<p>title</p>');
     await caretAtEnd(page, '#hw-root p');
-    await page.locator('#hw-toolbar button', { hasText: /^H1$/ }).click();
+    await page.locator('.hw-tb-blk-btn').click();
+    await page.locator('.hw-tb-blk-opt[data-value="h1"]').click();
     expect(await getRootHtml(page)).toBe('<h1>title</h1>');
   });
 
