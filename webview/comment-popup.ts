@@ -4,6 +4,7 @@
 
 import * as cdom from './comment-dom';
 import { removeComment } from './commands';
+import { setupTooltip } from './tooltip';
 
 export interface CommentPopupOptions {
   /** Called after any DOM mutation inside the comment so the editor can serialize. */
@@ -197,7 +198,7 @@ export function mountCommentPopup(
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'hw-cp-reply-del';
-    del.title = 'Delete reply';
+    setupTooltip(del, 'Delete reply');
     del.textContent = '×';
     del.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -305,7 +306,7 @@ function headerBtn(label: string, title: string, onClick: () => void): HTMLButto
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'hw-cp-btn';
-  b.title = title;
+  setupTooltip(b, title);
   b.textContent = label;
   b.addEventListener('click', onClick);
   return b;
