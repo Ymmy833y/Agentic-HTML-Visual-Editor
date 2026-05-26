@@ -1,6 +1,28 @@
 /* Chrome around the editable area: sticky toolbar at the top and the */
 /* selection-driven floating menu. Loaded together with default.css. */
 
+/* Toolbar tooltip — a single shared element appended to <body> by toolbar.ts. */
+#hw-tooltip {
+  position: fixed;
+  z-index: 999;
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  color: var(--vscode-editorHoverWidget-foreground, #cccccc);
+  border: 1px solid var(--vscode-editorHoverWidget-border, #454545);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+#hw-tooltip.hw-tooltip-visible {
+  opacity: 1;
+}
+
 #hw-toolbar {
   position: sticky;
   top: 0;
@@ -38,9 +60,9 @@
   transform: translateY(1px);
 }
 .hw-tb-btn.hw-tb-active {
-  background: var(--hw-code-bg);
-  border-color: var(--hw-border);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: var(--vscode-button-background, var(--hw-accent));
+  color: var(--vscode-button-foreground, #ffffff);
+  border-color: var(--vscode-button-background, var(--hw-accent));
 }
 .hw-tb-icon {
   width: 28px;

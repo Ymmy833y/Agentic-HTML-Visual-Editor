@@ -35,7 +35,7 @@ body {
 #hw-root {
   max-width: 960px;
   margin: 0 auto;
-  padding: 2rem 2.5rem 6rem;
+  padding: 0.75rem 2.5rem 6rem;
   outline: none;
 }
 
@@ -52,7 +52,7 @@ body {
 #hw-root h6 {
   font-weight: 600;
   line-height: 1.25;
-  margin: 1.6em 0 0.6em;
+  margin: 0.75em 0 0.5em;
 }
 #hw-root h1 {
   font-size: 2em;

@@ -244,6 +244,236 @@ describe('insertLink', () => {
   });
 });
 
+// Helper: set a cross-node selection from (startNode, startOff) to (endNode, endOff).
+function selectRange(startNode: Node, startOff: number, endNode: Node, endOff: number): void {
+  const sel = window.getSelection()!;
+  const r = document.createRange();
+  r.setStart(startNode, startOff);
+  r.setEnd(endNode, endOff);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+describe('toggleInline — multi-style combinations', () => {
+  it('applies italic to a fully-bold selection, nesting em inside strong', () => {
+    const root = makeRoot('<p><strong>sample</strong></p>');
+    selectContents(root.querySelector('strong')!);
+    toggleInline('em', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong><em>sample</em></strong></p>');
+  });
+
+  it('removes bold from a bold+italic selection, leaving em intact', () => {
+    const root = makeRoot('<p><strong><em>sample</em></strong></p>');
+    selectContents(root.querySelector('strong')!);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><em>sample</em></p>');
+  });
+
+  it('applies italic across bold and plain text, wrapping the whole selection in em', () => {
+    const root = makeRoot('<p><strong>bold</strong> plain</p>');
+    const p = root.querySelector('p')!;
+    selectRange(p.querySelector('strong')!.firstChild!, 0, p.lastChild!, 6);
+    toggleInline('em', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><em><strong>bold</strong> plain</em></p>');
+  });
+
+  it('removes bold from a fully-bold multi-element selection and merges adjacent em', () => {
+    const root = makeRoot('<p><strong><em>bi</em><em>i</em></strong></p>');
+    selectContents(root.querySelector('strong')!);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><em>bii</em></p>');
+  });
+
+  it('applies code inside bold+italic nesting', () => {
+    const root = makeRoot('<p><strong><em>sample</em></strong></p>');
+    selectContents(root.querySelector('em')!);
+    toggleInline('code', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong><em><code>sample</code></em></strong></p>');
+  });
+});
+
+describe('toggleInline — partial overlap and multi-element', () => {
+  it('extends bold into plain text and merges into a single <strong>', () => {
+    const root = makeRoot('<p><strong>sam</strong>ple text</p>');
+    const strong = root.querySelector('strong')!;
+    const textAfter = strong.nextSibling!;
+    selectRange(strong.firstChild!, 3, textAfter, 8); // from end of "sam" to end of "ple text"
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>sample text</strong></p>');
+  });
+
+  it('applies bold to a mixed bold+plain selection (any-lacks rule)', () => {
+    const root = makeRoot('<p><strong>sam</strong>ple text</p>');
+    const strong = root.querySelector('strong')!;
+    const textAfter = strong.nextSibling!;
+    selectRange(strong.firstChild!, 0, textAfter, 8);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>sample text</strong></p>');
+  });
+
+  it('applies bold across two bold elements and plain middle text', () => {
+    const root = makeRoot('<p><strong>bold1</strong> middle <strong>bold2</strong></p>');
+    const strongs = root.querySelectorAll('strong');
+    selectRange(strongs[0].firstChild!, 0, strongs[1].firstChild!, 5);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>bold1 middle bold2</strong></p>');
+  });
+
+  it('removes bold from two adjacent bold elements when all selected text is bold', () => {
+    const root = makeRoot('<p><strong>bold1</strong><strong>bold2</strong></p>');
+    const strongs = root.querySelectorAll('strong');
+    selectRange(strongs[0].firstChild!, 0, strongs[1].firstChild!, 5);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>bold1bold2</p>');
+  });
+
+  it('removes all nesting when toggling off double-nested bold', () => {
+    const root = makeRoot('<p><strong><strong>sample</strong></strong></p>');
+    selectContents(root.querySelector('strong')!);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>sample</p>');
+  });
+
+  it('applies bold to bold+plain text without creating redundant nesting', () => {
+    const root = makeRoot('<p>This is <strong>sample</strong> text.</p>');
+    const p = root.querySelector('p')!;
+    selectRange(p.firstChild!, 0, p.lastChild!, 6);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>This is sample text.</strong></p>');
+  });
+
+  it('applies bold across bold+italic and italic-only, merging adjacent em', () => {
+    const root = makeRoot('<p><strong><em>bi</em></strong><em>i</em></p>');
+    const p = root.querySelector('p')!;
+    const strong = p.querySelector('strong')!;
+    const em2 = p.querySelectorAll('em')[1];
+    selectRange(strong.firstChild!.firstChild!, 0, em2.firstChild!, 1);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong><em>bii</em></strong></p>');
+  });
+});
+
+describe('toggleInline — text-node bounded selections matching element content', () => {
+  it('removes bold cleanly when a text-node-bounded selection matches the strong content exactly', () => {
+    const root = makeRoot('<p>This is <strong>sample text</strong>.</p>');
+    const text = root.querySelector('strong')!.firstChild!;
+    selectRange(text, 0, text, 11);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>This is sample text.</p>');
+  });
+
+  it('removes bold cleanly when text-node selection matches the nested em content exactly', () => {
+    const root = makeRoot('<p>This is <strong><em>sample</em></strong> text.</p>');
+    const text = root.querySelector('em')!.firstChild!;
+    selectRange(text, 0, text, 6);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>This is <em>sample</em> text.</p>');
+  });
+
+  it('splits cleanly when a partial range covers only the trailing portion of a strong', () => {
+    const root = makeRoot('<p>This is <strong>sample text</strong>.</p>');
+    const text = root.querySelector('strong')!.firstChild!;
+    selectRange(text, 7, text, 11); // "text"
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>This is <strong>sample </strong>text.</p>');
+  });
+
+  it('splits cleanly when a partial range covers only the middle portion of a strong (straddle)', () => {
+    const root = makeRoot('<p><strong>hello world</strong></p>');
+    const text = root.querySelector('strong')!.firstChild!;
+    selectRange(text, 3, text, 9); // "lo wor"
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>hel</strong>lo wor<strong>ld</strong></p>');
+  });
+
+  it('merges adjacent em siblings as a side-effect of any toggle operation', () => {
+    const root = makeRoot('<p><em>a</em><em>b</em>plain</p>');
+    const text = root.querySelector('p')!.lastChild!; // "plain"
+    selectRange(text, 0, text, 5);
+    toggleInline('strong', ctxOf(root));
+    // The toggle wraps "plain" in strong; normalizeInline also merges the adjacent em pair.
+    expect(root.innerHTML).toBe('<p><em>ab</em><strong>plain</strong></p>');
+  });
+});
+
+describe('insertLink — multi-link and partial-overlap selections', () => {
+  it('merges two adjacent links into one when both are selected', () => {
+    const root = makeRoot('<p><a href="url1">A</a><a href="url2">B</a></p>');
+    const links = root.querySelectorAll('a');
+    selectRange(links[0].firstChild!, 0, links[1].firstChild!, 1);
+    insertLink('url3', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><a href="url3">AB</a></p>');
+  });
+
+  it('wraps link and adjacent plain text in a single new link', () => {
+    const root = makeRoot('<p><a href="url1">link</a> plain</p>');
+    const p = root.querySelector('p')!;
+    const a = p.querySelector('a')!;
+    selectRange(a.firstChild!, 0, p.lastChild!, 6);
+    insertLink('url2', ctxOf(root));
+    expect(root.innerHTML).toBe('<p><a href="url2">link plain</a></p>');
+  });
+
+  it('replaces a partially-overlapping link with a new link covering the selection', () => {
+    const root = makeRoot('<p>pre<a href="url">link</a>post</p>');
+    const p = root.querySelector('p')!;
+    const pre = p.firstChild!;
+    const a = p.querySelector('a')!;
+    selectRange(pre, 1, a.firstChild!, 4); // "re" + "link"
+    insertLink('url2', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>p<a href="url2">relink</a>post</p>');
+  });
+});
+
+describe('toggleInline — cross-paragraph (multi-block) selections', () => {
+  it('applies bold per-paragraph to a cross-paragraph selection', () => {
+    const root = makeRoot('<p>hoge</p><p>fuga</p>');
+    const paras = root.querySelectorAll('p');
+    selectRange(paras[0].firstChild!, 2, paras[1].firstChild!, 2);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>ho<strong>ge</strong></p><p><strong>fu</strong>ga</p>');
+  });
+
+  it('removes bold per-paragraph when all selected cross-paragraph text is bold', () => {
+    const root = makeRoot('<p>ho<strong>ge</strong></p><p><strong>fu</strong>ga</p>');
+    const paras = root.querySelectorAll('p');
+    const strong1 = paras[0].querySelector('strong')!;
+    const strong2 = paras[1].querySelector('strong')!;
+    selectRange(strong1.firstChild!, 0, strong2.firstChild!, 2);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe('<p>hoge</p><p>fuga</p>');
+  });
+});
+
+describe('toggleInline — comment boundary', () => {
+  it('applies bold inside a comment without touching comment-body', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">highlight<comment-body contenteditable="false">note</comment-body></comment></p>',
+    );
+    const comment = root.querySelector('comment')!;
+    const text = comment.firstChild!;
+    selectRange(text, 0, text, 9);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<p><comment id="c1"><strong>highlight</strong><comment-body contenteditable="false">note</comment-body></comment></p>',
+    );
+  });
+
+  it('applies bold inside and outside a comment independently when selection crosses the comment boundary', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">light<comment-body contenteditable="false">note</comment-body></comment> tex</p>',
+    );
+    const comment = root.querySelector('comment')!;
+    const inside = comment.firstChild!;
+    const outside = root.querySelector('p')!.lastChild!;
+    selectRange(inside, 0, outside, 4);
+    toggleInline('strong', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<p><comment id="c1"><strong>light</strong><comment-body contenteditable="false">note</comment-body></comment><strong> tex</strong></p>',
+    );
+  });
+});
+
 describe('toggleInline — strikethrough (s)', () => {
   it('wraps the selected range in <s>', () => {
     const root = makeRoot('<p>hello world</p>');

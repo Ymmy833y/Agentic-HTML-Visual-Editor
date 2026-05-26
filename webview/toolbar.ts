@@ -4,6 +4,7 @@
 
 import * as cmd from './commands';
 import type { CopyFormat } from '../src/shared/messages';
+import { setupTooltip } from './tooltip';
 
 // --- SVG icon strings (16×16, currentColor) ---
 
@@ -137,11 +138,20 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
 
     updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p');
 
-    boldBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'STRONG', root));
-    italicBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'EM', root));
-    strikeBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'S', root));
-    codeInlineBtn.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'CODE', root));
+    // For a collapsed cursor use ancestor check; for a range require all text
+    // to carry the style (matches the toggle semantic: active ↔ "will remove").
+    const covered = (tagName: string): boolean =>
+      range.collapsed
+        ? !!cmd.findInlineAncestor(node, tagName, root)
+        : cmd.isRangeCovered(range, tagName, root);
+
+    boldBtn.classList.toggle('hw-tb-active', covered('STRONG'));
+    italicBtn.classList.toggle('hw-tb-active', covered('EM'));
+    strikeBtn.classList.toggle('hw-tb-active', covered('S'));
+    codeInlineBtn.classList.toggle('hw-tb-active', covered('CODE'));
     codeBlockBtn.classList.toggle('hw-tb-active', blockTag === 'pre');
+    bar.querySelector<HTMLElement>('.hw-tb-link')
+      ?.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'A', root));
   });
 
   return bar;
@@ -276,7 +286,7 @@ function textBtn(
   b.type = 'button';
   b.className = 'hw-tb-btn';
   if (id) b.id = id;
-  b.title = title;
+  setupTooltip(b, title);
   b.textContent = label;
   b.addEventListener('click', onClick);
   return b;
@@ -293,7 +303,7 @@ function iconBtn(
   b.type = 'button';
   b.className = 'hw-tb-btn hw-tb-icon' + (extraClass ? ' ' + extraClass : '');
   if (id) b.id = id;
-  b.title = title;
+  setupTooltip(b, title);
   b.innerHTML = svgHtml;
   b.addEventListener('click', onClick);
   return b;
@@ -303,7 +313,7 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'hw-tb-btn hw-tb-link';
-  b.title = 'Link (Ctrl+K)';
+  setupTooltip(b, 'Link (Ctrl+K)');
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
   return b;
@@ -313,7 +323,7 @@ function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonEleme
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'hw-tb-btn hw-tb-table';
-  b.title = 'Insert table';
+  setupTooltip(b, 'Insert table');
   b.textContent = 'Table';
   b.addEventListener('click', () => onInsertTable(b));
   return b;
@@ -323,7 +333,7 @@ function commentBtn(onAddComment: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'hw-tb-btn hw-tb-comment';
-  b.title = 'Comment on selection';
+  setupTooltip(b, 'Comment on selection');
   b.textContent = 'Comment';
   b.addEventListener('click', onAddComment);
   return b;
