@@ -216,6 +216,76 @@ export function insertLink(href: string, ctx: CommandContext): void {
   selectContents(sel, a);
 }
 
+// Decorative inline tags that `clearFormatting` unwraps. `<a>` is omitted on
+// purpose: links carry navigation intent, not formatting, matching the
+// behavior of Word / Google Docs / Notion's Clear Formatting.
+const DECORATIVE_INLINE_TAGS = [
+  'STRONG', 'EM', 'CODE', 'S', 'DEL', 'U', 'MARK', 'SUB', 'SUP', 'SPAN', 'FONT',
+];
+
+/**
+ * Strip inline formatting from the current selection.
+ *
+ * Phase 1: unwrap decorative inline wrappers (strong/em/code/s/...).
+ * Phase 2: drop `style` and `class` from every element the range fully covers.
+ *
+ * Elements only partially overlapped by the range keep their attributes —
+ * mid-paragraph clearing must not also drop the paragraph's text-align.
+ * `<a>`, `<comment>`, and block tags are preserved as elements (their
+ * `style` / `class` is still cleared when fully covered).
+ */
+export function clearFormatting(ctx: CommandContext): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) return;
+
+  // Save text-node boundaries before any mutation. Live-range tracking
+  // across multiple extractContents calls (one per decorative tag) is
+  // brittle — a previous iteration can collapse or shift the range.
+  // Text-node references survive splitText and node moves, so rebuilding
+  // a fresh range from the saved positions each iteration is the safest path.
+  const [sNode, sOff] = resolveToTextBoundary(range.startContainer, range.startOffset);
+  const [eNode, eOff] = resolveToTextBoundary(range.endContainer, range.endOffset);
+
+  const buildRange = (): Range | null => {
+    try {
+      const r = document.createRange();
+      const sMax = sNode.nodeType === Node.TEXT_NODE
+        ? (sNode as Text).length
+        : (sNode as Element).childNodes.length;
+      const eMax = eNode.nodeType === Node.TEXT_NODE
+        ? (eNode as Text).length
+        : (eNode as Element).childNodes.length;
+      r.setStart(sNode, Math.min(sOff, sMax));
+      r.setEnd(eNode, Math.min(eOff, eMax));
+      return r;
+    } catch {
+      return null;
+    }
+  };
+
+  for (const tag of DECORATIVE_INLINE_TAGS) {
+    const r = buildRange();
+    if (!r || r.collapsed) continue;
+    removeTagFromRange(r, tag, ctx.root);
+  }
+
+  const finalRange = buildRange();
+  if (!finalRange) return;
+
+  for (const el of Array.from(ctx.root.querySelectorAll<HTMLElement>('*'))) {
+    if (!rangeFullyCoversElement(finalRange, el)) continue;
+    if (el.hasAttribute('style')) el.removeAttribute('style');
+    if (el.hasAttribute('class')) el.removeAttribute('class');
+  }
+
+  try {
+    sel.removeAllRanges();
+    sel.addRange(finalRange);
+  } catch { /* range invalidated by mutations — leave selection as-is */ }
+}
+
 /** Return the lowercase tag name of the nearest block ancestor inside root. */
 export function getCurrentBlockTag(node: Node, root: Element): string {
   let cur: Node | null = node;
@@ -483,6 +553,41 @@ function classifyElCoverage(range: Range, el: Element): ElCoverage {
 
 function safeComparePoint(range: Range, node: Node, offset: number): number {
   try { return range.comparePoint(node, offset); } catch { return 0; }
+}
+
+/**
+ * True iff range spans from at-or-before el's first text position to
+ * at-or-after el's last text position. Uses text-node positions to avoid
+ * the `{el, 0}` vs `{textNode, 0}` mismatch that compareBoundaryPoints
+ * trips over (same reason classifyElCoverage walks text nodes).
+ */
+function rangeFullyCoversElement(range: Range, el: Element): boolean {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let n = walker.nextNode() as Text | null;
+  while (n) {
+    textNodes.push(n);
+    n = walker.nextNode() as Text | null;
+  }
+  if (textNodes.length === 0) {
+    // Element has no text — fall back to the parent boundary.
+    const elRange = document.createRange();
+    try { elRange.selectNode(el); } catch { return false; }
+    try {
+      if (range.compareBoundaryPoints(Range.START_TO_START, elRange) > 0) return false;
+      if (range.compareBoundaryPoints(Range.END_TO_END, elRange) < 0) return false;
+      return true;
+    } catch { return false; }
+  }
+  const first = textNodes[0];
+  const last = textNodes[textNodes.length - 1];
+  try {
+    if (range.comparePoint(first, 0) < 0) return false;
+    if (range.comparePoint(last, last.length) > 0) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
