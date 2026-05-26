@@ -171,6 +171,12 @@
 .hw-fm-btn:hover {
   background: var(--hw-code-bg);
 }
+.hw-fm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+}
 
 /* Modal dialog (e.g. link insertion). */
 .hw-dialog-overlay {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   addComment,
+  clearFormatting,
   type CommandContext,
   findInlineAncestor,
   getCurrentBlockTag,
@@ -538,6 +539,79 @@ describe('getCurrentBlockTag', () => {
   it('returns "" when cursor is directly in the root with no block ancestor', () => {
     const root = makeRoot('plain text');
     expect(getCurrentBlockTag(root.firstChild!, root)).toBe('');
+  });
+});
+
+describe('clearFormatting', () => {
+  it('unwraps decorative tags and strips style+class inside the range', () => {
+    const root = makeRoot('<p>plain <strong style="color:red" class="x">bold</strong> tail</p>');
+    selectContents(root.querySelector('p')!);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe('<p>plain bold tail</p>');
+  });
+
+  it('keeps <a> wrappers and unwraps <strong> nested inside', () => {
+    const root = makeRoot('<p><a href="x"><strong>link</strong></a></p>');
+    selectContents(root.querySelector('a')!);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe('<p><a href="x">link</a></p>');
+  });
+
+  it('keeps <comment> wrappers and their body/replies', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body contenteditable="false">y</comment-body></comment></p>',
+    );
+    const comment = root.querySelector('comment')!;
+    selectRange(comment.firstChild!, 0, comment.firstChild!, 1);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<p><comment id="c1">x<comment-body contenteditable="false">y</comment-body></comment></p>',
+    );
+  });
+
+  it('splits decorative tags so only the in-range portion is unwrapped', () => {
+    const root = makeRoot('<p>aaa<strong>bbb<em>ccc</em>ddd</strong>eee</p>');
+    const p = root.querySelector('p')!;
+    const strong = p.querySelector('strong')!;
+    const bbb = strong.firstChild!; // "bbb"
+    const ddd = strong.lastChild!;  // "ddd"
+    selectRange(bbb, 1, ddd, 2); // "bb<em>ccc</em>dd"
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe('<p>aaa<strong>b</strong>bbcccdd<strong>d</strong>eee</p>');
+  });
+
+  it('clears style on a structural element (col) when fully covered', () => {
+    const root = makeRoot(
+      '<table><colgroup><col style="width:100px"></colgroup>' +
+      '<tbody><tr><td>x</td></tr></tbody></table>',
+    );
+    selectContents(root.querySelector('table')!);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).not.toContain('style');
+  });
+
+  it('preserves block style when only partial inline content is selected', () => {
+    const root = makeRoot('<p style="text-align:center">hello <strong>bold</strong></p>');
+    const strong = root.querySelector('strong')!;
+    selectContents(strong);
+    clearFormatting(ctxOf(root));
+    // The <p> retains text-align because the range does not cover it; the
+    // <strong> wrapper is unwrapped because the range fully covers it.
+    expect(root.innerHTML).toBe('<p style="text-align:center">hello bold</p>');
+  });
+
+  it('is a no-op when the selection is collapsed', () => {
+    const root = makeRoot('<p><strong>bold</strong></p>');
+    caretAtStart(root.querySelector('strong')!);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe('<p><strong>bold</strong></p>');
+  });
+
+  it('unwraps bare <span> wrappers in the range', () => {
+    const root = makeRoot('<p><span style="color:red">hi</span></p>');
+    selectContents(root.querySelector('span')!);
+    clearFormatting(ctxOf(root));
+    expect(root.innerHTML).toBe('<p>hi</p>');
   });
 });
 

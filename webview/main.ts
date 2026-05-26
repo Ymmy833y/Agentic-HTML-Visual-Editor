@@ -10,6 +10,7 @@ import { createToolbar } from './toolbar';
 import { mountFloatingMenu } from './floating-menu';
 import { openLinkDialog } from './link-dialog';
 import { prepareCopy } from './copy';
+import { cleanupPastedFragment } from './paste-sanitize';
 import * as cmd from './commands';
 import * as cdom from './comment-dom';
 import { mountCommentPopup } from './comment-popup';
@@ -222,9 +223,59 @@ mountFloatingMenu(root, {
   onAddComment: handleAddComment,
 });
 
+// Override the browser's default copy/cut: contenteditable serialization
+// inlines computed styles (font-family, color, ...) and adds CF_HTML
+// fragment comments. Write our own clean HTML — the same string the
+// "Copy as HTML" command produces — so round-tripping through the
+// clipboard does not bloat the document.
+function writeCopyPayload(e: ClipboardEvent): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+  if (!root) return false;
+  if (!root.contains(sel.getRangeAt(0).commonAncestorContainer)) return false;
+  const html = prepareCopy(root, 'html');
+  const text = sel.toString();
+  e.clipboardData?.setData('text/html', html);
+  e.clipboardData?.setData('text/plain', text);
+  e.preventDefault();
+  return true;
+}
+
+root.addEventListener('copy', (e: ClipboardEvent) => {
+  writeCopyPayload(e);
+});
+
+root.addEventListener('cut', (e: ClipboardEvent) => {
+  if (!writeCopyPayload(e)) return;
+  const sel = window.getSelection();
+  sel?.getRangeAt(0).deleteContents();
+  editor.notifyChanged();
+});
+
+// Ctrl+Shift+V (or Cmd+Shift+V) forces a plain-text paste. We can't read
+// shiftKey from the paste event itself, so the keydown handler sets a
+// one-shot flag that the paste handler consumes.
+let pendingPlainPaste = false;
+
 // Sanitize HTML pasted from outside the editor (clipboard data from
-// browsers/Word can contain <script>, <link>, on* attributes, etc.).
+// browsers/Word can contain <script>, <link>, on* attributes, plus CF_HTML
+// comments and inlined computed styles). The renderer sanitizer strips
+// security-sensitive nodes; cleanupPastedFragment then prunes style/class
+// noise according to a per-tag allowlist.
 root.addEventListener('paste', (e: ClipboardEvent) => {
+  if (pendingPlainPaste) {
+    pendingPlainPaste = false;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    e.preventDefault();
+    if (text) {
+      const fragment = document.createDocumentFragment();
+      fragment.appendChild(document.createTextNode(text));
+      insertFragmentAtCursor(fragment);
+      editor.notifyChanged();
+    }
+    return;
+  }
+
   const html = e.clipboardData?.getData('text/html');
   if (!html) {
     // Plain-text paste is safe; let the browser insert it.
@@ -234,6 +285,7 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
   sanitizeFragment(tpl.content);
+  cleanupPastedFragment(tpl.content);
   insertFragmentAtCursor(tpl.content);
   editor.notifyChanged();
 });
@@ -313,9 +365,20 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
       void handleLink();
       return;
     }
+    if (e.key === '\\') {
+      e.preventDefault();
+      cmd.clearFormatting(ctx);
+      editor.notifyChanged();
+      return;
+    }
   }
 
   if (mod && e.shiftKey && !e.altKey) {
+    if (e.key.toLowerCase() === 'v') {
+      // Set the flag and let the paste event fire; it will consume the flag.
+      pendingPlainPaste = true;
+      return;
+    }
     if (/^[1-6]$/.test(e.key)) {
       e.preventDefault();
       cmd.setBlockTag(('h' + e.key) as cmd.BlockTag, ctx);

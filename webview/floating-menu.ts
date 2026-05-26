@@ -3,6 +3,8 @@
 
 import * as cmd from './commands';
 
+const ICON_CLEAR_FORMAT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5L14 6.5L7.5 13H4L2 11L10 2.5Z"/><path d="M7 5.5L11 9.5"/><path d="M2.5 14h11"/></svg>`;
+
 export interface FloatingMenuOptions {
   onCommand: () => void;
   onLink: () => void;
@@ -23,15 +25,22 @@ export function mountFloatingMenu(root: HTMLElement, opts: FloatingMenuOptions):
   menu.appendChild(btn('B', 'Bold', () => cmd.toggleInline('strong', ctx)));
   menu.appendChild(btn('I', 'Italic', () => cmd.toggleInline('em', ctx)));
   menu.appendChild(btn('< >', 'Inline code', () => cmd.toggleInline('code', ctx)));
+  menu.appendChild(iconBtn(
+    ICON_CLEAR_FORMAT,
+    'Clear formatting (Ctrl+\\)',
+    () => cmd.clearFormatting(ctx),
+  ));
   menu.appendChild(linkBtn(opts.onLink));
   menu.appendChild(commentBtn(opts.onAddComment));
 
   menu.addEventListener('mousedown', (e) => e.preventDefault());
   menu.addEventListener('click', (e) => {
-    const target = e.target as Element | null;
-    if (!target?.classList.contains('hw-fm-btn')) return;
+    // Walk up from the click target so events on SVG children of icon buttons
+    // still resolve to their button element.
+    const button = (e.target as Element | null)?.closest('.hw-fm-btn');
+    if (!button) return;
     // Link and Comment buttons manage their own follow-up actions.
-    if (target.classList.contains('hw-fm-link') || target.classList.contains('hw-fm-comment')) {
+    if (button.classList.contains('hw-fm-link') || button.classList.contains('hw-fm-comment')) {
       return;
     }
     opts.onCommand();
@@ -52,6 +61,16 @@ function btn(label: string, title: string, onClick: () => void): HTMLButtonEleme
   b.className = 'hw-fm-btn';
   b.title = title;
   b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function iconBtn(svgHtml: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-fm-btn hw-fm-icon';
+  b.title = title;
+  b.innerHTML = svgHtml;
   b.addEventListener('click', onClick);
   return b;
 }
