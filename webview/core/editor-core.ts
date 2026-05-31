@@ -3,8 +3,8 @@
 // lightweight markdown-style shortcuts, and dispatches debounced change
 // notifications so callers can serialize and push edits back.
 
-import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from './shared/constants';
-import { findAncestor, findBlockAncestor } from './shared/dom-utils';
+import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from '../shared/constants';
+import { findAncestor, findBlockAncestor } from '../shared/dom-utils';
 
 const DEBOUNCE_MS = 250;
 

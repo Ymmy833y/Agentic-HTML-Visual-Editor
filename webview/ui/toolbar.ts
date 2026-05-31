@@ -2,8 +2,11 @@
 // command and then notifies the caller so the resulting edit can be
 // serialized and pushed back to the extension host.
 
-import * as cmd from './commands';
-import type { CopyFormat } from '../src/shared/messages';
+import { clearFormatting, isRangeCovered, toggleInline } from '../commands/inline-format';
+import { insertHr, setBlockTag, type BlockTag } from '../commands/block-format';
+import { findInlineAncestor, getCurrentBlockTag } from '../commands/query';
+import type { CommandContext } from '../shared/command-context';
+import type { CopyFormat } from '../../src/shared/messages';
 import { setupTooltip } from './tooltip';
 
 // --- SVG icon strings (16×16, currentColor) ---
@@ -61,7 +64,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Editor toolbar');
 
-  const ctx: cmd.CommandContext = { root };
+  const ctx: CommandContext = { root };
 
   // Selection snapshot taken just before the dropdown receives focus.
   // The dropdown button is NOT covered by e.preventDefault() so focus may
@@ -71,35 +74,35 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   // --- Buttons that need active-state tracking ---
 
   const boldBtn = textBtn('B', 'Bold (Ctrl+B)', () => {
-    cmd.toggleInline('strong', ctx);
+    toggleInline('strong', ctx);
     opts.onCommand();
   }, 'hw-tb-bold');
 
   const italicBtn = textBtn('I', 'Italic (Ctrl+I)', () => {
-    cmd.toggleInline('em', ctx);
+    toggleInline('em', ctx);
     opts.onCommand();
   }, 'hw-tb-italic');
 
   const strikeBtn = iconBtn(ICON_STRIKETHROUGH, 'Strikethrough', () => {
-    cmd.toggleInline('s', ctx);
+    toggleInline('s', ctx);
     opts.onCommand();
   });
 
   const codeInlineBtn = textBtn('< >', 'Inline code', () => {
-    cmd.toggleInline('code', ctx);
+    toggleInline('code', ctx);
     opts.onCommand();
   }, 'hw-tb-code');
 
   const codeBlockBtn = iconBtn(ICON_CODEBLOCK, 'Code block', () => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
-    const tag = cmd.getCurrentBlockTag(sel.getRangeAt(0).startContainer, root);
-    cmd.setBlockTag(tag === 'pre' ? 'p' : 'pre', ctx);
+    const tag = getCurrentBlockTag(sel.getRangeAt(0).startContainer, root);
+    setBlockTag(tag === 'pre' ? 'p' : 'pre', ctx);
     opts.onCommand();
   });
 
   const clearFormatBtn = iconBtn(ICON_CLEAR_FORMAT, 'Clear formatting (Ctrl+\\)', () => {
-    cmd.clearFormatting(ctx);
+    clearFormatting(ctx);
     opts.onCommand();
   });
 
@@ -113,7 +116,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
   group(bar, [linkBtn(opts.onLink)]);
   group(bar, [
-    textBtn('HR', 'Horizontal rule', () => { cmd.insertHr(ctx); opts.onCommand(); }),
+    textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
     tableBtn(opts.onInsertTable),
     commentBtn(opts.onAddComment),
   ]);
@@ -143,7 +146,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     if (!root.contains(range.startContainer)) return;
 
     const node = range.startContainer;
-    const blockTag = cmd.getCurrentBlockTag(node, root);
+    const blockTag = getCurrentBlockTag(node, root);
 
     updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p');
 
@@ -151,8 +154,8 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     // to carry the style (matches the toggle semantic: active ↔ "will remove").
     const covered = (tagName: string): boolean =>
       range.collapsed
-        ? !!cmd.findInlineAncestor(node, tagName, root)
-        : cmd.isRangeCovered(range, tagName, root);
+        ? !!findInlineAncestor(node, tagName, root)
+        : isRangeCovered(range, tagName, root);
 
     boldBtn.classList.toggle('hw-tb-active', covered('STRONG'));
     italicBtn.classList.toggle('hw-tb-active', covered('EM'));
@@ -160,7 +163,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     codeInlineBtn.classList.toggle('hw-tb-active', covered('CODE'));
     codeBlockBtn.classList.toggle('hw-tb-active', blockTag === 'pre');
     bar.querySelector<HTMLElement>('.hw-tb-link')
-      ?.classList.toggle('hw-tb-active', !!cmd.findInlineAncestor(node, 'A', root));
+      ?.classList.toggle('hw-tb-active', !!findInlineAncestor(node, 'A', root));
   });
 
   return bar;
@@ -172,7 +175,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
 // the panel escapes the toolbar's overflow:auto clipping context.
 
 function buildBlockDropdown(
-  ctx: cmd.CommandContext,
+  ctx: CommandContext,
   opts: ToolbarOptions,
   root: HTMLElement,
   getSavedRange: () => Range | null,
@@ -229,7 +232,7 @@ function buildBlockDropdown(
           const sel = window.getSelection();
           if (sel) { sel.removeAllRanges(); sel.addRange(saved); }
         }
-        cmd.setBlockTag(opt.value as cmd.BlockTag, ctx);
+        setBlockTag(opt.value as BlockTag, ctx);
         opts.onCommand();
         closeDropdown();
       });

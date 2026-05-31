@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { captureSelection, restoreSelection } from '../../webview/selection-path';
+import { captureSelection, restoreSelection } from '../../webview/core/selection';
 import { caretAtStart, clearDom, makeRoot, selectTextRange } from './helpers/selection';
 
 afterEach(() => {

@@ -1,22 +1,12 @@
-// Structural commands for tables: insert / delete rows and columns,
-// promote rows to headers, merge / split cells, resize columns, and delete
-// the whole table. All mutations go through a freshly-built TableModel so
-// colspan / rowspan are reasoned about consistently.
+// Structural table commands: insert a table, insert/delete rows and columns,
+// promote/demote header rows and columns, delete the whole table, and Tab
+// navigation. All mutations go through a freshly-built TableModel so
+// colspan/rowspan are reasoned about consistently.
 
-import {
-  anchorsInRect,
-  boundingRect,
-  buildTableModel,
-  findCell,
-  findCellPosition,
-  findTable,
-  tightenRect,
-  type LogicalCell,
-  type TableModel,
-  type TableSectionKind,
-} from './table-dom';
-import type { CommandContext } from './shared/command-context';
-import { findBlockAncestor, isBlockEmptyOrStubBr } from './shared/dom-utils';
+import { buildTableModel, findCellPosition, type TableModel } from './table-model';
+import { emptyCell, findRowInsertionRef, setSpans } from './cell-utils';
+import { findBlockAncestor, isBlockEmptyOrStubBr } from '../../shared/dom-utils';
+import type { CommandContext } from '../../shared/command-context';
 
 export interface InsertTableOptions {
   rows: number;
@@ -77,12 +67,6 @@ function buildEmptyTable(rows: number, cols: number, withHeader: boolean): HTMLT
   }
   table.appendChild(tbody);
   return table;
-}
-
-function emptyCell(tag: 'td' | 'th'): HTMLTableCellElement {
-  const cell = document.createElement(tag);
-  cell.appendChild(document.createElement('br'));
-  return cell;
 }
 
 function splitBlockAndInsert(
@@ -269,38 +253,6 @@ export function deleteRow(cell: HTMLTableCellElement, ctx: CommandContext): void
   if (section && section instanceof HTMLTableSectionElement && section.children.length === 0) {
     section.remove();
   }
-}
-
-/** Find the first DOM cell in row `r` whose anchor column is >= targetCol. */
-function findRowInsertionRef(
-  model: TableModel,
-  r: number,
-  targetCol: number,
-): HTMLTableCellElement | null {
-  const tr = model.trs[r];
-  if (!tr) return null;
-  for (const child of Array.from(tr.children)) {
-    if (!(child instanceof HTMLTableCellElement)) continue;
-    const anchorCol = anchorColOf(model, r, child);
-    if (anchorCol !== null && anchorCol >= targetCol) return child;
-  }
-  return null;
-}
-
-function anchorColOf(
-  model: TableModel,
-  r: number,
-  el: HTMLTableCellElement,
-): number | null {
-  const row = model.grid[r];
-  if (!row) return null;
-  for (let c = 0; c < row.length; c++) {
-    const entry = row[c];
-    if (entry && entry.el === el && entry.anchorRow === r && entry.anchorCol === c) {
-      return c;
-    }
-  }
-  return null;
 }
 
 // ---------- Column insert / delete ----------
@@ -547,90 +499,6 @@ export function isColumnHeader(table: HTMLTableElement, colIndex: number): boole
   return saw;
 }
 
-// ---------- Merge / split ----------
-
-/**
- * Merge the rectangular range that bounds two cells into a single cell.
- * Returns the surviving anchor, or null if the rectangle could not be
- * established (e.g. the two cells live in different tables).
- */
-export function mergeCells(
-  a: HTMLTableCellElement,
-  b: HTMLTableCellElement,
-): HTMLTableCellElement | null {
-  const table = a.closest('table');
-  if (!table || !table.contains(b)) return null;
-  const model = buildTableModel(table);
-
-  const initialRect = boundingRect(model, a, b);
-  if (!initialRect) return null;
-  const rect = tightenRect(model, initialRect);
-  if (rect.row1 === rect.row2 && rect.col1 === rect.col2) return a;
-
-  const anchors = anchorsInRect(model, rect);
-  const topLeftEntry = model.grid[rect.row1]?.[rect.col1];
-  if (!topLeftEntry) return null;
-  const survivor = topLeftEntry.el;
-
-  for (const entry of anchors) {
-    if (entry.el === survivor) continue;
-    // Append the merged cell's contents to the survivor so no text is lost.
-    while (entry.el.firstChild) {
-      survivor.appendChild(entry.el.firstChild);
-    }
-    entry.el.remove();
-  }
-
-  setSpans(
-    survivor,
-    rect.row2 - rect.row1 + 1,
-    rect.col2 - rect.col1 + 1,
-  );
-  return survivor;
-}
-
-/** Split a merged cell back into its constituent (rowSpan * colSpan) cells. */
-export function splitCell(cell: HTMLTableCellElement): void {
-  const table = cell.closest('table');
-  if (!table) return;
-  if (cell.rowSpan <= 1 && cell.colSpan <= 1) return;
-
-  const model = buildTableModel(table);
-  const pos = findCellPosition(model, cell);
-  if (!pos) return;
-
-  const origRowSpan = cell.rowSpan;
-  const origColSpan = cell.colSpan;
-  // Use the original cell's tag for new cells in pos.row, and the section's
-  // default tag (th in thead, td otherwise) for rows below.
-  const cellTag: 'td' | 'th' = cell.tagName === 'TH' ? 'th' : 'td';
-
-  setSpans(cell, 1, 1);
-
-  // For the anchor row, insert new cells right after the original cell.
-  let prev: ChildNode = cell;
-  for (let cc = 1; cc < origColSpan; cc++) {
-    const fresh = emptyCell(cellTag);
-    prev.parentNode!.insertBefore(fresh, prev.nextSibling);
-    prev = fresh;
-  }
-
-  // For each row below, insert origColSpan new cells at the original column.
-  for (let rr = pos.row + 1; rr < pos.row + origRowSpan; rr++) {
-    const tr = model.trs[rr];
-    if (!tr) continue;
-    const tag: 'td' | 'th' = model.sections[rr] === 'thead' ? 'th' : cellTag === 'th' ? 'th' : 'td';
-    // Insertion point: first child whose anchorCol >= pos.col + origColSpan
-    // in the ORIGINAL model. Any DOM-mutations so far affect only the
-    // pos.row tr, so the anchorCol lookup for rr remains valid.
-    const ref = findRowInsertionRef(model, rr, pos.col + origColSpan);
-    for (let cc = 0; cc < origColSpan; cc++) {
-      const fresh = emptyCell(tag);
-      tr.insertBefore(fresh, ref);
-    }
-  }
-}
-
 // ---------- Delete table ----------
 
 /** Remove the table entirely and place a fresh paragraph at its old location. */
@@ -653,156 +521,6 @@ export function deleteTable(table: HTMLTableElement, ctx: CommandContext): void 
   // Reference ctx.root so callers that pass it intentionally do not trip a
   // lint warning; the parameter is here so the API matches other commands.
   void ctx.root;
-}
-
-// ---------- Column width ----------
-
-export type TableWidthMode = 'px' | 'percent';
-
-/**
- * Determine whether the table is currently sized in pixels or percent.
- * Inspected from the first <col> with a width style; tables with no width
- * information default to px mode.
- */
-export function getTableWidthMode(table: HTMLTableElement): TableWidthMode {
-  const cg = table.querySelector(':scope > colgroup');
-  if (!cg) return 'px';
-  for (const col of Array.from(cg.children)) {
-    const w = (col as HTMLElement).style.width;
-    if (!w) continue;
-    return w.trim().endsWith('%') ? 'percent' : 'px';
-  }
-  return 'px';
-}
-
-/**
- * Switch the entire table to the requested width unit. The currently
- * rendered per-column widths are captured and re-written in the target unit
- * (px / %) so the visual layout is preserved across the switch.
- */
-export function setTableWidthMode(table: HTMLTableElement, mode: TableWidthMode): void {
-  const model = buildTableModel(table);
-  if (model.cols === 0) return;
-  const cg = ensureColgroup(table, model);
-
-  const renderedWidths = measureColumnWidths(model);
-  const measuredTotal = renderedWidths.reduce((acc, w) => acc + (w > 0 ? w : 0), 0);
-  const tableRect = table.getBoundingClientRect().width;
-  const totalPx = measuredTotal > 0 ? measuredTotal : tableRect;
-
-  for (let i = 0; i < model.cols; i++) {
-    const col = cg.children[i] as HTMLElement;
-    const px = renderedWidths[i] > 0
-      ? renderedWidths[i]
-      : (totalPx > 0 ? totalPx / model.cols : 0);
-    if (mode === 'percent') {
-      const pct = totalPx > 0 ? (px / totalPx) * 100 : 100 / model.cols;
-      col.style.width = `${pct.toFixed(2)}%`;
-    } else {
-      // Fall back to a sensible default so an unmeasured column still gets
-      // a real px value (rather than 0).
-      const value = px > 0 ? Math.round(px) : 80;
-      col.style.width = `${value}px`;
-    }
-  }
-
-  applyFixedLayoutStyle(table, mode);
-}
-
-/**
- * Set the width of the column at colIndex via <colgroup>/<col>. The width is
- * passed in pixels; if the table is in percent mode, the value is converted
- * to a percentage of the table's rendered width before being stored.
- *
- * The default stylesheet renders tables as `display: block; width: 100%`,
- * which prevents <col> widths from taking effect. On first call we capture
- * each column's current rendered width, freeze the table to
- * `display: table; table-layout: fixed`, and seed every <col> so subsequent
- * resizes (including the rightmost column) apply predictably.
- */
-export function setColumnWidth(
-  table: HTMLTableElement,
-  colIndex: number,
-  widthPx: number,
-): void {
-  const model = buildTableModel(table);
-  if (colIndex < 0 || colIndex >= model.cols) return;
-
-  const cg = ensureColgroup(table, model);
-  const mode = getTableWidthMode(table);
-
-  // First time the resize layout is being applied: seed each <col> with its
-  // currently-rendered width in the active unit.
-  if (table.style.tableLayout !== 'fixed') {
-    const widths = measureColumnWidths(model);
-    const measuredTotal = widths.reduce((acc, w) => acc + (w > 0 ? w : 0), 0);
-    const fallbackTotal = measuredTotal > 0 ? measuredTotal : table.getBoundingClientRect().width;
-    for (let i = 0; i < model.cols; i++) {
-      const col = cg.children[i] as HTMLElement;
-      if (col.style.width) continue;
-      if (widths[i] <= 0) continue;
-      if (mode === 'percent' && fallbackTotal > 0) {
-        const pct = (widths[i] / fallbackTotal) * 100;
-        col.style.width = `${pct.toFixed(2)}%`;
-      } else {
-        col.style.width = `${Math.round(widths[i])}px`;
-      }
-    }
-    applyFixedLayoutStyle(table, mode);
-  }
-
-  const col = cg.children[colIndex] as HTMLElement;
-  if (mode === 'percent') {
-    const total = table.getBoundingClientRect().width;
-    if (total <= 0) return;
-    const pct = clampPercent((widthPx / total) * 100);
-    col.style.width = `${pct.toFixed(2)}%`;
-  } else {
-    col.style.width = `${Math.max(20, Math.round(widthPx))}px`;
-  }
-}
-
-function applyFixedLayoutStyle(table: HTMLTableElement, mode: TableWidthMode): void {
-  table.style.display = 'table';
-  table.style.width = mode === 'percent' ? '100%' : 'auto';
-  table.style.tableLayout = 'fixed';
-}
-
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 1;
-  if (value < 1) return 1;
-  if (value > 100) return 100;
-  return value;
-}
-
-function ensureColgroup(table: HTMLTableElement, model: TableModel): HTMLElement {
-  let cg = table.querySelector(':scope > colgroup');
-  if (!cg) {
-    cg = document.createElement('colgroup');
-    table.insertBefore(cg, table.firstChild);
-  }
-  while (cg.children.length < model.cols) {
-    cg.appendChild(document.createElement('col'));
-  }
-  return cg;
-}
-
-function measureColumnWidths(model: TableModel): number[] {
-  const widths: number[] = new Array<number>(model.cols).fill(0);
-  for (let r = 0; r < model.rows; r++) {
-    const row = model.grid[r];
-    if (!row) continue;
-    for (let c = 0; c < model.cols; c++) {
-      const entry = row[c];
-      if (!entry) continue;
-      if (entry.anchorRow !== r || entry.anchorCol !== c) continue;
-      // Single-column cells give us the most accurate per-column width.
-      if (entry.colSpan !== 1) continue;
-      const w = entry.el.getBoundingClientRect().width;
-      if (w > widths[c]) widths[c] = w;
-    }
-  }
-  return widths;
 }
 
 // ---------- Tab navigation ----------
@@ -833,16 +551,3 @@ export function appendRowAtEnd(table: HTMLTableElement): HTMLTableCellElement | 
   section.insertBefore(newTr, lastTr.nextSibling);
   return newTr.querySelector('td, th');
 }
-
-// ---------- helpers ----------
-
-function setSpans(cell: HTMLTableCellElement, rowSpan: number, colSpan: number): void {
-  if (rowSpan <= 1) cell.removeAttribute('rowspan');
-  else cell.setAttribute('rowspan', String(rowSpan));
-  if (colSpan <= 1) cell.removeAttribute('colspan');
-  else cell.setAttribute('colspan', String(colSpan));
-}
-
-// Re-export a few helpers callers commonly need together with these commands.
-export { findCell, findTable };
-export type { LogicalCell, TableModel, TableSectionKind };

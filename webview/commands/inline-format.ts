@@ -1,39 +1,39 @@
-// Editing commands invoked by the toolbar, floating menu, keybindings, and
-// markdown-style shortcuts. Each command operates on the current Selection
-// inside the WYSIWYG root and mutates the DOM directly.
+// Inline range-formatting engine: toggling inline wrappers (strong/em/code/s),
+// clearing decorative formatting, and the coverage query the toolbar uses to
+// decide whether a format button is active. All the segment-collection and
+// range-splitting machinery is private to this module.
 
-import { newCommentId, setBody } from './comment-dom';
-import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from './shared/constants';
+import { INLINE_FORMAT_TAGS } from '../shared/constants';
 import {
   findAncestor,
-  findBlockAncestor,
-  isBlockEmpty,
   nodeDepth,
+  resolveToTextBoundary,
   unwrap,
-} from './shared/dom-utils';
-import type { CommandContext } from './shared/command-context';
-
-export type { CommandContext };
+} from '../shared/dom-utils';
+import type { CommandContext } from '../shared/command-context';
 
 export type InlineTag = 'strong' | 'em' | 'code' | 's';
 
-export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
-
-const COMMENT_SCOPE_TAGS = new Set([
-  ...BLOCK_TAGS,
-  'TD', 'TH', 'CAPTION',
-]);
-
-// Elements that serve as segment boundaries for inline-style operations.
-// Inline styles must not cross these boundaries: doing so would produce
-// invalid nesting or move <comment-body>/<comment-reply> out of their owner.
+// Block-level tags plus the table/comment containers that inline styles must
+// never cross — wrapping across them would produce invalid nesting or move
+// <comment-body>/<comment-reply> out of their owner.
 const SEGMENT_BOUNDARY_TAGS = new Set([
-  ...BLOCK_TAGS,
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
   'TD', 'TH', 'CAPTION',
   'COMMENT',
 ]);
 
-// ─── public commands ──────────────────────────────────────────────────────────
+// Decorative inline tags that `clearFormatting` unwraps. `<a>` is omitted on
+// purpose: links carry navigation intent, not formatting, matching the
+// behavior of Word / Google Docs / Notion's Clear Formatting.
+const DECORATIVE_INLINE_TAGS = [
+  'STRONG', 'EM', 'CODE', 'S', 'DEL', 'U', 'MARK', 'SUB', 'SUP', 'SPAN', 'FONT',
+];
+
+const INLINE_CLEANUP_SELECTOR = Array.from(INLINE_FORMAT_TAGS)
+  .map((t) => t.toLowerCase())
+  .join(',');
 
 /**
  * Toggle an inline wrapper around the current selection.
@@ -65,166 +65,6 @@ export function toggleInline(tag: InlineTag, ctx: CommandContext): void {
     sel.addRange(range);
   } catch { /* range invalidated by mutations — leave selection as-is */ }
 }
-
-/** Replace the current block element's tag (e.g. P → H1). */
-export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-
-  const block = findBlockAncestor(range.startContainer, ctx.root);
-  if (!block) return;
-
-  const replacement = document.createElement(tag);
-  for (const attr of Array.from(block.attributes)) {
-    replacement.setAttribute(attr.name, attr.value);
-  }
-  while (block.firstChild) replacement.appendChild(block.firstChild);
-  block.replaceWith(replacement);
-
-  const r = document.createRange();
-  r.selectNodeContents(replacement);
-  r.collapse(false);
-  sel.removeAllRanges();
-  sel.addRange(r);
-}
-
-/** Insert a horizontal rule below the current block. */
-export function insertHr(ctx: CommandContext): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-
-  const block = findBlockAncestor(range.startContainer, ctx.root);
-  const hr = document.createElement('hr');
-  const p = document.createElement('p');
-  p.appendChild(document.createElement('br'));
-
-  if (block && block.parentNode) {
-    block.parentNode.insertBefore(hr, block.nextSibling);
-    hr.parentNode!.insertBefore(p, hr.nextSibling);
-    if (isBlockEmpty(block)) block.remove();
-  } else {
-    ctx.root.appendChild(hr);
-    ctx.root.appendChild(p);
-  }
-
-  const r = document.createRange();
-  r.setStart(p, 0);
-  r.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(r);
-}
-
-/**
- * Wrap the selection in an inline <comment>. Returns null when:
- * - selection is collapsed, or
- * - selection crosses block boundaries.
- */
-export function addComment(ctx: CommandContext): HTMLElement | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0);
-  if (range.collapsed) return null;
-
-  const startScope = findCommentScopeAncestor(range.startContainer, ctx.root);
-  const endScope = findCommentScopeAncestor(range.endContainer, ctx.root);
-  if (!startScope || startScope !== endScope) return null;
-
-  const comment = document.createElement('comment');
-  comment.setAttribute('id', newCommentId(ctx.root));
-  try {
-    surroundSimple(range, comment);
-  } catch {
-    return null;
-  }
-  setBody(comment, '');
-  selectContents(sel, comment);
-  return comment;
-}
-
-/** Remove a comment highlight, discarding body/replies but keeping target text. */
-export function removeComment(_ctx: CommandContext, comment: HTMLElement): void {
-  for (const child of Array.from(comment.children)) {
-    const t = child.tagName.toLowerCase();
-    if (t === 'comment-body' || t === 'comment-reply') child.remove();
-  }
-  unwrap(comment);
-}
-
-/**
- * Insert or update a link. Pass href='' to remove.
- *
- * Non-collapsed selection: removes all intersecting <a> elements first,
- * then (if href non-empty) wraps the entire selection in a new <a>.
- */
-export function insertLink(href: string, ctx: CommandContext): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-
-  if (range.collapsed) {
-    const existing = findAncestor(range.startContainer, 'A', ctx.root);
-    if (existing) {
-      if (href === '') { unwrap(existing); } else { existing.setAttribute('href', href); }
-    } else if (href !== '') {
-      const a = document.createElement('a');
-      a.setAttribute('href', href);
-      a.textContent = href;
-      range.insertNode(a);
-      selectContents(sel, a);
-    }
-    return;
-  }
-
-  const links = Array.from(ctx.root.querySelectorAll<HTMLElement>('a'))
-    .filter(a => range.intersectsNode(a));
-
-  // If the selection is entirely within one existing <a>, update/remove it directly.
-  // Avoids the remove-and-rewrap path which breaks when the range container is
-  // the element node (e.g. from selectNodeContents) rather than a text node.
-  if (links.length === 1) {
-    const existingA = links[0];
-    const startIn = existingA === range.startContainer || existingA.contains(range.startContainer);
-    const endIn   = existingA === range.endContainer   || existingA.contains(range.endContainer);
-    if (startIn && endIn) {
-      if (href === '') { unwrap(existingA); } else { existingA.setAttribute('href', href); }
-      return;
-    }
-  }
-
-  // General case: save text-node boundary positions before any DOM mutations,
-  // then unwrap all intersecting <a> elements (which may move their text nodes),
-  // then rebuild the range from the still-live text node references.
-  // Using the live range after unwrap is unreliable because jsdom (and browsers)
-  // adjust range offsets by child-index, not by following the moved text node.
-  const [startNode, startOff] = resolveToTextBoundary(range.startContainer, range.startOffset);
-  const [endNode, endOff]     = resolveToTextBoundary(range.endContainer,   range.endOffset);
-
-  for (const a of links) unwrap(a);
-  if (href === '') return;
-
-  // Rebuild range from saved text-node positions (nodes remain in the DOM after unwrapping).
-  const freshRange = document.createRange();
-  try {
-    freshRange.setStart(startNode, startOff);
-    freshRange.setEnd(endNode, endOff);
-  } catch {
-    return; // positions became invalid after DOM mutation
-  }
-
-  const a = document.createElement('a');
-  a.setAttribute('href', href);
-  surroundSimple(freshRange, a);
-  selectContents(sel, a);
-}
-
-// Decorative inline tags that `clearFormatting` unwraps. `<a>` is omitted on
-// purpose: links carry navigation intent, not formatting, matching the
-// behavior of Word / Google Docs / Notion's Clear Formatting.
-const DECORATIVE_INLINE_TAGS = [
-  'STRONG', 'EM', 'CODE', 'S', 'DEL', 'U', 'MARK', 'SUB', 'SUP', 'SPAN', 'FONT',
-];
 
 /**
  * Strip inline formatting from the current selection.
@@ -289,27 +129,6 @@ export function clearFormatting(ctx: CommandContext): void {
   } catch { /* range invalidated by mutations — leave selection as-is */ }
 }
 
-/** Return the lowercase tag name of the nearest block ancestor inside root. */
-export function getCurrentBlockTag(node: Node, root: Element): string {
-  let cur: Node | null = node;
-  while (cur && cur !== root) {
-    if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) {
-      return cur.tagName.toLowerCase();
-    }
-    cur = cur.parentNode;
-  }
-  return '';
-}
-
-/** Return the nearest ancestor element with tagName inside root. */
-export function findInlineAncestor(
-  node: Node,
-  tagName: string,
-  stopAt: Element,
-): HTMLElement | null {
-  return findAncestor(node, tagName, stopAt);
-}
-
 /**
  * Return true if every text node in range carries tagName as an ancestor.
  * Used by the toolbar to decide whether to show the button as active.
@@ -319,15 +138,6 @@ export function isRangeCovered(range: Range, tagName: string, root: Element): bo
 }
 
 // ─── private helpers ──────────────────────────────────────────────────────────
-
-function findCommentScopeAncestor(node: Node, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && COMMENT_SCOPE_TAGS.has(cur.tagName)) return cur;
-    cur = cur.parentNode;
-  }
-  return null;
-}
 
 function findSegmentBoundary(node: Node, root: Element): Node {
   let cur: Node | null = node;
@@ -696,10 +506,6 @@ function splitAtEnd(el: HTMLElement, range: Range): void {
   unwrap(el);
 }
 
-const INLINE_CLEANUP_SELECTOR = Array.from(INLINE_FORMAT_TAGS)
-  .map((t) => t.toLowerCase())
-  .join(',');
-
 /**
  * Remove empty inline elements and merge adjacent same-tag siblings across
  * ALL inline tags (not just the one being toggled). Adjacent same-tag inline
@@ -726,36 +532,4 @@ function normalizeInline(root: Element, _tagName: string): void {
       }
     }
   }
-}
-
-/**
- * Resolve a range boundary (container + offset) to a text-node level position.
- * When container is an Element node (e.g. from selectNodeContents), the offset
- * refers to a child index; we follow it to the child text node if possible.
- * This gives a stable reference that survives the unwrapping of ancestor <a> elements.
- */
-function resolveToTextBoundary(container: Node, offset: number): [Node, number] {
-  if (container.nodeType === Node.TEXT_NODE) return [container, offset];
-  const child = container.childNodes[offset];
-  if (child?.nodeType === Node.TEXT_NODE) return [child, 0];
-  const prev = container.childNodes[offset - 1];
-  if (prev?.nodeType === Node.TEXT_NODE) return [prev, (prev as Text).length];
-  return [container, offset];
-}
-
-function surroundSimple(range: Range, wrapper: Element): void {
-  try {
-    range.surroundContents(wrapper);
-  } catch {
-    const contents = range.extractContents();
-    wrapper.appendChild(contents);
-    range.insertNode(wrapper);
-  }
-}
-
-function selectContents(sel: Selection, el: Node): void {
-  const r = document.createRange();
-  r.selectNodeContents(el);
-  sel.removeAllRanges();
-  sel.addRange(r);
 }

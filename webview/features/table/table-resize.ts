@@ -4,8 +4,8 @@
 // visual hint with no pointer events of its own; the editor root catches
 // the mousedown directly so contenteditable + z-order quirks cannot eat it.
 
-import { buildTableModel, findCell, findTable } from './table-dom';
-import { setColumnWidth } from './table-commands';
+import { buildTableModel, findCell, findTable } from './table-model';
+import { setColumnWidth } from './width-commands';
 
 const EDGE_PX = 6;
 

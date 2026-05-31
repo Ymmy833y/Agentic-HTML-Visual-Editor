@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatForSerialize } from '../../webview/serialize';
-import { injectEmptyBlockPlaceholders } from '../../webview/placeholder';
+import { formatForSerialize } from '../../webview/core/serialize';
+import { injectEmptyBlockPlaceholders } from '../../webview/core/placeholder';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {

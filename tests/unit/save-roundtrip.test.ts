@@ -14,10 +14,10 @@
 // whitespace alone.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { captureSelection, restoreSelection } from '../../webview/selection-path';
-import { injectEmptyBlockPlaceholders } from '../../webview/placeholder';
-import { formatForSerialize } from '../../webview/serialize';
-import { parseBodyContent } from '../../webview/renderer';
+import { captureSelection, restoreSelection } from '../../webview/core/selection';
+import { injectEmptyBlockPlaceholders } from '../../webview/core/placeholder';
+import { formatForSerialize } from '../../webview/core/serialize';
+import { parseBodyContent } from '../../webview/core/renderer';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {

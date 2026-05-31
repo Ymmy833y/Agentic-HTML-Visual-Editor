@@ -10,7 +10,7 @@ import {
   removeReply,
   setBody,
   updateReply,
-} from '../../webview/comment-dom';
+} from '../../webview/features/comment/comment-dom';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(clearDom);

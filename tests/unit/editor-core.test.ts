@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { setupEditor } from '../../webview/editor-core';
+import { setupEditor } from '../../webview/core/editor-core';
 import { caretAtEnd, caretAtStart, clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {

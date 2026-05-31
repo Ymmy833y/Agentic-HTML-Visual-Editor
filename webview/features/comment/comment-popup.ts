@@ -3,8 +3,8 @@
 // previous/next comment, and delete the whole comment.
 
 import * as cdom from './comment-dom';
-import { removeComment } from './commands';
-import { setupTooltip } from './tooltip';
+import { removeComment } from './comment-commands';
+import { setupTooltip } from '../../ui/tooltip';
 
 export interface CommentPopupOptions {
   /** Called after any DOM mutation inside the comment so the editor can serialize. */

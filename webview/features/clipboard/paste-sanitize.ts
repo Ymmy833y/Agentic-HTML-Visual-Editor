@@ -10,7 +10,7 @@
 // human-edited HTML stays compact, while user-meaningful properties
 // (color, background-color, text-align, structural width/height) survive.
 
-import { unwrap } from './shared/dom-utils';
+import { unwrap } from '../../shared/dom-utils';
 
 // Lowercase block tags used here for the text-align style allowance. Distinct
 // from shared/constants BLOCK_TAGS (uppercase, no td/th) on purpose.

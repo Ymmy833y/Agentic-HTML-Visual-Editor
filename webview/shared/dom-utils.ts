@@ -58,3 +58,38 @@ export function isBlockEmptyOrStubBr(el: Element): boolean {
   }
   return false;
 }
+
+/** Wrap a range's contents in wrapper, falling back to extract+insert when the
+ * range partially intersects element boundaries (surroundContents throws). */
+export function surroundSimple(range: Range, wrapper: Element): void {
+  try {
+    range.surroundContents(wrapper);
+  } catch {
+    const contents = range.extractContents();
+    wrapper.appendChild(contents);
+    range.insertNode(wrapper);
+  }
+}
+
+/** Collapse the selection onto the full contents of el. */
+export function selectContents(sel: Selection, el: Node): void {
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/**
+ * Resolve a range boundary (container + offset) to a text-node level position.
+ * When container is an Element node (e.g. from selectNodeContents), the offset
+ * refers to a child index; we follow it to the child text node if possible.
+ * This gives a stable reference that survives the unwrapping of ancestor elements.
+ */
+export function resolveToTextBoundary(container: Node, offset: number): [Node, number] {
+  if (container.nodeType === Node.TEXT_NODE) return [container, offset];
+  const child = container.childNodes[offset];
+  if (child?.nodeType === Node.TEXT_NODE) return [child, 0];
+  const prev = container.childNodes[offset - 1];
+  if (prev?.nodeType === Node.TEXT_NODE) return [prev, (prev as Text).length];
+  return [container, offset];
+}

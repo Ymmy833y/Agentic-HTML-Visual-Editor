@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { prepareCopy } from '../../webview/copy';
+import { prepareCopy } from '../../webview/features/clipboard/copy';
 import { clearDom, makeRoot, selectContents, selectTextRange } from './helpers/selection';
 
 afterEach(clearDom);
