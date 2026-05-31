@@ -15,12 +15,8 @@ import {
   type TableModel,
   type TableSectionKind,
 } from './table-dom';
-import type { CommandContext } from './commands';
-
-const BLOCK_TAGS = new Set([
-  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
-  'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
-]);
+import type { CommandContext } from './shared/command-context';
+import { findBlockAncestor, isBlockEmptyOrStubBr } from './shared/dom-utils';
 
 export interface InsertTableOptions {
   rows: number;
@@ -129,11 +125,11 @@ function splitBlockAndInsert(
   // Drop the leading clone of the host block if extraction left it empty
   // (cursor was at the start of the block, or the block had no real
   // content besides a stub <br>).
-  if (isBlockEmpty(target)) target.remove();
+  if (isBlockEmptyOrStubBr(target)) target.remove();
   // Drop the trailing clone too if it ended up empty (cursor was at the
   // end of the block).
   const trailing = table.nextSibling;
-  if (trailing instanceof HTMLElement && isBlockEmpty(trailing)) trailing.remove();
+  if (trailing instanceof HTMLElement && isBlockEmptyOrStubBr(trailing)) trailing.remove();
 }
 
 function placeCaretInFirstCell(table: HTMLTableElement): void {
@@ -845,26 +841,6 @@ function setSpans(cell: HTMLTableCellElement, rowSpan: number, colSpan: number):
   else cell.setAttribute('rowspan', String(rowSpan));
   if (colSpan <= 1) cell.removeAttribute('colspan');
   else cell.setAttribute('colspan', String(colSpan));
-}
-
-function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) return cur;
-    cur = cur.parentNode;
-  }
-  return null;
-}
-
-function isBlockEmpty(el: Element): boolean {
-  if (el.children.length === 0) {
-    return (el.textContent ?? '').trim() === '';
-  }
-  // Treat a block that only contains a stub <br> as empty.
-  if (el.children.length === 1 && el.children[0].tagName === 'BR') {
-    return (el.textContent ?? '').trim() === '';
-  }
-  return false;
 }
 
 // Re-export a few helpers callers commonly need together with these commands.

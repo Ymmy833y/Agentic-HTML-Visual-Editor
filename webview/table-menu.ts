@@ -4,7 +4,7 @@
 
 import * as tcmd from './table-commands';
 import { boundingRect, buildTableModel, findCell, findCellPosition, tightenRect } from './table-dom';
-import type { CommandContext } from './commands';
+import type { CommandContext } from './shared/command-context';
 
 export interface TableMenuOptions {
   /** Called after the menu has applied a DOM mutation so the editor can serialize. */

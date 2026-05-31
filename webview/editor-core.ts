@@ -3,14 +3,10 @@
 // lightweight markdown-style shortcuts, and dispatches debounced change
 // notifications so callers can serialize and push edits back.
 
-import { INLINE_FORMAT_TAGS } from './commands';
+import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from './shared/constants';
+import { findAncestor, findBlockAncestor } from './shared/dom-utils';
 
 const DEBOUNCE_MS = 250;
-
-const BLOCK_TAGS = new Set([
-  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
-  'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
-]);
 
 // Presentational tags the browser emits for built-in bold/italic, mapped to
 // the semantic tags the editor uses everywhere else.
@@ -379,24 +375,4 @@ function textBeforeCursor(range: Range, block: Element): string {
   r.setStart(block, 0);
   r.setEnd(range.startContainer, range.startOffset);
   return r.toString();
-}
-
-function findAncestor(node: Node, tagName: string, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && cur.tagName === tagName) {
-      return cur;
-    }
-    cur = cur.parentNode;
-  }
-  return null;
-}
-
-function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) return cur;
-    cur = cur.parentNode;
-  }
-  return null;
 }

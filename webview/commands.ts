@@ -3,22 +3,21 @@
 // inside the WYSIWYG root and mutates the DOM directly.
 
 import { newCommentId, setBody } from './comment-dom';
+import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from './shared/constants';
+import {
+  findAncestor,
+  findBlockAncestor,
+  isBlockEmpty,
+  nodeDepth,
+  unwrap,
+} from './shared/dom-utils';
+import type { CommandContext } from './shared/command-context';
 
-export interface CommandContext {
-  root: HTMLElement;
-}
+export type { CommandContext };
 
 export type InlineTag = 'strong' | 'em' | 'code' | 's';
 
-/** Uppercase tag names of the inline formats the editor can toggle. Single
- * source of truth shared with editor-core (Enter format inheritance). */
-export const INLINE_FORMAT_TAGS = new Set(['STRONG', 'EM', 'CODE', 'S']);
 export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
-
-const BLOCK_TAGS = new Set([
-  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
-  'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
-]);
 
 const COMMENT_SCOPE_TAGS = new Set([
   ...BLOCK_TAGS,
@@ -321,24 +320,6 @@ export function isRangeCovered(range: Range, tagName: string, root: Element): bo
 
 // ─── private helpers ──────────────────────────────────────────────────────────
 
-function findAncestor(node: Node, tagName: string, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && cur.tagName === tagName) return cur;
-    cur = cur.parentNode;
-  }
-  return null;
-}
-
-function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | null {
-  let cur: Node | null = node;
-  while (cur && cur !== stopAt) {
-    if (cur instanceof HTMLElement && BLOCK_TAGS.has(cur.tagName)) return cur;
-    cur = cur.parentNode;
-  }
-  return null;
-}
-
 function findCommentScopeAncestor(node: Node, stopAt: Element): HTMLElement | null {
   let cur: Node | null = node;
   while (cur && cur !== stopAt) {
@@ -367,13 +348,6 @@ function isInCommentMeta(node: Node, root: Element): boolean {
     cur = cur.parentNode;
   }
   return false;
-}
-
-function nodeDepth(node: Node, root: Element): number {
-  let d = 0;
-  let cur: Node | null = node;
-  while (cur && cur !== root) { d++; cur = cur.parentNode; }
-  return d;
 }
 
 /**
@@ -767,17 +741,6 @@ function resolveToTextBoundary(container: Node, offset: number): [Node, number] 
   const prev = container.childNodes[offset - 1];
   if (prev?.nodeType === Node.TEXT_NODE) return [prev, (prev as Text).length];
   return [container, offset];
-}
-
-function unwrap(el: Element): void {
-  const parent = el.parentNode;
-  if (!parent) return;
-  while (el.firstChild) parent.insertBefore(el.firstChild, el);
-  el.remove();
-}
-
-function isBlockEmpty(el: Element): boolean {
-  return el.children.length === 0 && (el.textContent ?? '').trim() === '';
 }
 
 function surroundSimple(range: Range, wrapper: Element): void {
