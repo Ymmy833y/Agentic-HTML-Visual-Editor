@@ -34,8 +34,18 @@ const OPAQUE_TAGS = new Set([
   'PRE', 'CODE', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR',
 ]);
 
+// Marks the empty block that currently holds the caret. Empty inline-format
+// wrappers (e.g. `<strong></strong>`) are kept in the serialized output only
+// for this block, so the line being edited keeps its formatting in the saved
+// file while abandoned empty wrappers elsewhere are still pruned to `<p></p>`.
+const ACTIVE_ATTR = 'data-hw-active';
+
 export function formatForSerialize(root: HTMLElement): string {
+  const active = collapsedActiveEmptyBlock(root);
+  if (active) active.setAttribute(ACTIVE_ATTR, '');
   const clone = root.cloneNode(true) as HTMLElement;
+  // The marker lives on the live DOM only for the duration of the clone.
+  if (active) active.removeAttribute(ACTIVE_ATTR);
   pruneEmptyBlocks(clone);
   fillMissingBlockGaps(clone);
   return clone.innerHTML;
@@ -45,10 +55,57 @@ function pruneEmptyBlocks(scope: Element): void {
   const selector = Array.from(EMPTYABLE_BLOCK_TAGS).map((t) => t.toLowerCase()).join(',');
   for (const block of Array.from(scope.querySelectorAll(selector))) {
     if (hasOpaqueAncestor(block)) continue;
-    if (isBlockEffectivelyEmpty(block)) {
+    if (!isBlockEffectivelyEmpty(block)) {
+      block.removeAttribute(ACTIVE_ATTR);
+      continue;
+    }
+    if (block.hasAttribute(ACTIVE_ATTR)) {
+      block.removeAttribute(ACTIVE_ATTR);
+      softPruneEmptyBlock(block);
+    } else {
       block.replaceChildren();
     }
   }
+}
+
+// Strip `<br>` placeholders and empty text nodes but keep inline-format
+// wrappers, so `<p><strong><br></strong></p>` becomes `<p><strong></strong></p>`
+// (and a plain `<p><br></p>` becomes `<p></p>`).
+function softPruneEmptyBlock(node: Element): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if ((child as Text).data === '') child.remove();
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as Element;
+      if (el.tagName === 'BR') {
+        el.remove();
+      } else {
+        softPruneEmptyBlock(el);
+      }
+    }
+  }
+}
+
+// The empty, caret-holding block whose formatting should survive serialization:
+// a collapsed selection inside the live root whose nearest emptyable-block
+// ancestor is effectively empty. Returns null otherwise (e.g. tests with no
+// selection), so the default pruning applies.
+function collapsedActiveEmptyBlock(root: HTMLElement): Element | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
+  const anchor = sel.anchorNode;
+  if (!anchor || !root.contains(anchor)) return null;
+
+  let cur: Node | null = anchor;
+  while (cur && cur !== root) {
+    if (cur.nodeType === Node.ELEMENT_NODE && EMPTYABLE_BLOCK_TAGS.has((cur as Element).tagName)) {
+      const el = cur as Element;
+      if (hasOpaqueAncestor(el)) return null;
+      return isBlockEffectivelyEmpty(el) ? el : null;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
 }
 
 function hasOpaqueAncestor(node: Node): boolean {

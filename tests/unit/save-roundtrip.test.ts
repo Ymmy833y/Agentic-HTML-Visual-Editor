@@ -79,6 +79,35 @@ describe('save-echo round-trip: cursor preservation', () => {
     expect(sel2.anchorOffset).toBe(0);
   });
 
+  it('keeps a formatted empty <p> (and its formatting) after a save echo', () => {
+    mount(root, '<p><strong>bold</strong></p>');
+
+    // Simulate Enter after fully-bold text: a new <p><strong><br></strong></p>
+    // with the caret inside the fresh <strong>.
+    const existing = root.children[0] as HTMLElement;
+    const fresh = document.createElement('p');
+    const strong = document.createElement('strong');
+    strong.appendChild(document.createElement('br'));
+    fresh.appendChild(strong);
+    existing.after(fresh);
+
+    const sel = window.getSelection()!;
+    const r = document.createRange();
+    r.setStart(strong, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const { serialized, restored } = simulateSaveEcho(root);
+
+    expect(serialized).toBe('<p><strong>bold</strong></p>\n<p><strong></strong></p>');
+    expect(restored).toBe(true);
+
+    const blocks = Array.from(root.children) as HTMLElement[];
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].innerHTML).toBe('<strong><br></strong>');
+  });
+
   it('keeps the caret in the middle of an existing paragraph through a save echo', () => {
     mount(root, '<p>hello world</p><p>second</p>');
     const firstP = root.children[0] as HTMLElement;

@@ -29,12 +29,14 @@ describe('injectEmptyBlockPlaceholders', () => {
     expect(inject('<p><br></p>')).toBe('<p><br></p>');
   });
 
-  it('replaces empty inline wrappers with a single <br>', () => {
-    expect(inject('<p><strong></strong></p>')).toBe('<p><br></p>');
+  it('preserves an empty inline wrapper and injects the <br> inside it', () => {
+    expect(inject('<p><strong></strong></p>')).toBe('<p><strong><br></strong></p>');
   });
 
-  it('replaces nested empty inline wrappers with a single <br>', () => {
-    expect(inject('<p><strong><em></em></strong></p>')).toBe('<p><br></p>');
+  it('preserves a nested empty inline wrapper and injects the <br> innermost', () => {
+    expect(inject('<p><strong><em></em></strong></p>')).toBe(
+      '<p><strong><em><br></em></strong></p>',
+    );
   });
 
   it('does not modify <pre>', () => {

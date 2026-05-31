@@ -175,3 +175,115 @@ describe('setupEditor: Enter inside list with nested children', () => {
     expect(evt.defaultPrevented).toBe(false);
   });
 });
+
+describe('setupEditor: normalizes browser presentational tags', () => {
+  it('rewrites a <b> the browser inserted into <strong> on input', () => {
+    const root = makeRoot('<p><b>S</b></p>');
+    setupEditor(root, () => {});
+    root.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><strong>S</strong></p>');
+  });
+
+  it('rewrites <i> into <em> on input', () => {
+    const root = makeRoot('<p><i>S</i></p>');
+    setupEditor(root, () => {});
+    root.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><em>S</em></p>');
+  });
+
+  it('keeps the caret inside the rewritten element', () => {
+    const root = makeRoot('<p><b>S</b></p>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('b')!.firstChild as Text;
+    const r = document.createRange();
+    r.setStart(text, 1);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    root.dispatchEvent(new Event('input', { bubbles: true }));
+
+    expect(root.innerHTML).toBe('<p><strong>S</strong></p>');
+    const sel2 = window.getSelection()!;
+    expect(sel2.anchorNode).toBe(text);
+    expect(sel2.anchorOffset).toBe(1);
+    expect((root.querySelector('strong')!.firstChild)).toBe(text);
+  });
+});
+
+describe('setupEditor: Enter inherits inline formatting at the end of a block', () => {
+  it('continues bold onto a fresh paragraph', () => {
+    const root = makeRoot('<p><strong>Sample text.</strong></p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<p><strong>Sample text.</strong></p><p><strong><br></strong></p>',
+    );
+
+    const sel = window.getSelection()!;
+    const newStrong = (root.children[1] as HTMLElement).querySelector('strong')!;
+    expect(sel.anchorNode).toBe(newStrong);
+    expect(sel.anchorOffset).toBe(0);
+  });
+
+  it('keeps the heading level when continuing formatting', () => {
+    const root = makeRoot('<h2><strong>Title</strong></h2>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('h2')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<h2><strong>Title</strong></h2><h2><strong><br></strong></h2>',
+    );
+  });
+
+  it('reproduces a nested inline chain (outermost first)', () => {
+    const root = makeRoot('<p><strong><em>x</em></strong></p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<p><strong><em>x</em></strong></p><p><strong><em><br></em></strong></p>',
+    );
+  });
+
+  it('leaves plain paragraphs to the browser default', () => {
+    const root = makeRoot('<p>hello</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('does not inherit links', () => {
+    const root = makeRoot('<p><a href="https://example.com">x</a></p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing when the caret is mid-text (not at the block end)', () => {
+    const root = makeRoot('<p><strong>abcd</strong></p>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('strong')!.firstChild as Text;
+    const r = document.createRange();
+    r.setStart(text, 2);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});

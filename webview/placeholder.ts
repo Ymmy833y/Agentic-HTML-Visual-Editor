@@ -14,16 +14,31 @@ export function injectEmptyBlockPlaceholders(scope: ParentNode): void {
   for (const block of Array.from(scope.querySelectorAll(selector))) {
     if (hasOpaqueAncestor(block)) continue;
     if (!isBlockEffectivelyEmpty(block)) continue;
-    if (
-      block.childNodes.length === 1 &&
-      block.firstChild?.nodeType === Node.ELEMENT_NODE &&
-      (block.firstChild as Element).tagName === 'BR'
-    ) {
-      continue;
-    }
-    const br = block.ownerDocument.createElement('br');
-    block.replaceChildren(br);
+    // Keep any inline-format wrappers the saved file carried (e.g.
+    // `<strong></strong>`) so the formatting stays active on reload; inject the
+    // `<br>` placeholder into the innermost wrapper. A plain empty block gets
+    // the `<br>` directly.
+    const host = innermostInsertionHost(block);
+    if (hasBrChild(host)) continue;
+    host.appendChild(block.ownerDocument.createElement('br'));
   }
+}
+
+// Descend through trailing inline-wrapper elements to the deepest element that
+// should hold the `<br>` placeholder. Stops at the block itself when it has no
+// wrapper child, and never descends into a `<br>`.
+function innermostInsertionHost(block: Element): Element {
+  let host = block;
+  for (;;) {
+    const child = host.lastElementChild;
+    if (!child || child.tagName === 'BR') break;
+    host = child;
+  }
+  return host;
+}
+
+function hasBrChild(el: Element): boolean {
+  return Array.from(el.children).some((c) => c.tagName === 'BR');
 }
 
 function hasOpaqueAncestor(node: Node): boolean {

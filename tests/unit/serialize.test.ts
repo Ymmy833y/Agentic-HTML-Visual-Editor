@@ -154,3 +154,40 @@ describe('formatForSerialize: live DOM is untouched', () => {
     expect(root.innerHTML).toBe(before);
   });
 });
+
+describe('formatForSerialize: keeps formatting in the caret block', () => {
+  function caretIn(el: Element): void {
+    const sel = window.getSelection()!;
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  it('preserves an empty inline wrapper while the caret is inside it', () => {
+    const root = makeRoot('<p>x</p><p><strong><br></strong></p>');
+    caretIn(root.children[1].querySelector('strong')!);
+    expect(formatForSerialize(root)).toBe('<p>x</p>\n<p><strong></strong></p>');
+  });
+
+  it('still strips empty wrappers in blocks that do not hold the caret', () => {
+    const root = makeRoot('<p><strong><br></strong></p><p>x</p>');
+    caretIn(root.children[1]); // caret in the non-empty block
+    expect(formatForSerialize(root)).toBe('<p></p>\n<p>x</p>');
+  });
+
+  it('collapses to <p></p> when the caret block carries no wrapper', () => {
+    const root = makeRoot('<p>x</p><p><br></p>');
+    caretIn(root.children[1]);
+    expect(formatForSerialize(root)).toBe('<p>x</p>\n<p></p>');
+  });
+
+  it('round-trips a saved empty wrapper while the caret stays inside it', () => {
+    const saved = '<p><strong></strong></p>';
+    const root = makeRoot(saved);
+    injectEmptyBlockPlaceholders(root); // -> <p><strong><br></strong></p>
+    caretIn(root.querySelector('strong')!);
+    expect(formatForSerialize(root)).toBe(saved);
+  });
+});

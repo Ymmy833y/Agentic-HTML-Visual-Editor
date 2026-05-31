@@ -9,6 +9,10 @@ export interface CommandContext {
 }
 
 export type InlineTag = 'strong' | 'em' | 'code' | 's';
+
+/** Uppercase tag names of the inline formats the editor can toggle. Single
+ * source of truth shared with editor-core (Enter format inheritance). */
+export const INLINE_FORMAT_TAGS = new Set(['STRONG', 'EM', 'CODE', 'S']);
 export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
 
 const BLOCK_TAGS = new Set([
@@ -718,7 +722,9 @@ function splitAtEnd(el: HTMLElement, range: Range): void {
   unwrap(el);
 }
 
-const INLINE_CLEANUP_SELECTOR = 'strong,em,code,s';
+const INLINE_CLEANUP_SELECTOR = Array.from(INLINE_FORMAT_TAGS)
+  .map((t) => t.toLowerCase())
+  .join(',');
 
 /**
  * Remove empty inline elements and merge adjacent same-tag siblings across
