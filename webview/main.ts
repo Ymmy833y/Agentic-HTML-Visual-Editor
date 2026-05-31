@@ -5,6 +5,7 @@
 // prefix/suffix splice.
 
 import { parseBodyContent, sanitizeFragment, splitAroundBody } from './renderer';
+import { formatForSerialize } from './serialize';
 import { setupEditor } from './editor-core';
 import { createToolbar } from './toolbar';
 import { mountFloatingMenu } from './floating-menu';
@@ -68,7 +69,7 @@ function mountFromSource(source: string): void {
 
 function serialize(): string | null {
   if (!root) return null;
-  return prefix + root.innerHTML + suffix;
+  return prefix + formatForSerialize(root) + suffix;
 }
 
 const editor = setupEditor(root, () => {
