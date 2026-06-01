@@ -39,7 +39,7 @@ export function addComment(ctx: CommandContext): HTMLElement | null {
 }
 
 /** Remove a comment highlight, discarding body/replies but keeping target text. */
-export function removeComment(_ctx: CommandContext, comment: HTMLElement): void {
+export function removeComment(_ctx: CommandContext, comment: Element): void {
   for (const child of Array.from(comment.children)) {
     const t = child.tagName.toLowerCase();
     if (t === 'comment-body' || t === 'comment-reply') child.remove();

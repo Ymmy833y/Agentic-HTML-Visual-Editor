@@ -122,7 +122,7 @@ function clampPercent(value: number): number {
 }
 
 function ensureColgroup(table: HTMLTableElement, model: TableModel): HTMLElement {
-  let cg = table.querySelector(':scope > colgroup');
+  let cg = table.querySelector(':scope > colgroup') as HTMLElement;
   if (!cg) {
     cg = document.createElement('colgroup');
     table.insertBefore(cg, table.firstChild);

@@ -12,10 +12,10 @@ export interface CommentPopupOptions {
 }
 
 export interface CommentPopupHandle {
-  open(comment: HTMLElement): void;
+  open(comment: Element): void;
   close(): void;
   /** Re-render in place if the currently open comment is the given one (after external edits). */
-  refreshIfOpen(comment: HTMLElement): void;
+  refreshIfOpen(comment: Element): void;
   /** Returns the popup root element so the page can ignore clicks targeting it. */
   element(): HTMLElement;
 }
@@ -27,7 +27,7 @@ export function mountCommentPopup(
   root: HTMLElement,
   opts: CommentPopupOptions,
 ): CommentPopupHandle {
-  let current: HTMLElement | null = null;
+  let current: Element | null = null;
 
   const popup = document.createElement('div');
   popup.id = 'hw-comment-popup';
@@ -106,7 +106,7 @@ export function mountCommentPopup(
   window.addEventListener('scroll', () => reposition(), { passive: true });
   window.addEventListener('resize', () => reposition());
 
-  function open(comment: HTMLElement): void {
+  function open(comment: Element): void {
     current = comment;
     render();
     popup.hidden = false;
@@ -118,7 +118,7 @@ export function mountCommentPopup(
     popup.hidden = true;
   }
 
-  function refreshIfOpen(comment: HTMLElement): void {
+  function refreshIfOpen(comment: Element): void {
     if (current === comment) render();
   }
 
@@ -186,7 +186,7 @@ export function mountCommentPopup(
     }
   }
 
-  function renderReplyRow(reply: HTMLElement): HTMLElement {
+  function renderReplyRow(reply: Element): HTMLElement {
     const row = document.createElement('div');
     row.className = 'hw-cp-reply-row';
 
@@ -211,7 +211,7 @@ export function mountCommentPopup(
     return row;
   }
 
-  function editReply(reply: HTMLElement, row: HTMLElement): void {
+  function editReply(reply: Element, row: HTMLElement): void {
     const ta = document.createElement('textarea');
     ta.className = 'hw-cp-reply-input';
     ta.value = reply.textContent ?? '';
