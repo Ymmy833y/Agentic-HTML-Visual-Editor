@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { setupTooltip } from '../../webview/tooltip';
+import { setupTooltip } from '../../webview/ui/tooltip';
 
 afterEach(() => {
   document.body.replaceChildren();

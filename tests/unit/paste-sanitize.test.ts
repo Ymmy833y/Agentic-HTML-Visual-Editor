@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupPastedFragment } from '../../webview/paste-sanitize';
+import { cleanupPastedFragment } from '../../webview/features/clipboard/paste-sanitize';
 import { clearDom } from './helpers/selection';
 
 afterEach(clearDom);

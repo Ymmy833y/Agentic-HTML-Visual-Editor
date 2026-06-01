@@ -10,6 +10,10 @@
 // human-edited HTML stays compact, while user-meaningful properties
 // (color, background-color, text-align, structural width/height) survive.
 
+import { unwrap } from '../../shared/dom-utils';
+
+// Lowercase block tags used here for the text-align style allowance. Distinct
+// from shared/constants BLOCK_TAGS (uppercase, no td/th) on purpose.
 const BLOCK_TAGS = new Set([
   'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
   'blockquote', 'pre', 'div', 'li', 'td', 'th',
@@ -162,9 +166,3 @@ function unwrapBareStyleWrappers(root: ParentNode): void {
   }
 }
 
-function unwrap(el: Element): void {
-  const parent = el.parentNode;
-  if (!parent) return;
-  while (el.firstChild) parent.insertBefore(el.firstChild, el);
-  el.remove();
-}

@@ -2,9 +2,22 @@
 // when the click target sits inside a <td>/<th>; otherwise yields to the
 // browser. Each menu entry maps to a structural command in table-commands.
 
-import * as tcmd from './table-commands';
-import { boundingRect, buildTableModel, findCell, findCellPosition, tightenRect } from './table-dom';
-import type { CommandContext } from './commands';
+import {
+  convertColumnToBody,
+  convertColumnToHeader,
+  convertRowToHeader,
+  deleteColumn,
+  deleteRow,
+  deleteTable,
+  insertColumn,
+  insertRow,
+  isColumnHeader,
+  removeHeader,
+} from './structure-commands';
+import { mergeCells, splitCell } from './merge-commands';
+import { getTableWidthMode, setTableWidthMode } from './width-commands';
+import { boundingRect, buildTableModel, findCell, findCellPosition, tightenRect } from './table-model';
+import type { CommandContext } from '../../shared/command-context';
 
 export interface TableMenuOptions {
   /** Called after the menu has applied a DOM mutation so the editor can serialize. */
@@ -117,34 +130,34 @@ export function mountTableMenu(
     items.push({
       label: 'Insert row above',
       enabled: true,
-      onPick: () => tcmd.insertRow(cell, 'above'),
+      onPick: () => insertRow(cell, 'above'),
     });
     items.push({
       label: 'Insert row below',
       enabled: true,
-      onPick: () => tcmd.insertRow(cell, 'below'),
+      onPick: () => insertRow(cell, 'below'),
     });
     items.push({ label: '-', enabled: true, onPick: () => {} });
     items.push({
       label: 'Insert column left',
       enabled: true,
-      onPick: () => tcmd.insertColumn(cell, 'left'),
+      onPick: () => insertColumn(cell, 'left'),
     });
     items.push({
       label: 'Insert column right',
       enabled: true,
-      onPick: () => tcmd.insertColumn(cell, 'right'),
+      onPick: () => insertColumn(cell, 'right'),
     });
     items.push({ label: '-', enabled: true, onPick: () => {} });
     items.push({
       label: 'Delete row',
       enabled: true,
-      onPick: () => tcmd.deleteRow(cell, ctx),
+      onPick: () => deleteRow(cell, ctx),
     });
     items.push({
       label: 'Delete column',
       enabled: true,
-      onPick: () => tcmd.deleteColumn(cell, ctx),
+      onPick: () => deleteColumn(cell, ctx),
     });
     items.push({ label: '-', enabled: true, onPick: () => {} });
 
@@ -152,13 +165,13 @@ export function mountTableMenu(
       items.push({
         label: 'Convert row to body',
         enabled: true,
-        onPick: () => tcmd.removeHeader(cell),
+        onPick: () => removeHeader(cell),
       });
     } else {
       items.push({
         label: 'Convert row to header',
         enabled: true,
-        onPick: () => tcmd.convertRowToHeader(cell),
+        onPick: () => convertRowToHeader(cell),
       });
     }
 
@@ -168,13 +181,13 @@ export function mountTableMenu(
       const table = cell.closest('table');
       const model = table ? buildTableModel(table) : null;
       const pos = model ? findCellPosition(model, cell) : null;
-      const isHeaderCol = !!(table && pos && tcmd.isColumnHeader(table, pos.col));
+      const isHeaderCol = !!(table && pos && isColumnHeader(table, pos.col));
       items.push({
         label: isHeaderCol ? 'Convert column to body' : 'Convert column to header',
         enabled: true,
         onPick: () => {
-          if (isHeaderCol) tcmd.convertColumnToBody(cell);
-          else tcmd.convertColumnToHeader(cell);
+          if (isHeaderCol) convertColumnToBody(cell);
+          else convertColumnToHeader(cell);
         },
       });
     }
@@ -183,12 +196,12 @@ export function mountTableMenu(
     {
       const table = cell.closest('table');
       if (table) {
-        const mode = tcmd.getTableWidthMode(table);
+        const mode = getTableWidthMode(table);
         items.push({
           label: mode === 'percent' ? 'Use pixel widths' : 'Use percentage widths',
           enabled: true,
           onPick: () => {
-            tcmd.setTableWidthMode(table, mode === 'percent' ? 'px' : 'percent');
+            setTableWidthMode(table, mode === 'percent' ? 'px' : 'percent');
           },
         });
       }
@@ -200,7 +213,7 @@ export function mountTableMenu(
         label: 'Merge cells',
         enabled: canMerge(cell, mergeTarget),
         onPick: () => {
-          tcmd.mergeCells(mergeTarget, cell);
+          mergeCells(mergeTarget, cell);
         },
       });
     }
@@ -209,7 +222,7 @@ export function mountTableMenu(
       items.push({
         label: 'Split cell',
         enabled: true,
-        onPick: () => tcmd.splitCell(cell),
+        onPick: () => splitCell(cell),
       });
     }
 
@@ -219,7 +232,7 @@ export function mountTableMenu(
       enabled: true,
       onPick: () => {
         const table = cell.closest('table');
-        if (table) tcmd.deleteTable(table, ctx);
+        if (table) deleteTable(table, ctx);
       },
     });
 

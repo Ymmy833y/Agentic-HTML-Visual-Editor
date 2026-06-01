@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toConfluenceHtml } from '../../webview/confluence';
+import { toConfluenceHtml } from '../../webview/features/clipboard/confluence';
 
 describe('toConfluenceHtml', () => {
   it('strips <comment-body> and <comment-reply> children and unwraps <comment>', () => {

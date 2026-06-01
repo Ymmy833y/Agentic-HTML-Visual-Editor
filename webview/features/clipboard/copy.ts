@@ -3,7 +3,7 @@
 // write through vscode.env.clipboard.
 
 import { toConfluenceHtml } from './confluence';
-import type { CopyFormat } from '../src/shared/messages';
+import type { CopyFormat } from '../../../src/shared/messages';
 
 // Inline wrappers that survive cloneContents. When a user selects text whose
 // range boundaries land inside one of these elements but cover its full

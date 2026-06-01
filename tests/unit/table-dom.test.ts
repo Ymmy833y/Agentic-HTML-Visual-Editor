@@ -7,7 +7,7 @@ import {
   findCellPosition,
   findTable,
   tightenRect,
-} from '../../webview/table-dom';
+} from '../../webview/features/table/table-model';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(clearDom);

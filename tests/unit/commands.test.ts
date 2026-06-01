@@ -1,16 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  addComment,
-  clearFormatting,
-  type CommandContext,
-  findInlineAncestor,
-  getCurrentBlockTag,
-  insertHr,
-  insertLink,
-  removeComment,
-  setBlockTag,
-  toggleInline,
-} from '../../webview/commands';
+import { clearFormatting, toggleInline } from '../../webview/commands/inline-format';
+import { insertHr, setBlockTag } from '../../webview/commands/block-format';
+import { insertLink } from '../../webview/commands/link';
+import { findInlineAncestor, getCurrentBlockTag } from '../../webview/commands/query';
+import { addComment, removeComment } from '../../webview/features/comment/comment-commands';
+import type { CommandContext } from '../../webview/shared/command-context';
 import { caretAtStart, clearDom, makeRoot, selectContents, selectTextRange } from './helpers/selection';
 
 afterEach(clearDom);
@@ -200,7 +194,7 @@ describe('removeComment', () => {
       '<p>before <comment id="c1">target<comment-body>note</comment-body><comment-reply>r1</comment-reply></comment> after</p>',
     );
     const comment = root.querySelector('comment')!;
-    removeComment(ctxOf(root), comment as HTMLElement);
+    removeComment(ctxOf(root), comment);
     expect(root.innerHTML).toBe('<p>before target after</p>');
   });
 });

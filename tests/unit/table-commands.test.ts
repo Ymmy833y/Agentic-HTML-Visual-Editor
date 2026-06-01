@@ -8,18 +8,19 @@ import {
   deleteColumn,
   deleteRow,
   deleteTable,
-  getTableWidthMode,
   insertColumn,
   insertRow,
   insertTable,
   isColumnHeader,
-  mergeCells,
   removeHeader,
+} from '../../webview/features/table/structure-commands';
+import { mergeCells, splitCell } from '../../webview/features/table/merge-commands';
+import {
+  getTableWidthMode,
   setColumnWidth,
   setTableWidthMode,
-  splitCell,
-} from '../../webview/table-commands';
-import type { CommandContext } from '../../webview/commands';
+} from '../../webview/features/table/width-commands';
+import type { CommandContext } from '../../webview/shared/command-context';
 import { caretAtEnd, caretAtStart, clearDom, makeRoot, selectTextRange } from './helpers/selection';
 
 afterEach(clearDom);

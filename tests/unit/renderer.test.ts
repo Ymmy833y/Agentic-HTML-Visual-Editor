@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseBodyContent, sanitizeFragment, splitAroundBody } from '../../webview/renderer';
+import { parseBodyContent, sanitizeFragment, splitAroundBody } from '../../webview/core/renderer';
 import { clearDom } from './helpers/selection';
 
 afterEach(clearDom);

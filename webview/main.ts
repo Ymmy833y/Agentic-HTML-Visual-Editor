@@ -4,22 +4,27 @@
 // body inner content; everything outside <body> is preserved verbatim via a
 // prefix/suffix splice.
 
-import { parseBodyContent, sanitizeFragment, splitAroundBody } from './renderer';
-import { formatForSerialize } from './serialize';
-import { setupEditor } from './editor-core';
-import { createToolbar } from './toolbar';
-import { mountFloatingMenu } from './floating-menu';
-import { openLinkDialog } from './link-dialog';
-import { prepareCopy } from './copy';
-import { cleanupPastedFragment } from './paste-sanitize';
-import * as cmd from './commands';
-import * as cdom from './comment-dom';
-import { mountCommentPopup } from './comment-popup';
-import { mountTablePicker } from './table-picker';
-import { mountTableMenu } from './table-menu';
-import { mountTableResize } from './table-resize';
-import * as tcmd from './table-commands';
-import { findCell, findTable } from './table-dom';
+import { parseBodyContent, sanitizeFragment, splitAroundBody } from './core/renderer';
+import { formatForSerialize } from './core/serialize';
+import { setupEditor } from './core/editor-core';
+import { clearFormatting, toggleInline } from './commands/inline-format';
+import { setBlockTag, type BlockTag } from './commands/block-format';
+import { insertLink } from './commands/link';
+import { findInlineAncestor } from './commands/query';
+import type { CommandContext } from './shared/command-context';
+import { createToolbar } from './ui/toolbar';
+import { mountFloatingMenu } from './ui/floating-menu';
+import { openLinkDialog } from './ui/link-dialog';
+import { prepareCopy } from './features/clipboard/copy';
+import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
+import * as cdom from './features/comment/comment-dom';
+import { addComment } from './features/comment/comment-commands';
+import { mountCommentPopup } from './features/comment/comment-popup';
+import { mountTablePicker } from './features/table/table-picker';
+import { mountTableMenu } from './features/table/table-menu';
+import { mountTableResize } from './features/table/table-resize';
+import { adjacentCell, appendRowAtEnd, insertTable } from './features/table/structure-commands';
+import { findCell, findTable } from './features/table/table-model';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
@@ -80,14 +85,14 @@ const editor = setupEditor(root, () => {
   vscode.postMessage({ type: 'edit', html });
 });
 
-const ctx: cmd.CommandContext = { root };
+const ctx: CommandContext = { root };
 
 async function handleLink(): Promise<void> {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
 
   const initialRange = sel.getRangeAt(0);
-  const existing = cmd.findInlineAncestor(initialRange.startContainer, 'A', root!);
+  const existing = findInlineAncestor(initialRange.startContainer, 'A', root!);
   const currentUrl = existing?.getAttribute('href') ?? '';
 
   // Capture the selection so we can restore it after the dialog steals focus.
@@ -109,9 +114,9 @@ async function handleLink(): Promise<void> {
   sel.addRange(savedRange);
 
   if (result.action === 'remove') {
-    cmd.insertLink('', ctx);
+    insertLink('', ctx);
   } else {
-    cmd.insertLink(result.url, ctx);
+    insertLink(result.url, ctx);
   }
   editor.notifyChanged();
 }
@@ -127,7 +132,7 @@ const commentPopup = mountCommentPopup(root, {
 });
 
 function handleAddComment(): void {
-  const comment = cmd.addComment(ctx);
+  const comment = addComment(ctx);
   if (!comment) return;
   editor.notifyChanged();
   commentPopup.open(comment);
@@ -158,7 +163,7 @@ function setMergeAnchor(cell: HTMLTableCellElement | null): void {
 const tablePicker = mountTablePicker({
   onPick: (rows, cols, withHeader) => {
     root.focus();
-    tcmd.insertTable({ rows, cols, withHeader }, ctx);
+    insertTable({ rows, cols, withHeader }, ctx);
     editor.notifyChanged();
   },
 });
@@ -327,11 +332,11 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
       if (cell) {
         e.preventDefault();
         const direction = e.shiftKey ? 'prev' : 'next';
-        let target = tcmd.adjacentCell(cell, direction);
+        let target = adjacentCell(cell, direction);
         if (!target && direction === 'next') {
           const table = findTable(cell, root);
           if (table) {
-            target = tcmd.appendRowAtEnd(table);
+            target = appendRowAtEnd(table);
             editor.notifyChanged();
           }
         }
@@ -351,13 +356,13 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
     const key = e.key.toLowerCase();
     if (key === 'b') {
       e.preventDefault();
-      cmd.toggleInline('strong', ctx);
+      toggleInline('strong', ctx);
       editor.notifyChanged();
       return;
     }
     if (key === 'i') {
       e.preventDefault();
-      cmd.toggleInline('em', ctx);
+      toggleInline('em', ctx);
       editor.notifyChanged();
       return;
     }
@@ -368,7 +373,7 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
     }
     if (e.key === '\\') {
       e.preventDefault();
-      cmd.clearFormatting(ctx);
+      clearFormatting(ctx);
       editor.notifyChanged();
       return;
     }
@@ -382,13 +387,13 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
     }
     if (/^[1-6]$/.test(e.key)) {
       e.preventDefault();
-      cmd.setBlockTag(('h' + e.key) as cmd.BlockTag, ctx);
+      setBlockTag(('h' + e.key) as BlockTag, ctx);
       editor.notifyChanged();
       return;
     }
     if (e.key === '0') {
       e.preventDefault();
-      cmd.setBlockTag('p', ctx);
+      setBlockTag('p', ctx);
       editor.notifyChanged();
       return;
     }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { injectEmptyBlockPlaceholders } from '../../webview/placeholder';
+import { injectEmptyBlockPlaceholders } from '../../webview/core/placeholder';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {
