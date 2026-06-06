@@ -17,9 +17,9 @@
     "commands": [
       {
         "command": "htmlWysiwyg.openInWysiwyg",
-        "title": "WYSIWYG で開く",
+        "title": "Open in WYSIWYG",
         "category": "HTML WYSIWYG",
-        "icon": "$(preview)"
+        "icon": "$(edit)"
       },
       {
         "command": "htmlWysiwyg.copyAsHtml",

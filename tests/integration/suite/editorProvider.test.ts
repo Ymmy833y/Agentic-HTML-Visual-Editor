@@ -6,6 +6,16 @@ suite('HtmlWysiwygEditorProvider', () => {
   suiteSetup(activateExtension);
   teardown(closeAllEditors);
 
+  test('the custom editor tab is labelled with filename and (WYSIWYG) suffix', async () => {
+    const uri = fixtureUri('sample.html');
+    await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg', uri);
+    await sleep(500);
+
+    const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+    const wysiwygTab = allTabs.find((t) => t.label === 'sample.html (WYSIWYG)');
+    assert.ok(wysiwygTab, 'WYSIWYG tab should have a "(WYSIWYG)" suffix in its label');
+  });
+
   test('the custom editor accepts a workspace edit to the underlying document', async () => {
     const uri = fixtureUri('sample.html');
     await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg', uri);
