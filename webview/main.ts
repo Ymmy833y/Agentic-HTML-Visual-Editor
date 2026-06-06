@@ -6,6 +6,8 @@
 
 import { parseBodyContent, sanitizeFragment, splitAroundBody } from './core/renderer';
 import { formatForSerialize } from './core/serialize';
+import { injectEmptyBlockPlaceholders } from './core/placeholder';
+import { captureSelection, restoreSelection } from './core/selection';
 import { setupEditor } from './core/editor-core';
 import { clearFormatting, toggleInline } from './commands/inline-format';
 import { setBlockTag, type BlockTag } from './commands/block-format';
@@ -58,15 +60,16 @@ let lastSyncedHtml: string | null = null;
 function mountFromSource(source: string): void {
   if (!root) return;
   const split = splitAroundBody(source);
-  if (split) {
-    prefix = split.prefix;
-    suffix = split.suffix;
-    root.replaceChildren(parseBodyContent(split.bodyInner));
-  } else {
-    prefix = '';
-    suffix = '';
-    root.replaceChildren(parseBodyContent(source));
-  }
+  const bodyInner = split ? split.bodyInner : source;
+  prefix = split ? split.prefix : '';
+  suffix = split ? split.suffix : '';
+  const fragment = parseBodyContent(bodyInner);
+  // Empty editable blocks (e.g. `<p></p>` or a saved `<p><strong></strong></p>`)
+  // need a `<br>` placeholder so contenteditable can place a caret inside them;
+  // without it the block renders uneditable. The serializer strips the
+  // placeholder back out on save.
+  injectEmptyBlockPlaceholders(fragment);
+  root.replaceChildren(fragment);
   // Mark <comment-body>/<comment-reply> in the freshly mounted DOM as
   // non-editable so contenteditable does not let the user type inside them.
   for (const c of cdom.commentsInDocumentOrder(root)) cdom.lockChildren(c);
@@ -407,11 +410,17 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       lastSyncedHtml = message.html;
       mountFromSource(message.html);
       break;
-    case 'documentChanged':
+    case 'documentChanged': {
       if (message.html === lastSyncedHtml) return;
       lastSyncedHtml = message.html;
+      // A save echo remounts the whole DOM, invalidating the live Selection.
+      // Capture the caret as a whitespace-stable path before the remount and
+      // restore it afterward so Ctrl+S does not bounce the cursor to the top.
+      const saved = captureSelection(root);
       mountFromSource(message.html);
+      if (saved) restoreSelection(root, saved);
       break;
+    }
     case 'copyToClipboard':
       doCopy(message.format);
       break;
