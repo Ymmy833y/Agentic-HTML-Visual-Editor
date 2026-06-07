@@ -38,6 +38,12 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist')],
     };
 
+    const fileName = document.uri.path.split('/').at(-1) ?? '';
+    webviewPanel.title = `${fileName} (WYSIWYG)`;
+    webviewPanel.iconPath = {
+      light: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'wysiwyg-light.svg'),
+      dark: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'wysiwyg-dark.svg'),
+    };
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
 
     HtmlWysiwygEditorProvider.activePanel = webviewPanel;
