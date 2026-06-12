@@ -176,6 +176,44 @@ describe('setupEditor: Enter inside list with nested children', () => {
   });
 });
 
+describe('setupEditor: Enter inside <summary>', () => {
+  it('moves the caret to the existing body block instead of splitting', () => {
+    const root = makeRoot('<details open=""><summary>title</summary><p>body</p></details>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('summary')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    // No second summary was created.
+    expect(root.querySelectorAll('summary')).toHaveLength(1);
+    const body = root.querySelector('p')!;
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(body);
+    expect(sel.anchorOffset).toBe(0);
+  });
+
+  it('creates an empty <p> body when the summary has no following block', () => {
+    const root = makeRoot('<details open=""><summary>title</summary></details>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('summary')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<details open=""><summary>title</summary><p><br></p></details>',
+    );
+  });
+
+  it('opens a collapsed details so the caret destination is visible', () => {
+    const root = makeRoot('<details><summary>title</summary><p>body</p></details>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('summary')!);
+
+    dispatchBeforeInput(root, 'insertParagraph');
+    expect(root.querySelector('details')!.hasAttribute('open')).toBe(true);
+  });
+});
+
 describe('setupEditor: normalizes browser presentational tags', () => {
   it('rewrites a <b> the browser inserted into <strong> on input', () => {
     const root = makeRoot('<p><b>S</b></p>');

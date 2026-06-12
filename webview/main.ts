@@ -22,6 +22,7 @@ import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
 import * as cdom from './features/comment/comment-dom';
 import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
+import { mountDetails } from './features/details/details';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -221,6 +222,12 @@ root.addEventListener('click', (e: MouseEvent) => {
   // Plain click on a cell: remember it and clear any prior merge anchor.
   lastClickedCell = cell;
   setMergeAnchor(null);
+});
+
+// Click the disclosure marker to open/close a <details> (native toggle is
+// suppressed inside contenteditable).
+mountDetails(root, {
+  onChange: () => editor.notifyChanged(),
 });
 
 // Selection-driven floating menu.

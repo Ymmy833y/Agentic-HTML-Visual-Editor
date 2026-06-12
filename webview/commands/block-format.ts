@@ -14,6 +14,9 @@ export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
 
   const block = findBlockAncestor(range.startContainer, ctx.root);
   if (!block) return;
+  // <summary>/<details> are structural; never rewrite them into a paragraph or
+  // heading just because the caret happens to sit inside one.
+  if (block.tagName === 'SUMMARY' || block.tagName === 'DETAILS') return;
 
   const replacement = document.createElement(tag);
   for (const attr of Array.from(block.attributes)) {
@@ -25,6 +28,42 @@ export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
   const r = document.createRange();
   r.selectNodeContents(replacement);
   r.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/**
+ * Insert a collapsible `<details>` (with a `<summary>` title and an empty body
+ * paragraph) below the current block. Inserted open so the body is immediately
+ * visible/editable; the summary text is selected so typing overwrites the
+ * "Details" placeholder.
+ */
+export function insertDetails(ctx: CommandContext): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+
+  const block = findBlockAncestor(range.startContainer, ctx.root);
+
+  const details = document.createElement('details');
+  details.setAttribute('open', '');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Details';
+  const body = document.createElement('p');
+  body.appendChild(document.createElement('br'));
+  details.appendChild(summary);
+  details.appendChild(body);
+
+  if (block && block.parentNode) {
+    block.parentNode.insertBefore(details, block.nextSibling);
+    if (isBlockEmpty(block)) block.remove();
+  } else {
+    ctx.root.appendChild(details);
+  }
+
+  // Select the summary text so the user can type a title over the placeholder.
+  const r = document.createRange();
+  r.selectNodeContents(summary);
   sel.removeAllRanges();
   sel.addRange(r);
 }

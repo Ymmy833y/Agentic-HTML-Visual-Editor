@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { clearFormatting, toggleInline } from '../../webview/commands/inline-format';
-import { insertHr, setBlockTag } from '../../webview/commands/block-format';
+import { insertDetails, insertHr, setBlockTag } from '../../webview/commands/block-format';
 import { insertLink } from '../../webview/commands/link';
 import { findInlineAncestor, getCurrentBlockTag } from '../../webview/commands/query';
 import { addComment, removeComment } from '../../webview/features/comment/comment-commands';
@@ -79,6 +79,46 @@ describe('setBlockTag', () => {
     sel.addRange(r);
     setBlockTag('h1', ctxOf(root));
     expect(root.innerHTML).toBe('plain text');
+  });
+
+  it('leaves a <summary> tag untouched (does not rewrite to a heading)', () => {
+    const root = makeRoot('<details open><summary>title</summary><p>body</p></details>');
+    caretAtStart(root.querySelector('summary')!);
+    setBlockTag('h1', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<details open=""><summary>title</summary><p>body</p></details>',
+    );
+  });
+});
+
+describe('insertDetails', () => {
+  it('inserts an open <details> with a summary and empty body after the block', () => {
+    const root = makeRoot('<p>hello</p>');
+    caretAtStart(root.querySelector('p')!);
+    insertDetails(ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<p>hello</p><details open=""><summary>Details</summary><p><br></p></details>',
+    );
+  });
+
+  it('removes the original block if it is empty', () => {
+    const root = makeRoot('<p></p>');
+    caretAtStart(root.querySelector('p')!);
+    insertDetails(ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<details open=""><summary>Details</summary><p><br></p></details>',
+    );
+  });
+
+  it('selects the summary contents so typing overwrites the placeholder', () => {
+    const root = makeRoot('<p>hello</p>');
+    caretAtStart(root.querySelector('p')!);
+    insertDetails(ctxOf(root));
+    const sel = window.getSelection()!;
+    const summary = root.querySelector('summary')!;
+    expect(sel.isCollapsed).toBe(false);
+    expect(sel.toString()).toBe('Details');
+    expect(summary.contains(sel.getRangeAt(0).commonAncestorContainer)).toBe(true);
   });
 });
 

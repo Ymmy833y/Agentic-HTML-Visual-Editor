@@ -20,14 +20,14 @@
 
 export const EMPTYABLE_BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
-  'BLOCKQUOTE', 'DIV', 'LI',
+  'BLOCKQUOTE', 'DIV', 'LI', 'SUMMARY',
 ]);
 
 const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
   'UL', 'OL', 'HR', 'FIGURE', 'FIGCAPTION',
-  'TABLE',
+  'TABLE', 'DETAILS', 'SUMMARY',
 ]);
 
 const OPAQUE_TAGS = new Set([

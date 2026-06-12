@@ -42,6 +42,13 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
 
   root.addEventListener('beforeinput', (e: InputEvent) => {
     if (e.inputType === 'insertParagraph') {
+      // Enter inside a <summary> must not split it into two summaries; move the
+      // caret into the details body instead.
+      if (handleSummaryEnter(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
       if (handleEnter(root)) {
         e.preventDefault();
         scheduleChange();
@@ -105,6 +112,42 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
       scheduleChange();
     },
   };
+}
+
+/**
+ * Enter inside a <summary>: rather than letting the browser split the summary
+ * (which produces an invalid second <summary>), drop the caret into the
+ * details body. The first block after the summary is reused if present;
+ * otherwise an empty <p> is created. A collapsed details is opened first so the
+ * caret's destination is visible.
+ */
+function handleSummaryEnter(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const summary = findAncestor(range.startContainer, 'SUMMARY', root);
+  if (!summary) return false;
+
+  const details = summary.parentElement;
+  if (details && details.tagName === 'DETAILS' && !details.hasAttribute('open')) {
+    details.setAttribute('open', '');
+  }
+
+  let body = summary.nextElementSibling as HTMLElement | null;
+  if (!body || !BLOCK_TAGS.has(body.tagName)) {
+    body = document.createElement('p');
+    body.appendChild(document.createElement('br'));
+    summary.after(body);
+  }
+
+  const newRange = document.createRange();
+  newRange.setStart(body, 0);
+  newRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(newRange);
+  return true;
 }
 
 /**

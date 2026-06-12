@@ -11,6 +11,7 @@
 export const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
+  'DETAILS', 'SUMMARY',
 ]);
 
 /**
