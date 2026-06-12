@@ -3,7 +3,7 @@
 // serialized and pushed back to the extension host.
 
 import { clearFormatting, isRangeCovered, toggleInline } from '../commands/inline-format';
-import { insertHr, setBlockTag, type BlockTag } from '../commands/block-format';
+import { insertDetails, insertHr, setBlockTag, type BlockTag } from '../commands/block-format';
 import { findInlineAncestor, getCurrentBlockTag } from '../commands/query';
 import type { CommandContext } from '../shared/command-context';
 import type { CopyFormat } from '../../src/shared/messages';
@@ -117,6 +117,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   group(bar, [linkBtn(opts.onLink)]);
   group(bar, [
     textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
+    textBtn('Details', 'Insert collapsible section', () => { insertDetails(ctx); opts.onCommand(); }),
     tableBtn(opts.onInsertTable),
     commentBtn(opts.onAddComment),
   ]);

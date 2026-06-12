@@ -58,6 +58,18 @@ describe('injectEmptyBlockPlaceholders', () => {
     expect(inject('\n  <p></p>\n')).toBe('\n  <p><br></p>\n');
   });
 
+  it('injects a <br> placeholder into an empty <summary>', () => {
+    expect(inject('<details><summary></summary><p>body</p></details>')).toBe(
+      '<details><summary><br></summary><p>body</p></details>',
+    );
+  });
+
+  it('leaves a non-empty <summary> alone', () => {
+    expect(inject('<details><summary>title</summary><p>body</p></details>')).toBe(
+      '<details><summary>title</summary><p>body</p></details>',
+    );
+  });
+
   it('handles multiple empty blocks in one document', () => {
     expect(inject('<p>x</p>\n<p></p>\n<h1></h1>')).toBe(
       '<p>x</p>\n<p><br></p>\n<h1><br></h1>',

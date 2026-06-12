@@ -146,6 +146,38 @@ describe('formatForSerialize: round-trip idempotency', () => {
   });
 });
 
+describe('formatForSerialize: details / summary', () => {
+  // The summary and the body blocks are adjacent block siblings, so the
+  // serializer inserts its usual inter-block newline between them.
+  it('preserves the open attribute on an expanded details', () => {
+    expect(format('<details open=""><summary>t</summary><p>body</p></details>')).toBe(
+      '<details open=""><summary>t</summary>\n<p>body</p></details>',
+    );
+  });
+
+  it('keeps a collapsed details without an open attribute', () => {
+    expect(format('<details><summary>t</summary><p>body</p></details>')).toBe(
+      '<details><summary>t</summary>\n<p>body</p></details>',
+    );
+  });
+
+  it('strips the <br> placeholder from an empty summary', () => {
+    expect(format('<details><summary><br></summary><p>body</p></details>')).toBe(
+      '<details><summary></summary>\n<p>body</p></details>',
+    );
+  });
+
+  it('inserts a newline between a <details> and a sibling block', () => {
+    expect(format('<p>before</p><details><summary>t</summary><p>x</p></details><p>after</p>'))
+      .toBe('<p>before</p>\n<details><summary>t</summary>\n<p>x</p></details>\n<p>after</p>');
+  });
+
+  it('round-trips a saved details through parse + inject + serialize', () => {
+    const saved = '<details open=""><summary>Title</summary>\n<p>body</p></details>';
+    expect(roundtrip(saved)).toBe(saved);
+  });
+});
+
 describe('formatForSerialize: live DOM is untouched', () => {
   it('does not mutate the source root', () => {
     const root = makeRoot('<p>x</p><p><br></p>');

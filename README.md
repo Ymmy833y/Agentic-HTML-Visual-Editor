@@ -20,6 +20,7 @@ The AI outputs HTML that is as simple as possible, while users can view and edit
 ### Supported HTML
 - Inline: `strong`, `em`, `code`, `a`, `span`, and others
 - Block: `h1`–`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
+- Collapsible: `details`, `summary`
 - Lists: `ul`, `ol`, `li`
 - Tables: `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
 - Media: `img`
@@ -41,6 +42,9 @@ Common formatting can be invoked from both the keyboard and toolbar:
 - Keyboard: Ctrl+B (`<strong>`), Ctrl+I (`<em>`), Ctrl+K (`<a>`), converting text to headings with `#`, and more
 - Floating menu: Shows relevant actions based on the current selection
 - Toolbar: One-click access to major tags
+
+### Collapsible Sections
+Insert a `<details>`/`<summary>` block from the toolbar (the **Details** button). In the WYSIWYG view the section keeps its actual open/closed state — click the disclosure marker on the left of the summary to expand or collapse it (clicking the title text just edits it), and the open/closed state is saved back to the HTML. Pressing Enter inside the summary moves the caret into the body instead of splitting the summary.
 
 ### Table Editing
 Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units.
