@@ -24,6 +24,24 @@ export function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | nu
   return null;
 }
 
+/**
+ * Return the nearest enclosing list container (UL or OL) inside stopAt, or null.
+ * Walks caret→root and returns the FIRST list found, so the innermost list wins
+ * when lists are nested. UL/OL are intentionally not in BLOCK_TAGS (they are
+ * containers, not editable blocks), so this is kept separate from
+ * {@link findBlockAncestor}.
+ */
+export function findListContainer(node: Node, stopAt: Element): HTMLElement | null {
+  let cur: Node | null = node;
+  while (cur && cur !== stopAt) {
+    if (cur instanceof HTMLElement && (cur.tagName === 'UL' || cur.tagName === 'OL')) {
+      return cur;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
 /** Replace an element with its children (move children up, then remove the element). */
 export function unwrap(el: Element): void {
   const parent = el.parentNode;

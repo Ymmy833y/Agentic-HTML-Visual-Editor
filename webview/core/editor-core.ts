@@ -4,7 +4,7 @@
 // notifications so callers can serialize and push edits back.
 
 import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from '../shared/constants';
-import { findAncestor, findBlockAncestor } from '../shared/dom-utils';
+import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr } from '../shared/dom-utils';
 
 const DEBOUNCE_MS = 250;
 
@@ -45,6 +45,13 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
       // Enter inside a <summary> must not split it into two summaries; move the
       // caret into the details body instead.
       if (handleSummaryEnter(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+      // Enter in an empty list item exits the list as a fresh paragraph instead
+      // of inserting another empty item.
+      if (handleEmptyListItemEnter(root)) {
         e.preventDefault();
         scheduleChange();
         return;
@@ -144,6 +151,48 @@ function handleSummaryEnter(root: HTMLElement): boolean {
 
   const newRange = document.createRange();
   newRange.setStart(body, 0);
+  newRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(newRange);
+  return true;
+}
+
+/**
+ * Enter inside an empty <li> exits the list: a fresh paragraph is inserted
+ * after the outermost enclosing list and the empty item is removed. Only the
+ * last item of its list is handled here; an empty item in the middle falls
+ * through to the browser default (returns false).
+ */
+function handleEmptyListItemEnter(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const li = findAncestor(range.startContainer, 'LI', root);
+  if (!li) return false;
+  if (!isBlockEmptyOrStubBr(li)) return false;
+  if (li.nextElementSibling) return false; // not the last item
+
+  const list = li.parentElement;
+  if (!list || (list.tagName !== 'UL' && list.tagName !== 'OL')) return false;
+
+  // Walk up to the outermost list so the caret leaves every nesting level.
+  let topList: HTMLElement = list;
+  let ancestor = list.parentElement;
+  while (ancestor && ancestor !== root) {
+    if (ancestor.tagName === 'UL' || ancestor.tagName === 'OL') topList = ancestor;
+    ancestor = ancestor.parentElement;
+  }
+
+  const p = document.createElement('p');
+  p.appendChild(document.createElement('br'));
+  topList.after(p);
+  li.remove();
+  if (!Array.from(list.children).some((c) => c.tagName === 'LI')) list.remove();
+
+  const newRange = document.createRange();
+  newRange.setStart(p, 0);
   newRange.collapse(true);
   selection.removeAllRanges();
   selection.addRange(newRange);

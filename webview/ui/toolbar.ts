@@ -3,8 +3,8 @@
 // serialized and pushed back to the extension host.
 
 import { clearFormatting, isRangeCovered, toggleInline } from '../commands/inline-format';
-import { insertDetails, insertHr, setBlockTag, type BlockTag } from '../commands/block-format';
-import { findInlineAncestor, getCurrentBlockTag } from '../commands/query';
+import { insertDetails, insertHr, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
+import { findInlineAncestor, getCurrentBlockTag, getNearestListType } from '../commands/query';
 import type { CommandContext } from '../shared/command-context';
 import type { CopyFormat } from '../../src/shared/messages';
 import { setupTooltip } from './tooltip';
@@ -20,6 +20,12 @@ const ICON_CLIPBOARD = `<svg viewBox="0 0 16 16" width="16" height="16" fill="cu
 // Tilted eraser pressed against a baseline, with a divider marking where
 // the worn tip meets the body — universally read as "erase / clear".
 const ICON_CLEAR_FORMAT = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5L14 6.5L7.5 13H4L2 11L10 2.5Z"/><path d="M7 5.5L11 9.5"/><path d="M2.5 14h11"/></svg>`;
+
+// Bulleted list: three rows, each a dot bullet followed by a line.
+const ICON_UL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="2.5" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M6 4h8"/><path d="M6 8h8"/><path d="M6 12h8"/></svg>`;
+
+// Numbered list: three rows, each a numeral (1/2/3) followed by a line.
+const ICON_OL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 4h8"/><path d="M6 8h8"/><path d="M6 12h8"/><text x="0.5" y="5.5" font-size="5" fill="currentColor" stroke="none">1</text><text x="0.5" y="9.5" font-size="5" fill="currentColor" stroke="none">2</text><text x="0.5" y="13.5" font-size="5" fill="currentColor" stroke="none">3</text></svg>`;
 
 // ---
 
@@ -106,6 +112,16 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     opts.onCommand();
   });
 
+  const ulBtn = iconBtn(ICON_UL, 'Bulleted list', () => {
+    toggleList('ul', ctx);
+    opts.onCommand();
+  }, 'hw-tb-ul');
+
+  const olBtn = iconBtn(ICON_OL, 'Numbered list', () => {
+    toggleList('ol', ctx);
+    opts.onCommand();
+  }, 'hw-tb-ol');
+
   // --- Custom block-type dropdown (Plain / H1–H6 / Blockquote) ---
   const { wrapper: blockWrap, updateLabel } = buildBlockDropdown(
     ctx, opts, root, () => savedRange,
@@ -115,6 +131,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
   group(bar, [linkBtn(opts.onLink)]);
+  group(bar, [ulBtn, olBtn]);
   group(bar, [
     textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
     textBtn('Details', 'Insert collapsible section', () => { insertDetails(ctx); opts.onCommand(); }),
@@ -163,6 +180,10 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     strikeBtn.classList.toggle('hw-tb-active', covered('S'));
     codeInlineBtn.classList.toggle('hw-tb-active', covered('CODE'));
     codeBlockBtn.classList.toggle('hw-tb-active', blockTag === 'pre');
+
+    const listType = getNearestListType(node, root);
+    ulBtn.classList.toggle('hw-tb-active', listType === 'ul');
+    olBtn.classList.toggle('hw-tb-active', listType === 'ol');
     bar.querySelector<HTMLElement>('.hw-tb-link')
       ?.classList.toggle('hw-tb-active', !!findInlineAncestor(node, 'A', root));
   });
