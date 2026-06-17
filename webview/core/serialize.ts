@@ -123,17 +123,24 @@ export function isBlockEffectivelyEmpty(block: Element): boolean {
   return Array.from(block.childNodes).every(isPlaceholderOrEmptyWrapper);
 }
 
+// Void/replaced elements that are real content even with no children, so a
+// block holding only one of these is NOT empty (e.g. `<p><img></p>` must keep
+// its image). Without this, a childless non-block element would be mistaken
+// for an empty inline wrapper and pruned away.
+const VOID_CONTENT_TAGS = new Set(['IMG']);
+
 // A child counts as "placeholder/empty wrapper" if it is:
 //   - an empty text node,
 //   - a <br>, or
 //   - an inline element whose own children are all of the above.
-// Block elements never count, so nested blocks are preserved.
+// Block elements and void content elements (e.g. <img>) never count, so
+// nested blocks and images are preserved.
 function isPlaceholderOrEmptyWrapper(node: Node): boolean {
   if (node.nodeType === Node.TEXT_NODE) return (node as Text).data === '';
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as Element;
   if (el.tagName === 'BR') return true;
-  if (BLOCK_TAGS.has(el.tagName)) return false;
+  if (BLOCK_TAGS.has(el.tagName) || VOID_CONTENT_TAGS.has(el.tagName)) return false;
   return Array.from(el.childNodes).every(isPlaceholderOrEmptyWrapper);
 }
 
