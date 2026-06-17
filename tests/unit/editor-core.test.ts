@@ -176,6 +176,46 @@ describe('setupEditor: Enter inside list with nested children', () => {
   });
 });
 
+describe('setupEditor: Enter inside an empty list item', () => {
+  it('exits the list as a paragraph when the last item is empty', () => {
+    const root = makeRoot('<ul><li>a</li><li><br></li></ul>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('li')[1]);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<ul><li>a</li></ul><p><br></p>');
+  });
+
+  it('removes the whole list when its only item is empty', () => {
+    const root = makeRoot('<ul><li><br></li></ul>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p>');
+  });
+
+  it('leaves a non-empty item to the browser default', () => {
+    const root = makeRoot('<ul><li>ab</li></ul>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('leaves an empty middle item to the browser default', () => {
+    const root = makeRoot('<ul><li><br></li><li>b</li></ul>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});
+
 describe('setupEditor: Enter inside <summary>', () => {
   it('moves the caret to the existing body block instead of splitting', () => {
     const root = makeRoot('<details open=""><summary>title</summary><p>body</p></details>');

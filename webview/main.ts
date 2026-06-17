@@ -10,9 +10,10 @@ import { injectEmptyBlockPlaceholders } from './core/placeholder';
 import { captureSelection, restoreSelection } from './core/selection';
 import { setupEditor } from './core/editor-core';
 import { clearFormatting, toggleInline } from './commands/inline-format';
-import { setBlockTag, type BlockTag } from './commands/block-format';
+import { dedentListItem, indentListItem, setBlockTag, type BlockTag } from './commands/block-format';
 import { insertLink } from './commands/link';
 import { findInlineAncestor } from './commands/query';
+import { findAncestor } from './shared/dom-utils';
 import type { CommandContext } from './shared/command-context';
 import { createToolbar } from './ui/toolbar';
 import { mountFloatingMenu } from './ui/floating-menu';
@@ -357,6 +358,17 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
           sel.removeAllRanges();
           sel.addRange(r);
         }
+        return;
+      }
+
+      // Tab / Shift+Tab indent/dedent list items. Always preventDefault inside a
+      // list item so a literal tab is never inserted; notify only when the
+      // structure actually changed.
+      const li = findAncestor(range.startContainer, 'LI', root);
+      if (li) {
+        e.preventDefault();
+        const handled = e.shiftKey ? dedentListItem(ctx) : indentListItem(ctx);
+        if (handled) editor.notifyChanged();
         return;
       }
     }

@@ -2,7 +2,7 @@
 // formatting state (active block tag, enclosing inline element).
 
 import { BLOCK_TAGS } from '../shared/constants';
-import { findAncestor } from '../shared/dom-utils';
+import { findAncestor, findListContainer } from '../shared/dom-utils';
 
 /** Return the lowercase tag name of the nearest block ancestor inside root. */
 export function getCurrentBlockTag(node: Node, root: Element): string {
@@ -14,6 +14,12 @@ export function getCurrentBlockTag(node: Node, root: Element): string {
     cur = cur.parentNode;
   }
   return '';
+}
+
+/** Return the type of the nearest enclosing list container, or '' if none. */
+export function getNearestListType(node: Node, root: Element): 'ul' | 'ol' | '' {
+  const list = findListContainer(node, root);
+  return list ? (list.tagName.toLowerCase() as 'ul' | 'ol') : '';
 }
 
 /** Return the nearest ancestor element with tagName inside root. */
