@@ -5,6 +5,7 @@
 
 import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from '../shared/constants';
 import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr } from '../shared/dom-utils';
+import { toggleList } from '../commands/block-format';
 
 const DEBOUNCE_MS = 250;
 
@@ -27,6 +28,16 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
   root.spellcheck = false;
   root.setAttribute('role', 'textbox');
   root.setAttribute('aria-multiline', 'true');
+
+  // Make Enter insert <p> rather than the browser default <div>. Without this,
+  // a fresh line after a heading/list becomes a <div>, which keeps the output
+  // inconsistent and previously made the markdown block shortcuts (which run in
+  // plain text blocks) skip those lines.
+  try {
+    document.execCommand('defaultParagraphSeparator', false, 'p');
+  } catch {
+    // Not all environments expose execCommand; the shortcuts also accept <div>.
+  }
 
   let pending: number | null = null;
 
@@ -74,9 +85,26 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
         scheduleChange();
         return;
       }
+      // "``` + Enter" opens a code block.
+      if (handleCodeBlockShortcut(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
     }
     if (e.inputType === 'insertText' && e.data === ' ') {
       if (handleHeadingShortcut(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+      // "- " / "* " / "1. " start a list; "> " starts a blockquote.
+      if (handleListShortcut(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+      if (handleBlockquoteShortcut(root)) {
         e.preventDefault();
         scheduleChange();
         return;
@@ -373,6 +401,16 @@ function isInsignificantTail(node: Node): boolean {
 }
 
 /**
+ * The markdown block shortcuts fire only in a "plain" text block. Both <p> and
+ * <div> qualify: contenteditable's default Enter can still yield a <div> (and
+ * existing documents / AI output may use them), so restricting to <p> would make
+ * the shortcuts silently do nothing on those lines.
+ */
+function isPlainTextBlock(block: Element): boolean {
+  return block.tagName === 'P' || block.tagName === 'DIV';
+}
+
+/**
  * "# ", "## ", ..., "###### " typed at the start of a paragraph converts the
  * paragraph into the corresponding heading level. The leading "#" markers
  * are removed.
@@ -384,7 +422,7 @@ function handleHeadingShortcut(root: HTMLElement): boolean {
   if (!range.collapsed) return false;
 
   const block = findBlockAncestor(range.startContainer, root);
-  if (!block || block.tagName !== 'P') return false;
+  if (!block || !isPlainTextBlock(block)) return false;
 
   const beforeText = textBeforeCursor(range, block);
   const match = /^(#{1,6})$/.exec(beforeText);
@@ -396,6 +434,9 @@ function handleHeadingShortcut(root: HTMLElement): boolean {
   deleteRange.setStart(block, 0);
   deleteRange.setEnd(range.startContainer, range.startOffset);
   deleteRange.deleteContents();
+  // Drop any empty text node left by deleteContents so an emptied heading keeps
+  // its <br> placeholder instead of an invisible empty text node.
+  block.normalize();
 
   const heading = document.createElement('h' + level);
   while (block.firstChild) heading.appendChild(block.firstChild);
@@ -413,6 +454,111 @@ function handleHeadingShortcut(root: HTMLElement): boolean {
 }
 
 /**
+ * "- " / "* " (unordered) or "1. " (ordered) typed at the start of a paragraph
+ * turns it into a list. The marker is removed and the paragraph is converted
+ * via {@link toggleList}, reusing the same conversion the toolbar buttons use.
+ */
+function handleListShortcut(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const block = findBlockAncestor(range.startContainer, root);
+  if (!block || !isPlainTextBlock(block)) return false;
+
+  const before = textBeforeCursor(range, block);
+  let type: 'ul' | 'ol' | null = null;
+  if (before === '-' || before === '*') type = 'ul';
+  else if (before === '1.') type = 'ol';
+  if (!type) return false;
+
+  // Remove the marker, collapse the caret to the block start, then convert.
+  const deleteRange = document.createRange();
+  deleteRange.setStart(block, 0);
+  deleteRange.setEnd(range.startContainer, range.startOffset);
+  deleteRange.deleteContents();
+  // deleteContents can leave an empty text node behind. Drop it so an emptied
+  // block reports zero children and toggleList inserts a <br> placeholder;
+  // otherwise the resulting <li> holds an invisible empty text node.
+  block.normalize();
+
+  const caret = document.createRange();
+  caret.setStart(block, 0);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+
+  toggleList(type, { root });
+  return true;
+}
+
+/**
+ * "> " typed at the start of a paragraph turns it into a blockquote. The marker
+ * is removed; an empty quote keeps a <br> placeholder so it stays selectable.
+ */
+function handleBlockquoteShortcut(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const block = findBlockAncestor(range.startContainer, root);
+  if (!block || !isPlainTextBlock(block)) return false;
+
+  if (textBeforeCursor(range, block) !== '>') return false;
+
+  const deleteRange = document.createRange();
+  deleteRange.setStart(block, 0);
+  deleteRange.setEnd(range.startContainer, range.startOffset);
+  deleteRange.deleteContents();
+  // Drop any empty text node left by deleteContents so an emptied quote keeps
+  // its <br> placeholder instead of an invisible empty text node.
+  block.normalize();
+
+  const quote = document.createElement('blockquote');
+  while (block.firstChild) quote.appendChild(block.firstChild);
+  if (quote.childNodes.length === 0) {
+    quote.appendChild(document.createElement('br'));
+  }
+  block.replaceWith(quote);
+
+  const newRange = document.createRange();
+  newRange.setStart(quote, 0);
+  newRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(newRange);
+  return true;
+}
+
+/**
+ * "```" alone in a paragraph + Enter opens an (empty) code block for continued
+ * typing, mirroring the "---" thematic-break shortcut.
+ */
+function handleCodeBlockShortcut(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const block = findBlockAncestor(range.startContainer, root);
+  if (!block || !isPlainTextBlock(block)) return false;
+
+  if ((block.textContent ?? '').trim() !== '```') return false;
+
+  const pre = document.createElement('pre');
+  pre.appendChild(document.createElement('br'));
+  block.replaceWith(pre);
+
+  const newRange = document.createRange();
+  newRange.setStart(pre, 0);
+  newRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(newRange);
+  return true;
+}
+
+/**
  * "---" alone in a paragraph + Enter becomes an <hr> followed by a fresh
  * paragraph for continued typing.
  */
@@ -423,7 +569,7 @@ function handleThematicBreakShortcut(root: HTMLElement): boolean {
   if (!range.collapsed) return false;
 
   const block = findBlockAncestor(range.startContainer, root);
-  if (!block || block.tagName !== 'P') return false;
+  if (!block || !isPlainTextBlock(block)) return false;
 
   if ((block.textContent ?? '').trim() !== '---') return false;
 
