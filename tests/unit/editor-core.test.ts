@@ -141,6 +141,152 @@ describe('setupEditor: thematic break shortcut', () => {
   });
 });
 
+describe('setupEditor: list shortcut', () => {
+  it('converts "- " at the start of a P into a bulleted list', () => {
+    const root = makeRoot('<p>-</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<ul><li><br></li></ul>');
+  });
+
+  it('converts "* " into a bulleted list', () => {
+    const root = makeRoot('<p>*</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    dispatchBeforeInput(root, 'insertText', ' ');
+    expect(root.innerHTML).toBe('<ul><li><br></li></ul>');
+  });
+
+  it('converts "1. " into a numbered list', () => {
+    const root = makeRoot('<p>1.</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    dispatchBeforeInput(root, 'insertText', ' ');
+    expect(root.innerHTML).toBe('<ol><li><br></li></ol>');
+  });
+
+  it('keeps the text that follows the marker', () => {
+    const root = makeRoot('<p>-hello</p>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild!;
+    const r = document.createRange();
+    r.setStart(text, 1); // caret right after the "-"
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<ul><li>hello</li></ul>');
+  });
+
+  it('does not fire when the marker is not at the start of the block', () => {
+    const root = makeRoot('<p>a-</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>a-</p>');
+  });
+});
+
+describe('setupEditor: blockquote shortcut', () => {
+  it('converts "> " at the start of a P into a blockquote', () => {
+    const root = makeRoot('<p>&gt;</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<blockquote><br></blockquote>');
+  });
+
+  it('keeps following text inside the blockquote', () => {
+    const root = makeRoot('<p>&gt;quote</p>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild!;
+    const r = document.createRange();
+    r.setStart(text, 1); // after the ">"
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    dispatchBeforeInput(root, 'insertText', ' ');
+    expect(root.innerHTML).toBe('<blockquote>quote</blockquote>');
+  });
+
+  it('does not fire when ">" is not at the start of the block', () => {
+    const root = makeRoot('<p>a&gt;</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});
+
+describe('setupEditor: code block shortcut', () => {
+  it('converts "```" + Enter into an empty code block', () => {
+    const root = makeRoot('<p>```</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><br></pre>');
+  });
+
+  it('does not fire when the paragraph text is not exactly "```"', () => {
+    const root = makeRoot('<p>``</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});
+
+// contenteditable's default Enter often yields a <div> (e.g. the line after a
+// heading or list), so the markdown block shortcuts must fire in <div> blocks
+// too — not only <p>. See isPlainTextBlock in editor-core.
+describe('setupEditor: block shortcuts also fire inside <div>', () => {
+  it('converts "- " inside a <div> into a bulleted list', () => {
+    const root = makeRoot('<div>-</div>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('div')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<ul><li><br></li></ul>');
+  });
+
+  it('converts "> " inside a <div> into a blockquote', () => {
+    const root = makeRoot('<div>&gt;</div>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('div')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<blockquote><br></blockquote>');
+  });
+
+  it('converts "## " inside a <div> into a heading', () => {
+    const root = makeRoot('<div>##</div>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('div')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<h2><br></h2>');
+  });
+
+  it('converts "```" + Enter inside a <div> into a code block', () => {
+    const root = makeRoot('<div>```</div>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('div')!);
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><br></pre>');
+  });
+});
+
 describe('setupEditor: Enter inside list with nested children', () => {
   it('inserts an empty <li> at the start of the nested list', () => {
     const root = makeRoot(
