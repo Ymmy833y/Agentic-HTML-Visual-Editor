@@ -11,31 +11,31 @@ export function openLinkDialog(currentUrl: string): Promise<LinkDialogResult> {
     const editing = currentUrl.length > 0;
 
     const overlay = document.createElement('div');
-    overlay.className = 'hw-dialog-overlay';
+    overlay.className = 'ahve-dialog-overlay';
 
     const dialog = document.createElement('div');
-    dialog.className = 'hw-dialog';
+    dialog.className = 'ahve-dialog';
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-label', editing ? 'Edit link' : 'Insert link');
 
     const title = document.createElement('div');
-    title.className = 'hw-dialog-title';
+    title.className = 'ahve-dialog-title';
     title.textContent = editing ? 'Edit link' : 'Insert link';
 
     const label = document.createElement('label');
-    label.className = 'hw-dialog-label';
+    label.className = 'ahve-dialog-label';
     label.textContent = 'URL';
 
     const input = document.createElement('input');
     input.type = 'url';
-    input.className = 'hw-dialog-input';
+    input.className = 'ahve-dialog-input';
     input.value = currentUrl;
     input.placeholder = 'https://';
     label.appendChild(input);
 
     const actions = document.createElement('div');
-    actions.className = 'hw-dialog-actions';
+    actions.className = 'ahve-dialog-actions';
 
     const finish = (result: LinkDialogResult): void => {
       document.removeEventListener('keydown', onKey, true);
@@ -66,7 +66,7 @@ export function openLinkDialog(currentUrl: string): Promise<LinkDialogResult> {
 
     if (editing) {
       actions.appendChild(
-        button('Remove link', 'hw-dialog-btn hw-dialog-danger', () =>
+        button('Remove link', 'ahve-dialog-btn ahve-dialog-danger', () =>
           finish({ action: 'remove' }),
         ),
       );
@@ -75,10 +75,10 @@ export function openLinkDialog(currentUrl: string): Promise<LinkDialogResult> {
       actions.appendChild(spacer);
     }
     actions.appendChild(
-      button('Cancel', 'hw-dialog-btn', () => finish({ action: 'cancel' })),
+      button('Cancel', 'ahve-dialog-btn', () => finish({ action: 'cancel' })),
     );
     actions.appendChild(
-      button(editing ? 'Update' : 'Insert', 'hw-dialog-btn hw-dialog-primary', submit),
+      button(editing ? 'Update' : 'Insert', 'ahve-dialog-btn ahve-dialog-primary', submit),
     );
 
     dialog.appendChild(title);

@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { HtmlWysiwygEditorProvider } from '../editor/HtmlWysiwygEditorProvider';
+import { AhveEditorProvider } from '../editor/AhveEditorProvider';
 import type { CopyFormat } from '../shared/messages';
 
-export const COPY_AS_HTML_COMMAND = 'htmlWysiwyg.copyAsHtml';
-export const COPY_AS_CONFLUENCE_HTML_COMMAND = 'htmlWysiwyg.copyAsConfluenceHtml';
+export const COPY_AS_HTML_COMMAND = 'ahve.copyAsHtml';
+export const COPY_AS_CONFLUENCE_HTML_COMMAND = 'ahve.copyAsConfluenceHtml';
 
 export function registerCopyCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
@@ -15,7 +15,7 @@ export function registerCopyCommands(context: vscode.ExtensionContext): void {
 }
 
 function requestCopy(format: CopyFormat): void {
-  const panel = HtmlWysiwygEditorProvider.getActivePanel();
+  const panel = AhveEditorProvider.getActivePanel();
   if (!panel) {
     vscode.window.showWarningMessage(
       'Open an HTML file in the WYSIWYG editor before invoking this command.',

@@ -2,7 +2,7 @@
 /* selection-driven floating menu. Loaded together with default.css. */
 
 /* Toolbar tooltip — a single shared element appended to <body> by toolbar.ts. */
-#hw-tooltip {
+#ahve-tooltip {
   position: fixed;
   z-index: 999;
   background: var(--vscode-editorHoverWidget-background, #252526);
@@ -19,16 +19,16 @@
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-#hw-tooltip.hw-tooltip-visible {
+#ahve-tooltip.ahve-tooltip-visible {
   opacity: 1;
 }
 
-#hw-toolbar {
+#ahve-toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--hw-bg);
-  border-bottom: 1px solid var(--hw-border);
+  background: var(--ahve-bg);
+  border-bottom: 1px solid var(--ahve-border);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -38,52 +38,52 @@
   scrollbar-width: thin;
 }
 
-.hw-tb-btn {
+.ahve-tb-btn {
   flex-shrink: 0;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 8px;
   cursor: pointer;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   font: inherit;
   font-size: 0.85em;
   font-weight: 500;
   line-height: 1.2;
   min-height: 26px;
 }
-.hw-tb-btn:hover {
-  background: var(--hw-code-bg);
-  border-color: var(--hw-border);
+.ahve-tb-btn:hover {
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-border);
 }
-.hw-tb-btn:active {
+.ahve-tb-btn:active {
   transform: translateY(1px);
 }
-.hw-tb-btn.hw-tb-active {
-  background: var(--vscode-button-background, var(--hw-accent));
+.ahve-tb-btn.ahve-tb-active {
+  background: var(--vscode-button-background, var(--ahve-accent));
   color: var(--vscode-button-foreground, #ffffff);
-  border-color: var(--vscode-button-background, var(--hw-accent));
+  border-color: var(--vscode-button-background, var(--ahve-accent));
 }
-.hw-tb-icon {
+.ahve-tb-icon {
   width: 28px;
   padding: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.hw-tb-bold { font-weight: 700; }
-.hw-tb-italic { font-style: italic; }
-.hw-tb-code {
+.ahve-tb-bold { font-weight: 700; }
+.ahve-tb-italic { font-style: italic; }
+.ahve-tb-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* --- Custom block-type dropdown --- */
 
-.hw-tb-blk-wrap {
+.ahve-tb-blk-wrap {
   flex-shrink: 0;
 }
 
-.hw-tb-blk-btn {
+.ahve-tb-blk-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -91,7 +91,7 @@
   justify-content: space-between;
 }
 
-.hw-tb-blk-arrow {
+.ahve-tb-blk-arrow {
   font-size: 0.75em;
   opacity: 0.6;
   flex-shrink: 0;
@@ -99,79 +99,79 @@
 
 /* Drop panel is appended to <body> and positioned via getBoundingClientRect()
    so it is never clipped by the toolbar's overflow:auto context. */
-.hw-tb-blk-drop {
+.ahve-tb-blk-drop {
   position: fixed;
   z-index: 100;
-  background: var(--hw-bg);
-  border: 1px solid var(--hw-border);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
   border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
   min-width: 130px;
   padding: 3px 0;
 }
 
-.hw-tb-blk-opt {
+.ahve-tb-blk-opt {
   padding: 5px 12px;
   cursor: pointer;
   font-size: 0.85em;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   white-space: nowrap;
   border-radius: 3px;
   margin: 0 2px;
 }
-.hw-tb-blk-opt:hover {
-  background: var(--hw-code-bg);
+.ahve-tb-blk-opt:hover {
+  background: var(--ahve-code-bg);
 }
-.hw-tb-blk-opt[aria-selected="true"] {
-  background: var(--hw-code-bg);
+.ahve-tb-blk-opt[aria-selected="true"] {
+  background: var(--ahve-code-bg);
   font-weight: 600;
 }
 
-.hw-tb-blk-divider {
+.ahve-tb-blk-divider {
   height: 1px;
-  background: var(--hw-border);
+  background: var(--ahve-border);
   margin: 3px 0;
 }
 
-.hw-tb-sep {
+.ahve-tb-sep {
   width: 1px;
   height: 18px;
-  background: var(--hw-border);
+  background: var(--ahve-border);
   margin: 0 6px;
   display: inline-block;
 }
 
-#hw-floating-menu {
+#ahve-floating-menu {
   position: absolute;
   z-index: 20;
-  background: var(--hw-bg);
-  border: 1px solid var(--hw-border);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   padding: 4px;
   display: flex;
   gap: 2px;
 }
-#hw-floating-menu[hidden] {
+#ahve-floating-menu[hidden] {
   display: none;
 }
 
-.hw-fm-btn {
+.ahve-fm-btn {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 8px;
   cursor: pointer;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   font: inherit;
   font-size: 0.85em;
   font-weight: 500;
   line-height: 1.2;
 }
-.hw-fm-btn:hover {
-  background: var(--hw-code-bg);
+.ahve-fm-btn:hover {
+  background: var(--ahve-code-bg);
 }
-.hw-fm-icon {
+.ahve-fm-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -179,7 +179,7 @@
 }
 
 /* Modal dialog (e.g. link insertion). */
-.hw-dialog-overlay {
+.ahve-dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -190,10 +190,10 @@
   padding: 1rem;
 }
 
-.hw-dialog {
-  background: var(--hw-bg);
-  color: var(--hw-fg);
-  border: 1px solid var(--hw-border);
+.ahve-dialog {
+  background: var(--ahve-bg);
+  color: var(--ahve-fg);
+  border: 1px solid var(--ahve-border);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   min-width: 360px;
@@ -204,79 +204,79 @@
   gap: 12px;
 }
 
-.hw-dialog-title {
+.ahve-dialog-title {
   font-size: 1em;
   font-weight: 600;
 }
 
-.hw-dialog-label {
+.ahve-dialog-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 0.85em;
-  color: var(--hw-muted);
+  color: var(--ahve-muted);
 }
 
-.hw-dialog-input {
+.ahve-dialog-input {
   font: inherit;
   font-size: 0.95em;
-  color: var(--hw-fg);
-  background: var(--vscode-input-background, var(--hw-bg));
-  border: 1px solid var(--vscode-input-border, var(--hw-border));
+  color: var(--ahve-fg);
+  background: var(--vscode-input-background, var(--ahve-bg));
+  border: 1px solid var(--vscode-input-border, var(--ahve-border));
   border-radius: 4px;
   padding: 6px 8px;
   outline: none;
 }
-.hw-dialog-input:focus {
-  border-color: var(--hw-accent);
-  box-shadow: 0 0 0 1px var(--hw-accent);
+.ahve-dialog-input:focus {
+  border-color: var(--ahve-accent);
+  box-shadow: 0 0 0 1px var(--ahve-accent);
 }
 
-.hw-dialog-message {
+.ahve-dialog-message {
   font-size: 0.9em;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.hw-dialog-actions {
+.ahve-dialog-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.hw-dialog-btn {
+.ahve-dialog-btn {
   font: inherit;
   font-size: 0.9em;
   padding: 6px 14px;
   border-radius: 4px;
-  border: 1px solid var(--hw-border);
+  border: 1px solid var(--ahve-border);
   background: transparent;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   cursor: pointer;
 }
-.hw-dialog-btn:hover {
-  background: var(--hw-code-bg);
+.ahve-dialog-btn:hover {
+  background: var(--ahve-code-bg);
 }
-.hw-dialog-primary {
-  background: var(--vscode-button-background, var(--hw-accent));
+.ahve-dialog-primary {
+  background: var(--vscode-button-background, var(--ahve-accent));
   color: var(--vscode-button-foreground, #ffffff);
   border-color: transparent;
 }
-.hw-dialog-primary:hover {
-  background: var(--vscode-button-hoverBackground, var(--hw-accent));
+.ahve-dialog-primary:hover {
+  background: var(--vscode-button-hoverBackground, var(--ahve-accent));
 }
-.hw-dialog-danger {
+.ahve-dialog-danger {
   color: var(--vscode-errorForeground, #d13438);
   border-color: var(--vscode-errorForeground, #d13438);
 }
-.hw-dialog-danger:hover {
+.ahve-dialog-danger:hover {
   background: rgba(209, 52, 56, 0.08);
 }
 
 /* In-document search widget (Ctrl+F), pinned to the top-right corner above the
    sticky toolbar. */
-.hw-search {
+.ahve-search {
   position: fixed;
   top: 8px;
   right: 16px;
@@ -285,36 +285,36 @@
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  background: var(--vscode-editorWidget-background, var(--hw-bg));
-  border: 1px solid var(--vscode-editorWidget-border, var(--hw-border));
+  background: var(--vscode-editorWidget-background, var(--ahve-bg));
+  border: 1px solid var(--vscode-editorWidget-border, var(--ahve-border));
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-.hw-search[hidden] {
+.ahve-search[hidden] {
   display: none;
 }
-.hw-search-input {
+.ahve-search-input {
   width: 200px;
-  background: var(--vscode-input-background, var(--hw-bg));
-  color: var(--vscode-input-foreground, var(--hw-fg));
-  border: 1px solid var(--vscode-input-border, var(--hw-border));
+  background: var(--vscode-input-background, var(--ahve-bg));
+  color: var(--vscode-input-foreground, var(--ahve-fg));
+  border: 1px solid var(--vscode-input-border, var(--ahve-border));
   border-radius: 4px;
   padding: 3px 6px;
   font: inherit;
   font-size: 0.85em;
 }
-.hw-search-input:focus {
-  outline: 1px solid var(--hw-accent);
+.ahve-search-input:focus {
+  outline: 1px solid var(--ahve-accent);
   outline-offset: -1px;
 }
-.hw-search-count {
+.ahve-search-count {
   min-width: 56px;
   text-align: center;
   font-size: 0.8em;
-  color: var(--hw-muted);
+  color: var(--ahve-muted);
   white-space: nowrap;
 }
-.hw-search-btn {
+.ahve-search-btn {
   flex-shrink: 0;
   background: transparent;
   border: 1px solid transparent;
@@ -322,26 +322,26 @@
   padding: 2px 6px;
   min-height: 24px;
   cursor: pointer;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   font: inherit;
   font-size: 0.85em;
   line-height: 1.2;
 }
-.hw-search-btn:hover {
-  background: var(--hw-code-bg);
-  border-color: var(--hw-border);
+.ahve-search-btn:hover {
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-border);
 }
-.hw-search-toggle.hw-search-active {
-  background: var(--vscode-inputOption-activeBackground, var(--hw-selection));
-  border-color: var(--vscode-inputOption-activeBorder, var(--hw-accent));
-  color: var(--vscode-inputOption-activeForeground, var(--hw-fg));
+.ahve-search-toggle.ahve-search-active {
+  background: var(--vscode-inputOption-activeBackground, var(--ahve-selection));
+  border-color: var(--vscode-inputOption-activeBorder, var(--ahve-accent));
+  color: var(--vscode-inputOption-activeForeground, var(--ahve-fg));
 }
 
 /* Match painting via the CSS Custom Highlight API — no DOM nodes are inserted,
    so nothing leaks into the serialized HTML. */
-::highlight(hw-search) {
-  background-color: var(--hw-search-highlight);
+::highlight(ahve-search) {
+  background-color: var(--ahve-search-highlight);
 }
-::highlight(hw-search-current) {
-  background-color: var(--hw-search-current);
+::highlight(ahve-search-current) {
+  background-color: var(--ahve-search-current);
 }

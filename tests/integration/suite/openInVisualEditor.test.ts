@@ -2,15 +2,15 @@ import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { activateExtension, closeAllEditors, fixtureUri, sleep } from './helpers';
 
-const CUSTOM_EDITOR_VIEW_TYPE = 'htmlWysiwyg.editor';
+const CUSTOM_EDITOR_VIEW_TYPE = 'ahve.editor';
 
-suite('Command: htmlWysiwyg.openInWysiwyg', () => {
+suite('Command: ahve.openInVisualEditor', () => {
   suiteSetup(activateExtension);
   teardown(closeAllEditors);
 
   test('opens the WYSIWYG custom editor for the given HTML uri', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg', uri);
+    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
 
     // Give VS Code a moment to mount the webview-backed editor.
     await sleep(500);
@@ -28,6 +28,6 @@ suite('Command: htmlWysiwyg.openInWysiwyg', () => {
     // showWarningMessage requires patching live module bindings, which is
     // brittle inside the Extension Development Host). The contract here is
     // simply: the command path completes without throwing.
-    await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg');
+    await vscode.commands.executeCommand('ahve.openInVisualEditor');
   });
 });

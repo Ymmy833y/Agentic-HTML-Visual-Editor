@@ -66,7 +66,7 @@ export interface ToolbarOptions {
 
 export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElement {
   const bar = document.createElement('div');
-  bar.id = 'hw-toolbar';
+  bar.id = 'ahve-toolbar';
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Editor toolbar');
 
@@ -82,12 +82,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   const boldBtn = textBtn('B', 'Bold (Ctrl+B)', () => {
     toggleInline('strong', ctx);
     opts.onCommand();
-  }, 'hw-tb-bold');
+  }, 'ahve-tb-bold');
 
   const italicBtn = textBtn('I', 'Italic (Ctrl+I)', () => {
     toggleInline('em', ctx);
     opts.onCommand();
-  }, 'hw-tb-italic');
+  }, 'ahve-tb-italic');
 
   const strikeBtn = iconBtn(ICON_STRIKETHROUGH, 'Strikethrough', () => {
     toggleInline('s', ctx);
@@ -97,7 +97,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   const codeInlineBtn = textBtn('< >', 'Inline code', () => {
     toggleInline('code', ctx);
     opts.onCommand();
-  }, 'hw-tb-code');
+  }, 'ahve-tb-code');
 
   const codeBlockBtn = iconBtn(ICON_CODEBLOCK, 'Code block', () => {
     const sel = window.getSelection();
@@ -115,12 +115,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
   const ulBtn = iconBtn(ICON_UL, 'Bulleted list', () => {
     toggleList('ul', ctx);
     opts.onCommand();
-  }, 'hw-tb-ul');
+  }, 'ahve-tb-ul');
 
   const olBtn = iconBtn(ICON_OL, 'Numbered list', () => {
     toggleList('ol', ctx);
     opts.onCommand();
-  }, 'hw-tb-ol');
+  }, 'ahve-tb-ol');
 
   // --- Custom block-type dropdown (Plain / H1–H6 / Blockquote) ---
   const { wrapper: blockWrap, updateLabel } = buildBlockDropdown(
@@ -138,10 +138,10 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     tableBtn(opts.onInsertTable),
     commentBtn(opts.onAddComment),
   ]);
-  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy('html'), undefined, 'hw-tb-copy'));
+  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy('html'), undefined, 'ahve-tb-copy'));
 
   const last = bar.lastElementChild;
-  if (last && last.classList.contains('hw-tb-sep')) last.remove();
+  if (last && last.classList.contains('ahve-tb-sep')) last.remove();
 
   // Toolbar mousedown handling:
   //   - For the block dropdown wrapper: save the current selection and let the
@@ -175,17 +175,17 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
         ? !!findInlineAncestor(node, tagName, root)
         : isRangeCovered(range, tagName, root);
 
-    boldBtn.classList.toggle('hw-tb-active', covered('STRONG'));
-    italicBtn.classList.toggle('hw-tb-active', covered('EM'));
-    strikeBtn.classList.toggle('hw-tb-active', covered('S'));
-    codeInlineBtn.classList.toggle('hw-tb-active', covered('CODE'));
-    codeBlockBtn.classList.toggle('hw-tb-active', blockTag === 'pre');
+    boldBtn.classList.toggle('ahve-tb-active', covered('STRONG'));
+    italicBtn.classList.toggle('ahve-tb-active', covered('EM'));
+    strikeBtn.classList.toggle('ahve-tb-active', covered('S'));
+    codeInlineBtn.classList.toggle('ahve-tb-active', covered('CODE'));
+    codeBlockBtn.classList.toggle('ahve-tb-active', blockTag === 'pre');
 
     const listType = getNearestListType(node, root);
-    ulBtn.classList.toggle('hw-tb-active', listType === 'ul');
-    olBtn.classList.toggle('hw-tb-active', listType === 'ol');
-    bar.querySelector<HTMLElement>('.hw-tb-link')
-      ?.classList.toggle('hw-tb-active', !!findInlineAncestor(node, 'A', root));
+    ulBtn.classList.toggle('ahve-tb-active', listType === 'ul');
+    olBtn.classList.toggle('ahve-tb-active', listType === 'ol');
+    bar.querySelector<HTMLElement>('.ahve-tb-link')
+      ?.classList.toggle('ahve-tb-active', !!findInlineAncestor(node, 'A', root));
   });
 
   return bar;
@@ -203,11 +203,11 @@ function buildBlockDropdown(
   getSavedRange: () => Range | null,
 ): { wrapper: HTMLElement; updateLabel: (blockTag: string) => void } {
   const wrapper = document.createElement('div');
-  wrapper.className = 'hw-tb-blk-wrap';
+  wrapper.className = 'ahve-tb-blk-wrap';
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'hw-tb-btn hw-tb-blk-btn';
+  button.className = 'ahve-tb-btn ahve-tb-blk-btn';
   button.setAttribute('aria-haspopup', 'listbox');
   button.setAttribute('aria-expanded', 'false');
 
@@ -215,7 +215,7 @@ function buildBlockDropdown(
   labelSpan.textContent = 'Plain';
 
   const arrowSpan = document.createElement('span');
-  arrowSpan.className = 'hw-tb-blk-arrow';
+  arrowSpan.className = 'ahve-tb-blk-arrow';
   arrowSpan.setAttribute('aria-hidden', 'true');
   arrowSpan.textContent = '▾';
 
@@ -225,7 +225,7 @@ function buildBlockDropdown(
   // Drop panel is appended to <body> so it is never clipped by the toolbar's
   // overflow:auto. Its position is updated via getBoundingClientRect() on open.
   const drop = document.createElement('div');
-  drop.className = 'hw-tb-blk-drop';
+  drop.className = 'ahve-tb-blk-drop';
   drop.setAttribute('role', 'listbox');
   drop.hidden = true;
   document.body.appendChild(drop);
@@ -233,11 +233,11 @@ function buildBlockDropdown(
   for (const opt of BLOCK_OPTIONS) {
     if (opt === null) {
       const divider = document.createElement('div');
-      divider.className = 'hw-tb-blk-divider';
+      divider.className = 'ahve-tb-blk-divider';
       drop.appendChild(divider);
     } else {
       const item = document.createElement('div');
-      item.className = 'hw-tb-blk-opt';
+      item.className = 'ahve-tb-blk-opt';
       item.setAttribute('role', 'option');
       item.setAttribute('aria-selected', 'false');
       item.dataset.value = opt.value;
@@ -318,7 +318,7 @@ function textBtn(
 ): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn';
+  b.className = 'ahve-tb-btn';
   if (id) b.id = id;
   setupTooltip(b, title);
   b.textContent = label;
@@ -335,7 +335,7 @@ function iconBtn(
 ): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn hw-tb-icon' + (extraClass ? ' ' + extraClass : '');
+  b.className = 'ahve-tb-btn ahve-tb-icon' + (extraClass ? ' ' + extraClass : '');
   if (id) b.id = id;
   setupTooltip(b, title);
   b.innerHTML = svgHtml;
@@ -346,7 +346,7 @@ function iconBtn(
 function linkBtn(onLink: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn hw-tb-link';
+  b.className = 'ahve-tb-btn ahve-tb-link';
   setupTooltip(b, 'Link (Ctrl+K)');
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
@@ -356,7 +356,7 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
 function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn hw-tb-table';
+  b.className = 'ahve-tb-btn ahve-tb-table';
   setupTooltip(b, 'Insert table');
   b.textContent = 'Table';
   b.addEventListener('click', () => onInsertTable(b));
@@ -366,7 +366,7 @@ function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonEleme
 function commentBtn(onAddComment: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tb-btn hw-tb-comment';
+  b.className = 'ahve-tb-btn ahve-tb-comment';
   setupTooltip(b, 'Comment on selection');
   b.textContent = 'Comment';
   b.addEventListener('click', onAddComment);
@@ -380,7 +380,7 @@ function group(bar: HTMLElement, children: HTMLElement[]): void {
 
 function sep(): HTMLElement {
   const s = document.createElement('span');
-  s.className = 'hw-tb-sep';
+  s.className = 'ahve-tb-sep';
   s.setAttribute('aria-hidden', 'true');
   return s;
 }

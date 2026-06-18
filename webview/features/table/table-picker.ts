@@ -18,7 +18,7 @@ export interface TablePickerHandle {
 
 export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
   const root = document.createElement('div');
-  root.id = 'hw-table-picker';
+  root.id = 'ahve-table-picker';
   root.hidden = true;
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-label', 'Insert table');
@@ -34,13 +34,13 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
   });
 
   const grid = document.createElement('div');
-  grid.className = 'hw-tp-grid';
+  grid.className = 'ahve-tp-grid';
   const cellEls: HTMLDivElement[][] = [];
   for (let r = 0; r < GRID_MAX; r++) {
     cellEls.push([]);
     for (let c = 0; c < GRID_MAX; c++) {
       const cellEl = document.createElement('div');
-      cellEl.className = 'hw-tp-cell';
+      cellEl.className = 'ahve-tp-cell';
       cellEl.dataset.row = String(r + 1);
       cellEl.dataset.col = String(c + 1);
       cellEls[r].push(cellEl);
@@ -56,7 +56,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
     for (let r = 0; r < GRID_MAX; r++) {
       for (let c = 0; c < GRID_MAX; c++) {
         const active = r < rows && c < cols;
-        cellEls[r][c].classList.toggle('hw-tp-cell-active', active);
+        cellEls[r][c].classList.toggle('ahve-tp-cell-active', active);
       }
     }
     label.textContent = rows > 0 && cols > 0 ? `${cols} × ${rows}` : 'Pick a size';
@@ -64,7 +64,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
 
   grid.addEventListener('mousemove', (e) => {
     const target = e.target as HTMLElement | null;
-    if (!target || !target.classList.contains('hw-tp-cell')) return;
+    if (!target || !target.classList.contains('ahve-tp-cell')) return;
     const r = Number(target.dataset.row ?? '0');
     const c = Number(target.dataset.col ?? '0');
     updateHighlight(r, c);
@@ -72,7 +72,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
 
   grid.addEventListener('click', (e) => {
     const target = e.target as HTMLElement | null;
-    if (!target || !target.classList.contains('hw-tp-cell')) return;
+    if (!target || !target.classList.contains('ahve-tp-cell')) return;
     const rows = Number(target.dataset.row ?? '0');
     const cols = Number(target.dataset.col ?? '0');
     if (rows === 0 || cols === 0) return;
@@ -80,22 +80,22 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
   });
 
   const label = document.createElement('div');
-  label.className = 'hw-tp-label';
+  label.className = 'ahve-tp-label';
   label.textContent = 'Pick a size';
 
   const form = document.createElement('div');
-  form.className = 'hw-tp-form';
+  form.className = 'ahve-tp-form';
 
   const sizeRow = document.createElement('div');
-  sizeRow.className = 'hw-tp-form-row';
+  sizeRow.className = 'ahve-tp-form-row';
   const rowsInput = numInput('Rows', 3);
   const colsInput = numInput('Cols', 3);
   sizeRow.append(rowsInput.wrap, colsInput.wrap);
 
   const actionRow = document.createElement('div');
-  actionRow.className = 'hw-tp-form-row';
+  actionRow.className = 'ahve-tp-form-row';
   const headerLabel = document.createElement('label');
-  headerLabel.className = 'hw-tp-header-toggle';
+  headerLabel.className = 'ahve-tp-header-toggle';
   const headerInput = document.createElement('input');
   headerInput.type = 'checkbox';
   headerInput.checked = true;
@@ -103,7 +103,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
 
   const okBtn = document.createElement('button');
   okBtn.type = 'button';
-  okBtn.className = 'hw-tp-ok';
+  okBtn.className = 'ahve-tp-ok';
   okBtn.textContent = 'Insert';
   okBtn.addEventListener('click', () => {
     const rows = Math.max(1, Math.floor(Number(rowsInput.input.value) || 0));
@@ -198,7 +198,7 @@ function numInput(label: string, defaultValue: number): {
   input: HTMLInputElement;
 } {
   const wrap = document.createElement('label');
-  wrap.className = 'hw-tp-num';
+  wrap.className = 'ahve-tp-num';
   const span = document.createElement('span');
   span.textContent = label;
   const input = document.createElement('input');

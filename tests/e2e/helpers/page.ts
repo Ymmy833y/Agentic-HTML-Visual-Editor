@@ -36,7 +36,7 @@ export async function mountEditor(page: Page, initialHtml: string): Promise<void
     );
   }, initialHtml);
 
-  await page.locator('#hw-root').waitFor();
+  await page.locator('#ahve-root').waitFor();
 }
 
 export async function getMessages(page: Page): Promise<{ type: string; [key: string]: unknown }[]> {
@@ -55,7 +55,7 @@ export async function getEditMessages(
 }
 
 export async function getRootHtml(page: Page): Promise<string> {
-  return page.locator('#hw-root').innerHTML();
+  return page.locator('#ahve-root').innerHTML();
 }
 
 /**
@@ -104,5 +104,5 @@ export async function caretAtEnd(page: Page, selector: string): Promise<void> {
 
 /** Focus the editor root (needed before dispatching keyboard input). */
 export async function focusEditor(page: Page): Promise<void> {
-  await page.locator('#hw-root').focus();
+  await page.locator('#ahve-root').focus();
 }

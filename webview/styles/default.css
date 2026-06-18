@@ -5,29 +5,29 @@
 
 :root {
   color-scheme: light dark;
-  --hw-bg: var(--vscode-editor-background, #ffffff);
-  --hw-fg: var(--vscode-editor-foreground, #1f2328);
-  --hw-muted: var(--vscode-descriptionForeground, #57606a);
-  --hw-border: var(--vscode-panel-border, #d0d7de);
-  --hw-accent: var(--vscode-textLink-foreground, #0969da);
-  --hw-code-bg: var(--vscode-textCodeBlock-background, #f6f8fa);
-  --hw-selection: var(--vscode-editor-selectionBackground, rgba(9, 105, 218, 0.2));
-  --hw-comment-highlight: rgba(245, 158, 11, 0.25);
-  --hw-comment-highlight-hover: rgba(245, 158, 11, 0.4);
-  --hw-comment-underline: rgba(217, 119, 6, 0.95);
+  --ahve-bg: var(--vscode-editor-background, #ffffff);
+  --ahve-fg: var(--vscode-editor-foreground, #1f2328);
+  --ahve-muted: var(--vscode-descriptionForeground, #57606a);
+  --ahve-border: var(--vscode-panel-border, #d0d7de);
+  --ahve-accent: var(--vscode-textLink-foreground, #0969da);
+  --ahve-code-bg: var(--vscode-textCodeBlock-background, #f6f8fa);
+  --ahve-selection: var(--vscode-editor-selectionBackground, rgba(9, 105, 218, 0.2));
+  --ahve-comment-highlight: rgba(245, 158, 11, 0.25);
+  --ahve-comment-highlight-hover: rgba(245, 158, 11, 0.4);
+  --ahve-comment-underline: rgba(217, 119, 6, 0.95);
   /* AI-authored comments use a separate hue so authors are distinguishable. */
-  --hw-comment-ai-highlight: rgba(45, 156, 219, 0.22);
-  --hw-comment-ai-highlight-hover: rgba(45, 156, 219, 0.38);
-  --hw-comment-ai-underline: rgba(30, 120, 190, 0.95);
+  --ahve-comment-ai-highlight: rgba(45, 156, 219, 0.22);
+  --ahve-comment-ai-highlight-hover: rgba(45, 156, 219, 0.38);
+  --ahve-comment-ai-underline: rgba(30, 120, 190, 0.95);
   /* In-document search (Ctrl+F): all matches vs. the active match. */
-  --hw-search-highlight: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
-  --hw-search-current: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66));
+  --ahve-search-highlight: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  --ahve-search-current: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66));
 }
 
 html,
 body {
-  background: var(--hw-bg);
-  color: var(--hw-fg);
+  background: var(--ahve-bg);
+  color: var(--ahve-fg);
 }
 
 body {
@@ -39,106 +39,106 @@ body {
   line-height: 1.6;
 }
 
-#hw-root {
+#ahve-root {
   max-width: 960px;
   margin: 0 auto;
   padding: 0.75rem 2.5rem 6rem;
   outline: none;
 }
 
-#hw-root ::selection {
-  background: var(--hw-selection);
+#ahve-root ::selection {
+  background: var(--ahve-selection);
 }
 
 /* Headings */
-#hw-root h1,
-#hw-root h2,
-#hw-root h3,
-#hw-root h4,
-#hw-root h5,
-#hw-root h6 {
+#ahve-root h1,
+#ahve-root h2,
+#ahve-root h3,
+#ahve-root h4,
+#ahve-root h5,
+#ahve-root h6 {
   font-weight: 600;
   line-height: 1.25;
   margin: 0.75em 0 0.5em;
 }
-#hw-root h1 {
+#ahve-root h1 {
   font-size: 2em;
-  border-bottom: 1px solid var(--hw-border);
+  border-bottom: 1px solid var(--ahve-border);
   padding-bottom: 0.3em;
 }
-#hw-root h2 {
+#ahve-root h2 {
   font-size: 1.5em;
-  border-bottom: 1px solid var(--hw-border);
+  border-bottom: 1px solid var(--ahve-border);
   padding-bottom: 0.25em;
 }
-#hw-root h3 { font-size: 1.25em; }
-#hw-root h4 { font-size: 1em; }
-#hw-root h5 { font-size: 0.9em; color: var(--hw-muted); }
-#hw-root h6 { font-size: 0.85em; color: var(--hw-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+#ahve-root h3 { font-size: 1.25em; }
+#ahve-root h4 { font-size: 1em; }
+#ahve-root h5 { font-size: 0.9em; color: var(--ahve-muted); }
+#ahve-root h6 { font-size: 0.85em; color: var(--ahve-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* Paragraphs and generic blocks */
-#hw-root p {
+#ahve-root p {
   margin: 0.6em 0;
 }
-#hw-root div {
+#ahve-root div {
   margin: 0.4em 0;
 }
 
 /* Inline elements */
-#hw-root a {
-  color: var(--hw-accent);
+#ahve-root a {
+  color: var(--ahve-accent);
   text-decoration: none;
 }
-#hw-root a:hover {
+#ahve-root a:hover {
   text-decoration: underline;
 }
-#hw-root strong { font-weight: 700; }
-#hw-root em { font-style: italic; }
-#hw-root code {
-  background: var(--hw-code-bg);
+#ahve-root strong { font-weight: 700; }
+#ahve-root em { font-style: italic; }
+#ahve-root code {
+  background: var(--ahve-code-bg);
   border-radius: 4px;
   padding: 0.15em 0.4em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.9em;
 }
-#hw-root span {
+#ahve-root span {
   /* No default styling; <span> is a transparent inline container. */
 }
 
 /* Blockquote */
-#hw-root blockquote {
-  border-left: 4px solid var(--hw-border);
-  color: var(--hw-muted);
+#ahve-root blockquote {
+  border-left: 4px solid var(--ahve-border);
+  color: var(--ahve-muted);
   margin: 1em 0;
   padding: 0.4em 1em;
 }
-#hw-root blockquote > :first-child { margin-top: 0; }
-#hw-root blockquote > :last-child { margin-bottom: 0; }
+#ahve-root blockquote > :first-child { margin-top: 0; }
+#ahve-root blockquote > :last-child { margin-bottom: 0; }
 
 /* Horizontal rule */
-#hw-root hr {
+#ahve-root hr {
   border: 0;
-  border-top: 1px solid var(--hw-border);
+  border-top: 1px solid var(--ahve-border);
   margin: 2em 0;
 }
 
 /* Lists */
-#hw-root ul,
-#hw-root ol {
+#ahve-root ul,
+#ahve-root ol {
   margin: 0.6em 0;
   padding-left: 1.6em;
 }
-#hw-root li {
+#ahve-root li {
   margin: 0.2em 0;
 }
-#hw-root li > ul,
-#hw-root li > ol {
+#ahve-root li > ul,
+#ahve-root li > ol {
   margin: 0.2em 0;
 }
 
 /* Code block */
-#hw-root pre {
-  background: var(--hw-code-bg);
+#ahve-root pre {
+  background: var(--ahve-code-bg);
   border-radius: 6px;
   padding: 1em;
   overflow-x: auto;
@@ -146,7 +146,7 @@ body {
   font-size: 0.9em;
   line-height: 1.5;
 }
-#hw-root pre code {
+#ahve-root pre code {
   background: transparent;
   padding: 0;
   border-radius: 0;
@@ -154,61 +154,61 @@ body {
 }
 
 /* Tables */
-#hw-root table {
+#ahve-root table {
   border-collapse: collapse;
   margin: 1em 0;
   width: 100%;
   display: block;
   overflow-x: auto;
 }
-#hw-root th,
-#hw-root td {
-  border: 1px solid var(--hw-border);
+#ahve-root th,
+#ahve-root td {
+  border: 1px solid var(--ahve-border);
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
 }
-#hw-root th {
-  background: var(--hw-code-bg);
+#ahve-root th {
+  background: var(--ahve-code-bg);
   font-weight: 600;
 }
-#hw-root tbody tr:nth-child(even) td {
-  background: color-mix(in srgb, var(--hw-code-bg) 50%, transparent);
+#ahve-root tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--ahve-code-bg) 50%, transparent);
 }
 
 /* Images */
-#hw-root img {
+#ahve-root img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
 }
 
 /* Forms: rendered but inert (CSP blocks submission, JS blocks the event). */
-#hw-root form {
+#ahve-root form {
   margin: 1em 0;
   padding: 0.75em;
-  border: 1px dashed var(--hw-border);
+  border: 1px dashed var(--ahve-border);
   border-radius: 4px;
 }
-#hw-root form::before {
+#ahve-root form::before {
   content: 'form (inactive)';
   display: block;
   font-size: 0.7em;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--hw-muted);
+  color: var(--ahve-muted);
   margin-bottom: 0.4em;
 }
 
 /* Collapsible <details> / <summary> */
-#hw-root details {
-  border: 1px solid var(--hw-border);
+#ahve-root details {
+  border: 1px solid var(--ahve-border);
   border-radius: 6px;
   margin: 1em 0;
   padding: 0.4em 1em;
 }
-#hw-root summary {
+#ahve-root summary {
   cursor: pointer;
   font-weight: 600;
   list-style: none;
@@ -217,76 +217,76 @@ body {
   outline: none;
 }
 /* Hide the native disclosure triangle; we draw our own chevron. */
-#hw-root summary::-webkit-details-marker {
+#ahve-root summary::-webkit-details-marker {
   display: none;
 }
-#hw-root summary::before {
+#ahve-root summary::before {
   content: '';
   position: absolute;
   left: 0.25em;
   top: 0.5em;
   width: 0;
   height: 0;
-  border-left: 5px solid var(--hw-muted);
+  border-left: 5px solid var(--ahve-muted);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   transition: transform 0.15s ease;
 }
-#hw-root details[open] > summary::before {
+#ahve-root details[open] > summary::before {
   transform: rotate(90deg);
 }
-#hw-root details[open] > summary {
+#ahve-root details[open] > summary {
   margin-bottom: 0.4em;
 }
-#hw-root details > :last-child {
+#ahve-root details > :last-child {
   margin-bottom: 0;
 }
 
 /* Custom <comment> tag: inline highlight on the annotated range. */
 /* An unresolved comment gets a solid box border in its author colour; a */
 /* resolved comment dims to a dashed, muted box so done threads recede. */
-#hw-root comment {
-  background: var(--hw-comment-highlight);
+#ahve-root comment {
+  background: var(--ahve-comment-highlight);
   text-decoration: underline;
-  text-decoration-color: var(--hw-comment-underline);
+  text-decoration-color: var(--ahve-comment-underline);
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
   cursor: pointer;
   border-radius: 3px;
-  border: 1px solid var(--hw-comment-underline);
+  border: 1px solid var(--ahve-comment-underline);
   padding: 0 2px;
   /* Keep the border drawn on every line when the run wraps inline. */
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-#hw-root comment:hover {
-  background: var(--hw-comment-highlight-hover);
+#ahve-root comment:hover {
+  background: var(--ahve-comment-highlight-hover);
 }
 
 /* AI-authored comment: coloured by the body author (the thread's creator). */
-#hw-root comment:has(> comment-body[data-author='ai']) {
-  background: var(--hw-comment-ai-highlight);
-  text-decoration-color: var(--hw-comment-ai-underline);
-  border-color: var(--hw-comment-ai-underline);
+#ahve-root comment:has(> comment-body[data-author='ai']) {
+  background: var(--ahve-comment-ai-highlight);
+  text-decoration-color: var(--ahve-comment-ai-underline);
+  border-color: var(--ahve-comment-ai-underline);
 }
-#hw-root comment:has(> comment-body[data-author='ai']):hover {
-  background: var(--hw-comment-ai-highlight-hover);
+#ahve-root comment:has(> comment-body[data-author='ai']):hover {
+  background: var(--ahve-comment-ai-highlight-hover);
 }
 
 /* Resolved comment: recede visually but stay clickable to reopen. */
-#hw-root comment[data-resolved] {
+#ahve-root comment[data-resolved] {
   background: transparent;
   text-decoration: none;
   border-style: dashed;
-  border-color: var(--hw-muted);
+  border-color: var(--ahve-muted);
   opacity: 0.7;
 }
-#hw-root comment[data-resolved]:hover {
-  background: var(--hw-code-bg);
+#ahve-root comment[data-resolved]:hover {
+  background: var(--ahve-code-bg);
 }
 /* Comment body and replies live inside the <comment> element but are */
 /* edited only through the popup; hide them from the document flow.    */
-#hw-root comment-body,
-#hw-root comment-reply {
+#ahve-root comment-body,
+#ahve-root comment-reply {
   display: none;
 }

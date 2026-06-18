@@ -17,12 +17,12 @@ test.describe('In-document search (Ctrl+F)', () => {
     await mountEditor(page, '<p>alpha beta gamma</p>');
     await focusEditor(page);
 
-    const widget = page.locator('#hw-search');
+    const widget = page.locator('#ahve-search');
     await expect(widget).toBeHidden();
 
     await page.keyboard.press('Control+f');
     await expect(widget).toBeVisible();
-    await expect(page.locator('.hw-search-input')).toBeFocused();
+    await expect(page.locator('.ahve-search-input')).toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(widget).toBeHidden();
@@ -33,20 +33,20 @@ test.describe('In-document search (Ctrl+F)', () => {
     await focusEditor(page);
     await page.keyboard.press('Control+f');
 
-    await page.locator('.hw-search-input').fill('one');
+    await page.locator('.ahve-search-input').fill('one');
 
-    await expect(page.locator('.hw-search-count')).toHaveText('1/3');
-    expect(await highlightSize(page, 'hw-search')).toBe(3);
-    expect(await highlightSize(page, 'hw-search-current')).toBe(1);
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/3');
+    expect(await highlightSize(page, 'ahve-search')).toBe(3);
+    expect(await highlightSize(page, 'ahve-search-current')).toBe(1);
   });
 
   test('Enter and Shift+Enter move through matches with wrap-around', async ({ page }) => {
     await mountEditor(page, '<p>x x x</p>');
     await focusEditor(page);
     await page.keyboard.press('Control+f');
-    await page.locator('.hw-search-input').fill('x');
+    await page.locator('.ahve-search-input').fill('x');
 
-    const count = page.locator('.hw-search-count');
+    const count = page.locator('.ahve-search-count');
     await expect(count).toHaveText('1/3');
 
     await page.keyboard.press('Enter');
@@ -63,58 +63,58 @@ test.describe('In-document search (Ctrl+F)', () => {
     await mountEditor(page, '<p>Cat cat CAT</p>');
     await focusEditor(page);
     await page.keyboard.press('Control+f');
-    await page.locator('.hw-search-input').fill('cat');
+    await page.locator('.ahve-search-input').fill('cat');
 
-    await expect(page.locator('.hw-search-count')).toHaveText('1/3');
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/3');
 
     // Toggle "Match case" (Aa).
-    await page.locator('.hw-search-btn', { hasText: 'Aa' }).click();
-    await expect(page.locator('.hw-search-count')).toHaveText('1/1');
+    await page.locator('.ahve-search-btn', { hasText: 'Aa' }).click();
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/1');
   });
 
   test('the whole-word toggle excludes partial matches', async ({ page }) => {
     await mountEditor(page, '<p>cat category cat</p>');
     await focusEditor(page);
     await page.keyboard.press('Control+f');
-    await page.locator('.hw-search-input').fill('cat');
+    await page.locator('.ahve-search-input').fill('cat');
 
-    await expect(page.locator('.hw-search-count')).toHaveText('1/3');
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/3');
 
-    await page.locator('.hw-search-btn', { hasText: 'ab' }).click();
-    await expect(page.locator('.hw-search-count')).toHaveText('1/2');
+    await page.locator('.ahve-search-btn', { hasText: 'ab' }).click();
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/2');
   });
 
   test('reports "No results" when nothing matches', async ({ page }) => {
     await mountEditor(page, '<p>alpha beta</p>');
     await focusEditor(page);
     await page.keyboard.press('Control+f');
-    await page.locator('.hw-search-input').fill('zzz');
+    await page.locator('.ahve-search-input').fill('zzz');
 
-    await expect(page.locator('.hw-search-count')).toHaveText('No results');
-    expect(await highlightSize(page, 'hw-search')).toBe(0);
+    await expect(page.locator('.ahve-search-count')).toHaveText('No results');
+    expect(await highlightSize(page, 'ahve-search')).toBe(0);
   });
 
   test('prefills the query from the editor selection', async ({ page }) => {
     await mountEditor(page, '<p>hello world</p>');
     await focusEditor(page);
-    await selectTextInside(page, '#hw-root p', 0, 5);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
 
     await page.keyboard.press('Control+f');
-    await expect(page.locator('.hw-search-input')).toHaveValue('hello');
-    await expect(page.locator('.hw-search-count')).toHaveText('1/1');
+    await expect(page.locator('.ahve-search-input')).toHaveValue('hello');
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/1');
   });
 
   test('closing clears the highlights', async ({ page }) => {
     await mountEditor(page, '<p>find find</p>');
     await focusEditor(page);
     await page.keyboard.press('Control+f');
-    await page.locator('.hw-search-input').fill('find');
+    await page.locator('.ahve-search-input').fill('find');
     // Wait for the debounced search to settle before reading the one-shot count.
-    await expect(page.locator('.hw-search-count')).toHaveText('1/2');
-    expect(await highlightSize(page, 'hw-search')).toBe(2);
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/2');
+    expect(await highlightSize(page, 'ahve-search')).toBe(2);
 
     await page.keyboard.press('Escape');
-    expect(await highlightSize(page, 'hw-search')).toBe(0);
-    expect(await highlightSize(page, 'hw-search-current')).toBe(0);
+    expect(await highlightSize(page, 'ahve-search')).toBe(0);
+    expect(await highlightSize(page, 'ahve-search-current')).toBe(0);
   });
 });

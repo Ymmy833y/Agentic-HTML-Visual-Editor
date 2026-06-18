@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
-import { CUSTOM_EDITOR_VIEW_TYPE } from '../commands/openInWysiwyg';
+import { CUSTOM_EDITOR_VIEW_TYPE } from '../commands/openInVisualEditor';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
 } from '../shared/messages';
 
-export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvider {
+export class AhveEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = CUSTOM_EDITOR_VIEW_TYPE;
 
   // Tracks the most recently active WYSIWYG panel so command-palette commands
@@ -14,14 +14,14 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
   private static activePanel: vscode.WebviewPanel | null = null;
 
   public static getActivePanel(): vscode.WebviewPanel | null {
-    return HtmlWysiwygEditorProvider.activePanel;
+    return AhveEditorProvider.activePanel;
   }
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new HtmlWysiwygEditorProvider(context);
-    return vscode.window.registerCustomEditorProvider(HtmlWysiwygEditorProvider.viewType, provider, {
+    const provider = new AhveEditorProvider(context);
+    return vscode.window.registerCustomEditorProvider(AhveEditorProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
     });
@@ -41,12 +41,12 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
     const fileName = document.uri.path.split('/').at(-1) ?? '';
     webviewPanel.title = `${fileName} (WYSIWYG)`;
     webviewPanel.iconPath = {
-      light: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'wysiwyg-light.svg'),
-      dark: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'wysiwyg-dark.svg'),
+      light: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'ahve-light.svg'),
+      dark: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'ahve-dark.svg'),
     };
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
 
-    HtmlWysiwygEditorProvider.activePanel = webviewPanel;
+    AhveEditorProvider.activePanel = webviewPanel;
 
     const post = (message: ExtensionToWebviewMessage): void => {
       webviewPanel.webview.postMessage(message);
@@ -83,15 +83,15 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
 
     const viewStateSubscription = webviewPanel.onDidChangeViewState(() => {
       if (webviewPanel.active) {
-        HtmlWysiwygEditorProvider.activePanel = webviewPanel;
-      } else if (HtmlWysiwygEditorProvider.activePanel === webviewPanel) {
-        HtmlWysiwygEditorProvider.activePanel = null;
+        AhveEditorProvider.activePanel = webviewPanel;
+      } else if (AhveEditorProvider.activePanel === webviewPanel) {
+        AhveEditorProvider.activePanel = null;
       }
     });
 
     webviewPanel.onDidDispose(() => {
-      if (HtmlWysiwygEditorProvider.activePanel === webviewPanel) {
-        HtmlWysiwygEditorProvider.activePanel = null;
+      if (AhveEditorProvider.activePanel === webviewPanel) {
+        AhveEditorProvider.activePanel = null;
       }
       messageSubscription.dispose();
       documentChangeSubscription.dispose();
@@ -131,10 +131,10 @@ export class HtmlWysiwygEditorProvider implements vscode.CustomTextEditorProvide
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <link rel="stylesheet" href="${styleUri.toString()}" />
-    <title>HTML WYSIWYG</title>
+    <title>Agentic HTML Visual Editor</title>
   </head>
   <body>
-    <div id="hw-root" role="document"></div>
+    <div id="ahve-root" role="document"></div>
     <script nonce="${nonce}" src="${scriptUri.toString()}"></script>
   </body>
 </html>`;

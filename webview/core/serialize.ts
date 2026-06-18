@@ -38,7 +38,7 @@ const OPAQUE_TAGS = new Set([
 // wrappers (e.g. `<strong></strong>`) are kept in the serialized output only
 // for this block, so the line being edited keeps its formatting in the saved
 // file while abandoned empty wrappers elsewhere are still pruned to `<p></p>`.
-const ACTIVE_ATTR = 'data-hw-active';
+const ACTIVE_ATTR = 'data-ahve-active';
 
 export function formatForSerialize(root: HTMLElement): string {
   const active = collapsedActiveEmptyBlock(root);

@@ -9,11 +9,11 @@ import * as path from 'node:path';
  */
 export function getExtension(): vscode.Extension<unknown> {
   for (const ext of vscode.extensions.all) {
-    if (ext.packageJSON?.name === 'html-wysiwyg') {
+    if (ext.packageJSON?.name === 'agentic-html-visual-editor') {
       return ext;
     }
   }
-  throw new Error('html-wysiwyg extension was not found in vscode.extensions.all');
+  throw new Error('agentic-html-visual-editor extension was not found in vscode.extensions.all');
 }
 
 export async function activateExtension(): Promise<void> {

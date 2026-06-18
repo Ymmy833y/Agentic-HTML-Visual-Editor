@@ -5,7 +5,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('"# " at the start of a paragraph converts it to <h1>', async ({ page }) => {
     await mountEditor(page, '<p>#</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
     expect(await getRootHtml(page)).toBe('<h1><br></h1>');
   });
@@ -13,15 +13,15 @@ test.describe('Markdown-style shortcuts', () => {
   test('"###### " produces an <h6>', async ({ page }) => {
     await mountEditor(page, '<p>######</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
-    await expect(page.locator('#hw-root h6')).toHaveCount(1);
+    await expect(page.locator('#ahve-root h6')).toHaveCount(1);
   });
 
   test('"---" + Enter becomes <hr> followed by a fresh paragraph', async ({ page }) => {
     await mountEditor(page, '<p>---</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Enter');
     expect(await getRootHtml(page)).toBe('<hr><p><br></p>');
   });
@@ -29,7 +29,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('"- " at the start of a paragraph starts a bulleted list', async ({ page }) => {
     await mountEditor(page, '<p>-</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
     expect(await getRootHtml(page)).toBe('<ul><li><br></li></ul>');
   });
@@ -37,7 +37,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('"1. " at the start of a paragraph starts a numbered list', async ({ page }) => {
     await mountEditor(page, '<p>1.</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
     expect(await getRootHtml(page)).toBe('<ol><li><br></li></ol>');
   });
@@ -45,7 +45,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('"> " at the start of a paragraph starts a blockquote', async ({ page }) => {
     await mountEditor(page, '<p>&gt;</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
     expect(await getRootHtml(page)).toBe('<blockquote><br></blockquote>');
   });
@@ -53,7 +53,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('"```" + Enter opens a code block', async ({ page }) => {
     await mountEditor(page, '<p>```</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Enter');
     expect(await getRootHtml(page)).toBe('<pre><br></pre>');
   });
@@ -96,7 +96,7 @@ test.describe('Markdown-style shortcuts', () => {
   test('Enter after a heading creates a <p>, not a <div>', async ({ page }) => {
     await mountEditor(page, '<h1>Title</h1>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root h1');
+    await caretAtEnd(page, '#ahve-root h1');
     await page.keyboard.press('Enter');
     await page.keyboard.type('body');
     expect(await getRootHtml(page)).toBe('<h1>Title</h1><p>body</p>');
@@ -114,12 +114,12 @@ test.describe('Markdown-style shortcuts', () => {
   test('does not fire when "#" is not at the start of the block', async ({ page }) => {
     await mountEditor(page, '<p>hello#</p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Space');
     const html = await getRootHtml(page);
     // The space is inserted normally (browser default). The block must NOT
     // have been promoted to a heading.
-    await expect(page.locator('#hw-root h1, #hw-root h2, #hw-root h3')).toHaveCount(0);
+    await expect(page.locator('#ahve-root h1, #ahve-root h2, #ahve-root h3')).toHaveCount(0);
     expect(html.startsWith('<p>')).toBe(true);
   });
 });

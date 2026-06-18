@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
-export const OPEN_IN_WYSIWYG_COMMAND = 'htmlWysiwyg.openInWysiwyg';
-export const CUSTOM_EDITOR_VIEW_TYPE = 'htmlWysiwyg.editor';
+export const OPEN_IN_VISUAL_EDITOR_COMMAND = 'ahve.openInVisualEditor';
+export const CUSTOM_EDITOR_VIEW_TYPE = 'ahve.editor';
 
-export function registerOpenInWysiwygCommand(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(OPEN_IN_WYSIWYG_COMMAND, async (uri?: vscode.Uri) => {
+export function registerOpenInVisualEditorCommand(context: vscode.ExtensionContext): void {
+  const disposable = vscode.commands.registerCommand(OPEN_IN_VISUAL_EDITOR_COMMAND, async (uri?: vscode.Uri) => {
     const target = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       vscode.window.showWarningMessage('There is no HTML file to open in the WYSIWYG editor.');

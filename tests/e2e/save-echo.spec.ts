@@ -25,7 +25,7 @@ test.describe('Save echo — caret preservation', () => {
 
     // Caret in the middle of the first paragraph ("hello |world").
     await page.evaluate(() => {
-      const p = document.querySelector('#hw-root p')!;
+      const p = document.querySelector('#ahve-root p')!;
       const range = document.createRange();
       range.setStart(p.firstChild!, 6);
       range.collapse(true);
@@ -40,7 +40,7 @@ test.describe('Save echo — caret preservation', () => {
 
     const state = await page.evaluate(() => {
       const sel = window.getSelection()!;
-      const firstP = document.querySelector('#hw-root p');
+      const firstP = document.querySelector('#ahve-root p');
       return {
         anchorText: sel.anchorNode?.textContent ?? null,
         anchorOffset: sel.anchorOffset,
@@ -75,7 +75,7 @@ test.describe('Save echo — empty block editability', () => {
     // <strong> and type a character.
     await focusEditor(page);
     await page.evaluate(() => {
-      const blocks = document.querySelectorAll('#hw-root p');
+      const blocks = document.querySelectorAll('#ahve-root p');
       const strong = blocks[blocks.length - 1].querySelector('strong')!;
       const range = document.createRange();
       range.selectNodeContents(strong);
@@ -87,7 +87,7 @@ test.describe('Save echo — empty block editability', () => {
     await page.keyboard.type('X');
 
     const lastStrongText = await page.evaluate(() => {
-      const blocks = document.querySelectorAll('#hw-root p');
+      const blocks = document.querySelectorAll('#ahve-root p');
       return blocks[blocks.length - 1].querySelector('strong')?.textContent ?? null;
     });
     expect(lastStrongText).toBe('X');

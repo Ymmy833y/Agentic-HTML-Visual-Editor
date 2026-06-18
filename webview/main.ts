@@ -51,9 +51,9 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 
-const root = document.getElementById('hw-root');
+const root = document.getElementById('ahve-root');
 if (!root) {
-  throw new Error('WYSIWYG root element (#hw-root) is missing.');
+  throw new Error('WYSIWYG root element (#ahve-root) is missing.');
 }
 
 let prefix = '';
@@ -161,9 +161,9 @@ let lastClickedCell: HTMLTableCellElement | null = null;
 let mergeAnchor: HTMLTableCellElement | null = null;
 
 function setMergeAnchor(cell: HTMLTableCellElement | null): void {
-  if (mergeAnchor) mergeAnchor.classList.remove('hw-tc-merge-anchor');
+  if (mergeAnchor) mergeAnchor.classList.remove('ahve-tc-merge-anchor');
   mergeAnchor = cell;
-  if (mergeAnchor) mergeAnchor.classList.add('hw-tc-merge-anchor');
+  if (mergeAnchor) mergeAnchor.classList.add('ahve-tc-merge-anchor');
 }
 
 const tablePicker = mountTablePicker({

@@ -30,7 +30,7 @@ export function mountTableResize(
   opts: TableResizeOptions,
 ): TableResizeHandle {
   const handle = document.createElement('div');
-  handle.className = 'hw-tr-handle';
+  handle.className = 'ahve-tr-handle';
   handle.hidden = true;
   document.body.appendChild(handle);
 
@@ -117,7 +117,7 @@ export function mountTableResize(
       startX: e.clientX,
       startWidth: ref.getBoundingClientRect().width,
     };
-    handle.classList.add('hw-tr-handle-dragging');
+    handle.classList.add('ahve-tr-handle-dragging');
     document.body.style.cursor = 'col-resize';
     document.addEventListener('mousemove', onDragMove, true);
     document.addEventListener('mouseup', onDragEnd, true);
@@ -145,7 +145,7 @@ export function mountTableResize(
   const onDragEnd = (): void => {
     if (!dragging) return;
     dragging = null;
-    handle.classList.remove('hw-tr-handle-dragging');
+    handle.classList.remove('ahve-tr-handle-dragging');
     document.body.style.removeProperty('cursor');
     root.style.removeProperty('cursor');
     document.removeEventListener('mousemove', onDragMove, true);
