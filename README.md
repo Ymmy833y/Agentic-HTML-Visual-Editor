@@ -16,7 +16,7 @@
 A VS Code extension that turns plain `.html` files into a **modern, intuitive WYSIWYG editor** — so AI coding agents can emit minimal HTML, and humans can read and edit it comfortably. The HTML on disk stays the single, portable source of truth for both sides.
 
 <p align="center">
-  <img src="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/tree/master/assets/screenshot.png" alt="The WYSIWYG view rendering a sample document, with an inline comment thread popup open" width="820" />
+  <img src="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/blob/master/assets/screenshot.png" alt="The WYSIWYG view rendering a sample document, with an inline comment thread popup open" width="820" />
   <br />
   <em>The WYSIWYG view editing an HTML document, with an inline review comment thread open.</em>
 </p>
@@ -177,7 +177,6 @@ The repository ships an agent **Skill**, `html-result-output`, at `.claude/skill
 
 <br />
 
-> [!note]
 > The content below is the bundled `.claude/skills/html-result-output/SKILL.md`, reproduced here for reference.
 
 ````md
