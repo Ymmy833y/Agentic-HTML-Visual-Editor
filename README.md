@@ -29,10 +29,13 @@ The AI outputs HTML that is as simple as possible, while users can view and edit
 ### Custom Tags
 Inline review-style annotation that is fully expressed in HTML so AI agents can read it as ordinary elements:
 
-- `<comment id="...">target text<comment-body>body</comment-body><comment-reply>reply</comment-reply>...</comment>`
-  - `<comment>` wraps the annotated text range inline. In the WYSIWYG view it is rendered as an amber highlight with an underline; clicking the highlight opens a popup with the body and reply thread.
+- `<comment id="...">target text<comment-body data-author="..." data-updated="...">body</comment-body><comment-reply data-author="..." data-updated="...">reply</comment-reply>...</comment>`
+  - `<comment>` wraps the annotated text range inline. In the WYSIWYG view it is rendered as a highlighted, boxed run; clicking the highlight opens a popup with the body and reply thread.
   - `<comment-body>` (zero or one per `<comment>`) holds the body text.
   - `<comment-reply>` (zero or more per `<comment>`) each holds one reply, in document order.
+  - **Author & time:** each body/reply carries `data-author` (`human` or `ai`; the human side may use specific user names in the future) and a `data-updated` ISO 8601 timestamp. Editing in the WYSIWYG view fills these in automatically; the box colour is keyed off the author so human- and AI-authored comments are distinguishable.
+  - **Resolved state:** a `<comment>` may carry a boolean `data-resolved` attribute (toggled from the popup). Resolved comments recede to a dashed, muted box; unresolved ones keep a solid coloured box.
+  - **Editing the counterpart's notes:** when a human edits or deletes a comment the AI authored, the view asks for confirmation first, so review notes are not overwritten by accident.
   - The body and replies are hidden from the document flow visually but remain in the HTML source so any reader (human or AI) can see the full thread by inspecting the markup.
   - When copying as Confluence-compatible HTML, all of these tags are stripped and only the highlighted text survives.
 

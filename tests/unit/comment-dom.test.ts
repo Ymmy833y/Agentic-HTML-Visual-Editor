@@ -3,15 +3,23 @@ import {
   addReply,
   commentsInDocumentOrder,
   findCommentById,
+  getAuthor,
   getBody,
   getReplies,
+  getUpdated,
+  hasCounterpartEntry,
+  isCounterpart,
+  isResolved,
   lockChildren,
   newCommentId,
   removeReply,
   setBody,
+  setResolved,
   updateReply,
 } from '../../webview/features/comment/comment-dom';
 import { clearDom, makeRoot } from './helpers/selection';
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
 afterEach(clearDom);
 
@@ -42,7 +50,9 @@ describe('setBody / getBody', () => {
     const root = makeRoot('<p><comment id="c1">target</comment></p>');
     const comment = findCommentById(root, 'c1')!;
     setBody(comment, 'hello');
-    expect(comment.innerHTML).toBe('target<comment-body contenteditable="false">hello</comment-body>');
+    const body = comment.querySelector('comment-body')!;
+    expect(body.getAttribute('contenteditable')).toBe('false');
+    expect(body.textContent).toBe('hello');
     expect(getBody(comment)).toBe('hello');
   });
 
@@ -118,5 +128,86 @@ describe('lockChildren', () => {
     lockChildren(comment);
     expect(comment.querySelector('comment-body')!.getAttribute('contenteditable')).toBe('false');
     expect(comment.querySelector('comment-reply')!.getAttribute('contenteditable')).toBe('false');
+  });
+});
+
+describe('author / updated metadata', () => {
+  it('setBody stamps author and an ISO updated time on creation', () => {
+    const root = makeRoot('<p><comment id="c1">x</comment></p>');
+    const comment = findCommentById(root, 'c1')!;
+    setBody(comment, 'note', 'ai');
+    const body = comment.querySelector('comment-body')!;
+    expect(getAuthor(body)).toBe('ai');
+    expect(getUpdated(body)).toMatch(ISO_RE);
+  });
+
+  it('setBody defaults the author to the local human label', () => {
+    const root = makeRoot('<p><comment id="c1">x</comment></p>');
+    const comment = findCommentById(root, 'c1')!;
+    setBody(comment, 'note');
+    expect(getAuthor(comment.querySelector('comment-body')!)).toBe('human');
+  });
+
+  it('setBody keeps the original author but refreshes the time on later edits', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body data-author="ai" data-updated="2000-01-01T00:00:00Z">old</comment-body></comment></p>',
+    );
+    const comment = findCommentById(root, 'c1')!;
+    setBody(comment, 'edited');
+    const body = comment.querySelector('comment-body')!;
+    expect(getAuthor(body)).toBe('ai');
+    expect(getUpdated(body)).not.toBe('2000-01-01T00:00:00Z');
+    expect(getUpdated(body)).toMatch(ISO_RE);
+  });
+
+  it('addReply stamps author and updated time', () => {
+    const root = makeRoot('<p><comment id="c1">x</comment></p>');
+    const reply = addReply(findCommentById(root, 'c1')!, 'hi', 'ai');
+    expect(getAuthor(reply)).toBe('ai');
+    expect(getUpdated(reply)).toMatch(ISO_RE);
+  });
+
+  it('updateReply refreshes the time but keeps the author', () => {
+    const root = makeRoot('<p><comment id="c1">x</comment></p>');
+    const reply = addReply(findCommentById(root, 'c1')!, 'hi', 'ai');
+    reply.setAttribute('data-updated', '2000-01-01T00:00:00Z');
+    updateReply(reply, 'edited');
+    expect(getAuthor(reply)).toBe('ai');
+    expect(getUpdated(reply)).not.toBe('2000-01-01T00:00:00Z');
+  });
+});
+
+describe('counterpart detection', () => {
+  it('isCounterpart is true only for AI-authored entries', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body data-author="ai">b</comment-body>' +
+        '<comment-reply data-author="human">r</comment-reply></comment></p>',
+    );
+    const comment = findCommentById(root, 'c1')!;
+    expect(isCounterpart(comment.querySelector('comment-body')!)).toBe(true);
+    expect(isCounterpart(comment.querySelector('comment-reply')!)).toBe(false);
+  });
+
+  it('hasCounterpartEntry detects an AI body or AI reply', () => {
+    const root = makeRoot(
+      '<p><comment id="human-only">x<comment-body data-author="human">b</comment-body></comment>' +
+        '<comment id="ai-reply">y<comment-body data-author="human">b</comment-body>' +
+        '<comment-reply data-author="ai">r</comment-reply></comment></p>',
+    );
+    expect(hasCounterpartEntry(findCommentById(root, 'human-only')!)).toBe(false);
+    expect(hasCounterpartEntry(findCommentById(root, 'ai-reply')!)).toBe(true);
+  });
+});
+
+describe('resolved state', () => {
+  it('toggles the data-resolved attribute on the comment', () => {
+    const root = makeRoot('<p><comment id="c1">x</comment></p>');
+    const comment = findCommentById(root, 'c1')!;
+    expect(isResolved(comment)).toBe(false);
+    setResolved(comment, true);
+    expect(comment.hasAttribute('data-resolved')).toBe(true);
+    expect(isResolved(comment)).toBe(true);
+    setResolved(comment, false);
+    expect(comment.hasAttribute('data-resolved')).toBe(false);
   });
 });

@@ -149,4 +149,107 @@ test.describe('Comment', () => {
     await popup.locator('.hw-cp-btn', { hasText: '↑' }).click();
     await expect(popup.locator('.hw-cp-body-display')).toHaveText('first');
   });
+
+  test('a human-created comment records author and timestamp metadata', async ({ page }) => {
+    await mountEditor(page, '<p>hello world</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#hw-root p', 0, 5);
+    await page.locator('#hw-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    const popup = page.locator('#hw-comment-popup');
+    await popup.locator('.hw-cp-body-display').click();
+    await popup.locator('textarea.hw-cp-body-input').fill('great point');
+    await popup.locator('textarea.hw-cp-body-input').press('Enter');
+
+    const body = page.locator('#hw-root comment > comment-body');
+    await expect(body).toHaveAttribute('data-author', 'human');
+    await expect(body).toHaveAttribute('data-updated', /^\d{4}-\d{2}-\d{2}T/);
+    await expect(popup.locator('.hw-cp-meta').first()).toContainText('Human');
+  });
+
+  test('the resolve toggle adds and removes data-resolved on the comment', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p><comment id="c-r">target<comment-body data-author="human">note</comment-body></comment></p>',
+    );
+    await page.locator('#hw-root comment').click();
+    const popup = page.locator('#hw-comment-popup');
+    const resolveBtn = popup.locator('.hw-cp-btn', { hasText: '✓' });
+
+    await resolveBtn.click();
+    await expect(page.locator('#hw-root comment')).toHaveAttribute('data-resolved', '');
+    await resolveBtn.click();
+    await expect(page.locator('#hw-root comment')).not.toHaveAttribute('data-resolved', '');
+  });
+
+  test('editing an AI-authored body asks for confirmation; cancel keeps it', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>hi <comment id="c-ai">target<comment-body data-author="ai" data-updated="2026-06-18T09:00:00Z">ai note</comment-body></comment> bye</p>',
+    );
+    await page.locator('#hw-root comment').click();
+    const popup = page.locator('#hw-comment-popup');
+    await popup.locator('.hw-cp-body-display').click();
+
+    const dialog = page.locator('.hw-dialog-overlay');
+    await expect(dialog).toBeVisible();
+    await dialog.locator('button', { hasText: 'Cancel' }).click();
+
+    await expect(dialog).toHaveCount(0);
+    // No edit textarea opened and the AI note is untouched.
+    await expect(popup.locator('textarea.hw-cp-body-input')).toHaveCount(0);
+    await expect(page.locator('#hw-root comment > comment-body')).toHaveText('ai note');
+  });
+
+  test('confirming lets the human edit the AI-authored body', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>hi <comment id="c-ai">target<comment-body data-author="ai" data-updated="2026-06-18T09:00:00Z">ai note</comment-body></comment> bye</p>',
+    );
+    await page.locator('#hw-root comment').click();
+    const popup = page.locator('#hw-comment-popup');
+    await popup.locator('.hw-cp-body-display').click();
+
+    await page.locator('.hw-dialog-overlay button', { hasText: 'Edit' }).click();
+    const input = popup.locator('textarea.hw-cp-body-input');
+    await expect(input).toBeVisible();
+    await input.fill('human revised');
+    await input.press('Enter');
+
+    const body = page.locator('#hw-root comment > comment-body');
+    await expect(body).toHaveText('human revised');
+    // Author attribution stays with the original AI author.
+    await expect(body).toHaveAttribute('data-author', 'ai');
+  });
+
+  test('deleting an AI-authored reply asks for confirmation; cancel keeps it', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>hi <comment id="c-ai">target<comment-body data-author="human">note</comment-body>' +
+        '<comment-reply data-author="ai" data-updated="2026-06-18T09:00:00Z">ai reply</comment-reply></comment> bye</p>',
+    );
+    await page.locator('#hw-root comment').click();
+    const popup = page.locator('#hw-comment-popup');
+    await popup.locator('.hw-cp-reply-row .hw-cp-reply-del').click();
+
+    const dialog = page.locator('.hw-dialog-overlay');
+    await expect(dialog).toBeVisible();
+    await dialog.locator('button', { hasText: 'Cancel' }).click();
+    await expect(page.locator('#hw-root comment > comment-reply')).toHaveCount(1);
+  });
+
+  test('AI-authored comments render in a different highlight colour than human ones', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p><comment id="c-h">human<comment-body data-author="human">h</comment-body></comment> ' +
+        '<comment id="c-a">ai<comment-body data-author="ai">a</comment-body></comment></p>',
+    );
+    const humanBg = await page
+      .locator('#hw-root comment#c-h')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    const aiBg = await page
+      .locator('#hw-root comment#c-a')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(humanBg).not.toBe(aiBg);
+  });
 });

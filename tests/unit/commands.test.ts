@@ -159,9 +159,14 @@ describe('addComment', () => {
     expect(created).not.toBeNull();
     const id = created!.getAttribute('id');
     expect(id).toMatch(/^c-[a-z0-9]+$/);
-    expect(root.innerHTML).toBe(
-      `<p><comment id="${id}">hello<comment-body contenteditable="false"></comment-body></comment> world</p>`,
-    );
+    expect(created!.childNodes[0].textContent).toBe('hello');
+    const body = created!.querySelector('comment-body')!;
+    expect(body.getAttribute('contenteditable')).toBe('false');
+    expect(body.textContent).toBe('');
+    // The creator (a human editing in the WYSIWYG view) is recorded.
+    expect(body.getAttribute('data-author')).toBe('human');
+    expect(body.getAttribute('data-updated')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(root.querySelector('p')!.lastChild!.textContent).toBe(' world');
   });
 
   it('returns null and does nothing when the selection is collapsed', () => {
@@ -193,12 +198,11 @@ describe('addComment', () => {
     selectTextRange(text, 0, 5);
     const created = addComment(ctxOf(root));
     expect(created).not.toBeNull();
-    const id = created!.getAttribute('id')!;
-    expect(root.innerHTML).toBe(
-      '<table><tbody><tr><td>' +
-        `<comment id="${id}">hello<comment-body contenteditable="false"></comment-body></comment>` +
-        ' world</td></tr></tbody></table>',
-    );
+    const comment = root.querySelector('td > comment')!;
+    expect(comment).toBe(created);
+    expect(comment.childNodes[0].textContent).toBe('hello');
+    expect(comment.querySelector('comment-body')!.getAttribute('contenteditable')).toBe('false');
+    expect(root.querySelector('td')!.lastChild!.textContent).toBe(' world');
   });
 
   it('wraps a selection inside a header cell (<th>)', () => {

@@ -5,6 +5,7 @@
 import * as cdom from './comment-dom';
 import { removeComment } from './comment-commands';
 import { setupTooltip } from '../../ui/tooltip';
+import { openConfirmDialog } from '../../ui/confirm-dialog';
 
 export interface CommentPopupOptions {
   /** Called after any DOM mutation inside the comment so the editor can serialize. */
@@ -42,10 +43,13 @@ export function mountCommentPopup(
   const nextBtn = headerBtn('↓', 'Next comment', () => navigate(1));
   const spacer = document.createElement('span');
   spacer.className = 'hw-cp-spacer';
-  const trashBtn = headerBtn('🗑', 'Delete comment', () => deleteCurrent());
+  const resolveBtn = headerBtn('✓', 'Toggle resolved', () => toggleResolved());
+  const trashBtn = headerBtn('🗑', 'Delete comment', () => {
+    void deleteCurrent();
+  });
   const closeBtn = headerBtn('×', 'Close', () => close());
 
-  header.append(prevBtn, nextBtn, spacer, trashBtn, closeBtn);
+  header.append(prevBtn, nextBtn, spacer, resolveBtn, trashBtn, closeBtn);
 
   const bodySection = document.createElement('div');
   bodySection.className = 'hw-cp-body';
@@ -100,6 +104,9 @@ export function mountCommentPopup(
     if (!target) return;
     if (popup.contains(target)) return;
     if (current.contains(target)) return;
+    // A modal confirm dialog (e.g. the counterpart-edit guard) renders above the
+    // popup; clicking it must not be treated as an outside click that closes us.
+    if (target instanceof Element && target.closest('.hw-dialog-overlay')) return;
     close();
   });
 
@@ -128,25 +135,48 @@ export function mountCommentPopup(
     renderReplies();
     replyInput.value = '';
     updateNavButtons();
+    updateResolveButton();
+  }
+
+  function updateResolveButton(): void {
+    if (!current) return;
+    resolveBtn.classList.toggle('hw-cp-resolved-on', cdom.isResolved(current));
+  }
+
+  function toggleResolved(): void {
+    if (!current) return;
+    cdom.setResolved(current, !cdom.isResolved(current));
+    opts.onChange();
+    updateResolveButton();
   }
 
   function renderBody(): void {
     bodySection.replaceChildren();
     if (!current) return;
+    const body = bodyEl(current);
+    const text = cdom.getBody(current);
+    if (text !== '' && body) {
+      const meta = metaLine(body);
+      if (meta) bodySection.appendChild(meta);
+    }
     const display = document.createElement('div');
     display.className = 'hw-cp-body-display';
-    const text = cdom.getBody(current);
     if (text === '') {
       display.classList.add('hw-cp-empty');
       display.textContent = 'Add a comment';
     } else {
       display.textContent = text;
     }
-    display.addEventListener('click', () => editBody());
+    display.addEventListener('click', () => {
+      void editBody();
+    });
     bodySection.appendChild(display);
   }
 
-  function editBody(): void {
+  async function editBody(): Promise<void> {
+    if (!current) return;
+    const body = bodyEl(current);
+    if (body && cdom.isCounterpart(body) && !(await confirmCounterpartEdit('edit'))) return;
     if (!current) return;
     const ta = document.createElement('textarea');
     ta.className = 'hw-cp-body-input';
@@ -190,10 +220,18 @@ export function mountCommentPopup(
     const row = document.createElement('div');
     row.className = 'hw-cp-reply-row';
 
+    const main = document.createElement('div');
+    main.className = 'hw-cp-reply-main';
+    const meta = metaLine(reply);
+    if (meta) main.appendChild(meta);
+
     const display = document.createElement('div');
     display.className = 'hw-cp-reply-display';
     display.textContent = reply.textContent ?? '';
-    display.addEventListener('click', () => editReply(reply, row));
+    display.addEventListener('click', () => {
+      void editReply(reply, row);
+    });
+    main.appendChild(display);
 
     const del = document.createElement('button');
     del.type = 'button';
@@ -202,16 +240,20 @@ export function mountCommentPopup(
     del.textContent = '×';
     del.addEventListener('click', (e) => {
       e.stopPropagation();
-      cdom.removeReply(reply);
-      opts.onChange();
-      renderReplies();
+      void (async (): Promise<void> => {
+        if (cdom.isCounterpart(reply) && !(await confirmCounterpartEdit('delete'))) return;
+        cdom.removeReply(reply);
+        opts.onChange();
+        renderReplies();
+      })();
     });
 
-    row.append(display, del);
+    row.append(main, del);
     return row;
   }
 
-  function editReply(reply: Element, row: HTMLElement): void {
+  async function editReply(reply: Element, row: HTMLElement): Promise<void> {
+    if (cdom.isCounterpart(reply) && !(await confirmCounterpartEdit('edit'))) return;
     const ta = document.createElement('textarea');
     ta.className = 'hw-cp-reply-input';
     ta.value = reply.textContent ?? '';
@@ -247,12 +289,45 @@ export function mountCommentPopup(
     renderReplies();
   }
 
-  function deleteCurrent(): void {
+  async function deleteCurrent(): Promise<void> {
     if (!current) return;
     const target = current;
+    if (cdom.hasCounterpartEntry(target) && !(await confirmCounterpartEdit('delete'))) return;
     close();
     removeComment({ root }, target);
     opts.onChange();
+  }
+
+  /**
+   * Confirm before the editing human overwrites or removes content the
+   * counterpart (AI) authored. Returns true when the user proceeds.
+   */
+  function confirmCounterpartEdit(kind: 'edit' | 'delete'): Promise<boolean> {
+    const message =
+      kind === 'delete'
+        ? 'This comment contains content written by the AI. Delete it anyway?'
+        : 'This was written by the AI. Edit it anyway?';
+    return openConfirmDialog({
+      title: 'Edit the AI’s comment?',
+      message,
+      confirmLabel: kind === 'delete' ? 'Delete' : 'Edit',
+      danger: kind === 'delete',
+    });
+  }
+
+  /**
+   * Build the "Author · time" metadata line for a body/reply entry, or null
+   * when the entry carries no metadata (e.g. legacy comments without author).
+   */
+  function metaLine(entry: Element): HTMLElement | null {
+    const author = cdom.getAuthor(entry);
+    const parts = [formatAuthor(author), formatTime(cdom.getUpdated(entry))].filter((p) => p !== '');
+    if (parts.length === 0) return null;
+    const meta = document.createElement('div');
+    meta.className = 'hw-cp-meta';
+    meta.classList.toggle('hw-cp-meta-ai', author === cdom.AI_AUTHOR);
+    meta.textContent = parts.join(' · ');
+    return meta;
   }
 
   function updateNavButtons(): void {
@@ -300,6 +375,24 @@ export function mountCommentPopup(
     refreshIfOpen,
     element: () => popup,
   };
+}
+
+function bodyEl(comment: Element): Element | null {
+  return comment.querySelector(':scope > comment-body');
+}
+
+function formatAuthor(author: string): string {
+  if (author === cdom.AI_AUTHOR) return 'AI';
+  if (author === cdom.LOCAL_AUTHOR) return 'Human';
+  // Future: human side may carry specific user names — show them verbatim.
+  return author;
+}
+
+function formatTime(iso: string): string {
+  if (iso === '') return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString();
 }
 
 function headerBtn(label: string, title: string, onClick: () => void): HTMLButtonElement {
