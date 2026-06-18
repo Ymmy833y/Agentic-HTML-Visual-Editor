@@ -1,0 +1,234 @@
+// In-document search widget (Ctrl+F). A small panel pinned to the top-right of
+// the view. Matches are painted with the CSS Custom Highlight API so the editor
+// DOM is never mutated — nothing leaks into the serialized HTML and a save-echo
+// remount only needs a refresh() to rebuild the (now-stale) match ranges.
+
+import { findMatches, type SearchOptions } from '../core/text-search';
+import { setupTooltip } from './tooltip';
+
+const HIGHLIGHT_ALL = 'hw-search';
+const HIGHLIGHT_CURRENT = 'hw-search-current';
+const DEBOUNCE_MS = 120;
+
+const supportsHighlight =
+  typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
+
+export interface SearchWidgetHandle {
+  open(): void;
+  close(): void;
+  isOpen(): boolean;
+  /** Recompute matches for the current query without jumping to the first hit. */
+  refresh(): void;
+}
+
+export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
+  let opened = false;
+  let matches: Range[] = [];
+  let currentIndex = -1;
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  const opts: SearchOptions = { caseSensitive: false, wholeWord: false };
+
+  const widget = document.createElement('div');
+  widget.id = 'hw-search';
+  widget.className = 'hw-search';
+  widget.hidden = true;
+  widget.setAttribute('role', 'search');
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'hw-search-input';
+  input.placeholder = 'Find';
+  input.setAttribute('aria-label', 'Find in document');
+
+  const count = document.createElement('span');
+  count.className = 'hw-search-count';
+
+  const caseBtn = toggleButton('Aa', 'Match case', () => {
+    opts.caseSensitive = !opts.caseSensitive;
+    setPressed(caseBtn, opts.caseSensitive);
+    runSearch(true);
+    input.focus();
+  });
+  const wordBtn = toggleButton('ab', 'Match whole word', () => {
+    opts.wholeWord = !opts.wholeWord;
+    setPressed(wordBtn, opts.wholeWord);
+    runSearch(true);
+    input.focus();
+  });
+  const prevBtn = actionButton('↑', 'Previous match (Shift+Enter)', () => {
+    navigate(-1);
+    input.focus();
+  });
+  const nextBtn = actionButton('↓', 'Next match (Enter)', () => {
+    navigate(1);
+    input.focus();
+  });
+  const closeBtn = actionButton('×', 'Close (Esc)', () => close());
+
+  widget.append(input, count, caseBtn, wordBtn, prevBtn, nextBtn, closeBtn);
+
+  // Keep the editor selection (and thus highlights) stable when interacting with
+  // the widget chrome. The text input is exempt so it can take focus normally.
+  widget.addEventListener('mousedown', (e) => {
+    if (e.target !== input) e.preventDefault();
+  });
+
+  input.addEventListener('input', () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => runSearch(true), DEBOUNCE_MS);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      navigate(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  });
+
+  document.body.appendChild(widget);
+
+  function open(): void {
+    opened = true;
+    widget.hidden = false;
+
+    // Prefill from a non-empty editor selection, mirroring native find widgets.
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (root.contains(range.commonAncestorContainer)) {
+        const text = sel.toString();
+        if (text !== '' && !text.includes('\n')) input.value = text;
+      }
+    }
+
+    input.focus();
+    input.select();
+    runSearch(true);
+  }
+
+  function close(): void {
+    opened = false;
+    widget.hidden = true;
+    if (debounce) {
+      clearTimeout(debounce);
+      debounce = null;
+    }
+    clearHighlights();
+
+    // Land the editor caret on the current match so editing continues there.
+    const current = matches[currentIndex];
+    if (current) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(current.cloneRange());
+      }
+    }
+    matches = [];
+    currentIndex = -1;
+    root.focus();
+  }
+
+  function isOpen(): boolean {
+    return opened;
+  }
+
+  function refresh(): void {
+    if (opened) runSearch(false);
+  }
+
+  // Recompute matches. resetToFirst=true jumps to the first hit (typing / toggle
+  // change); false preserves the current position (live edits / save echo).
+  function runSearch(resetToFirst: boolean): void {
+    const query = input.value;
+    matches = findMatches(root, query, opts);
+
+    if (matches.length === 0) {
+      currentIndex = -1;
+    } else if (resetToFirst || currentIndex < 0) {
+      currentIndex = 0;
+    } else if (currentIndex >= matches.length) {
+      currentIndex = matches.length - 1;
+    }
+
+    applyHighlights();
+    updateCount(query);
+    if (resetToFirst && currentIndex >= 0) scrollToCurrent();
+  }
+
+  function navigate(delta: number): void {
+    if (matches.length === 0) return;
+    currentIndex = (currentIndex + delta + matches.length) % matches.length;
+    applyHighlights();
+    updateCount(input.value);
+    scrollToCurrent();
+  }
+
+  function applyHighlights(): void {
+    if (!supportsHighlight) return;
+    if (matches.length === 0) {
+      clearHighlights();
+      return;
+    }
+    CSS.highlights.set(HIGHLIGHT_ALL, new Highlight(...matches.map((r) => r.cloneRange())));
+    const current = matches[currentIndex];
+    if (current) {
+      CSS.highlights.set(HIGHLIGHT_CURRENT, new Highlight(current.cloneRange()));
+    } else {
+      CSS.highlights.delete(HIGHLIGHT_CURRENT);
+    }
+  }
+
+  function clearHighlights(): void {
+    if (!supportsHighlight) return;
+    CSS.highlights.delete(HIGHLIGHT_ALL);
+    CSS.highlights.delete(HIGHLIGHT_CURRENT);
+  }
+
+  function updateCount(query: string): void {
+    if (query === '') {
+      count.textContent = '';
+    } else if (matches.length === 0) {
+      count.textContent = 'No results';
+    } else {
+      count.textContent = `${currentIndex + 1}/${matches.length}`;
+    }
+  }
+
+  function scrollToCurrent(): void {
+    const current = matches[currentIndex];
+    if (!current) return;
+    const anchor =
+      current.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (current.startContainer as Element)
+        : current.startContainer.parentElement;
+    anchor?.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+
+  return { open, close, isOpen, refresh };
+}
+
+function actionButton(label: string, tip: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'hw-search-btn';
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  setupTooltip(b, tip);
+  return b;
+}
+
+function toggleButton(label: string, tip: string, onClick: () => void): HTMLButtonElement {
+  const b = actionButton(label, tip, onClick);
+  b.classList.add('hw-search-toggle');
+  b.setAttribute('aria-pressed', 'false');
+  return b;
+}
+
+function setPressed(b: HTMLButtonElement, pressed: boolean): void {
+  b.classList.toggle('hw-search-active', pressed);
+  b.setAttribute('aria-pressed', String(pressed));
+}

@@ -19,6 +19,9 @@
   --hw-comment-ai-highlight: rgba(45, 156, 219, 0.22);
   --hw-comment-ai-highlight-hover: rgba(45, 156, 219, 0.38);
   --hw-comment-ai-underline: rgba(30, 120, 190, 0.95);
+  /* In-document search (Ctrl+F): all matches vs. the active match. */
+  --hw-search-highlight: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  --hw-search-current: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.66));
 }
 
 html,
