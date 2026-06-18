@@ -49,6 +49,18 @@ describe('formatForSerialize: empty-block pruning', () => {
   });
 });
 
+describe('formatForSerialize: images', () => {
+  it('keeps an <img> that is the only child of a block', () => {
+    expect(format('<p><img src="a.png" alt="a"></p>')).toBe('<p><img src="a.png" alt="a"></p>');
+  });
+
+  it('keeps an <img> wrapped in an inline element inside a block', () => {
+    expect(format('<p><a href="x"><img src="a.png"></a></p>')).toBe(
+      '<p><a href="x"><img src="a.png"></a></p>',
+    );
+  });
+});
+
 describe('formatForSerialize: preserves existing whitespace', () => {
   it('keeps a leading whitespace text node before the first block', () => {
     const root = document.createElement('div');
