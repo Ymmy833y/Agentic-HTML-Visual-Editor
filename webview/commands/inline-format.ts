@@ -6,6 +6,7 @@
 import { INLINE_FORMAT_TAGS } from '../shared/constants';
 import {
   findAncestor,
+  isInCommentMeta,
   nodeDepth,
   resolveToTextBoundary,
   unwrap,
@@ -146,18 +147,6 @@ function findSegmentBoundary(node: Node, root: Element): Node {
     cur = cur.parentNode;
   }
   return root;
-}
-
-function isInCommentMeta(node: Node, root: Element): boolean {
-  let cur: Node | null = node;
-  while (cur && cur !== root) {
-    if (cur instanceof HTMLElement) {
-      const t = cur.tagName;
-      if (t === 'COMMENT-BODY' || t === 'COMMENT-REPLY') return true;
-    }
-    cur = cur.parentNode;
-  }
-  return false;
 }
 
 /**

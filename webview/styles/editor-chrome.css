@@ -273,3 +273,75 @@
 .hw-dialog-danger:hover {
   background: rgba(209, 52, 56, 0.08);
 }
+
+/* In-document search widget (Ctrl+F), pinned to the top-right corner above the
+   sticky toolbar. */
+.hw-search {
+  position: fixed;
+  top: 8px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--vscode-editorWidget-background, var(--hw-bg));
+  border: 1px solid var(--vscode-editorWidget-border, var(--hw-border));
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.hw-search[hidden] {
+  display: none;
+}
+.hw-search-input {
+  width: 200px;
+  background: var(--vscode-input-background, var(--hw-bg));
+  color: var(--vscode-input-foreground, var(--hw-fg));
+  border: 1px solid var(--vscode-input-border, var(--hw-border));
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 0.85em;
+}
+.hw-search-input:focus {
+  outline: 1px solid var(--hw-accent);
+  outline-offset: -1px;
+}
+.hw-search-count {
+  min-width: 56px;
+  text-align: center;
+  font-size: 0.8em;
+  color: var(--hw-muted);
+  white-space: nowrap;
+}
+.hw-search-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  min-height: 24px;
+  cursor: pointer;
+  color: var(--hw-fg);
+  font: inherit;
+  font-size: 0.85em;
+  line-height: 1.2;
+}
+.hw-search-btn:hover {
+  background: var(--hw-code-bg);
+  border-color: var(--hw-border);
+}
+.hw-search-toggle.hw-search-active {
+  background: var(--vscode-inputOption-activeBackground, var(--hw-selection));
+  border-color: var(--vscode-inputOption-activeBorder, var(--hw-accent));
+  color: var(--vscode-inputOption-activeForeground, var(--hw-fg));
+}
+
+/* Match painting via the CSS Custom Highlight API — no DOM nodes are inserted,
+   so nothing leaks into the serialized HTML. */
+::highlight(hw-search) {
+  background-color: var(--hw-search-highlight);
+}
+::highlight(hw-search-current) {
+  background-color: var(--hw-search-current);
+}

@@ -17,6 +17,7 @@ import { findAncestor } from './shared/dom-utils';
 import type { CommandContext } from './shared/command-context';
 import { createToolbar } from './ui/toolbar';
 import { mountFloatingMenu } from './ui/floating-menu';
+import { mountSearchWidget } from './ui/search-widget';
 import { openLinkDialog } from './ui/link-dialog';
 import { prepareCopy } from './features/clipboard/copy';
 import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
@@ -240,6 +241,10 @@ mountFloatingMenu(root, {
   onAddComment: handleAddComment,
 });
 
+// In-document search (Ctrl+F). Highlights are painted with the CSS Custom
+// Highlight API, so they never touch the editor DOM or the serialized output.
+const searchWidget = mountSearchWidget(root);
+
 // Override the browser's default copy/cut: contenteditable serialization
 // inlines computed styles (font-family, color, ...) and adds CF_HTML
 // fragment comments. Write our own clean HTML — the same string the
@@ -422,6 +427,28 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 });
 
+// Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
+// it works whether focus is in the editor or already in the widget. The webview
+// has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
+document.addEventListener(
+  'keydown',
+  (e: KeyboardEvent) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      searchWidget.open();
+    }
+  },
+  true,
+);
+
+// Keep search highlights in sync while the document changes underneath them: a
+// save echo remounts the DOM (invalidating match ranges) and live edits change
+// what matches. Both recompute without jumping the user to a different hit.
+root.addEventListener('input', () => {
+  if (searchWidget.isOpen()) searchWidget.refresh();
+});
+
 window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessage>) => {
   const message = event.data;
   switch (message.type) {
@@ -438,6 +465,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       const saved = captureSelection(root);
       mountFromSource(message.html);
       if (saved) restoreSelection(root, saved);
+      // The remount replaced every node, so any live search ranges are stale.
+      searchWidget.refresh();
       break;
     }
     case 'copyToClipboard':

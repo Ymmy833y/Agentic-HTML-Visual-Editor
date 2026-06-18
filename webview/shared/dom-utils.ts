@@ -14,6 +14,23 @@ export function findAncestor(node: Node, tagName: string, stopAt: Element): HTML
   return null;
 }
 
+/**
+ * True when node sits inside a comment's metadata (`<comment-body>` /
+ * `<comment-reply>`), which is rendered in the popup rather than inline. Callers
+ * that walk visible text (inline-format coverage, document search) skip these.
+ */
+export function isInCommentMeta(node: Node, stopAt: Element): boolean {
+  let cur: Node | null = node;
+  while (cur && cur !== stopAt) {
+    if (cur instanceof HTMLElement) {
+      const t = cur.tagName;
+      if (t === 'COMMENT-BODY' || t === 'COMMENT-REPLY') return true;
+    }
+    cur = cur.parentNode;
+  }
+  return false;
+}
+
 /** Return the nearest block-level ancestor element inside stopAt. */
 export function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | null {
   let cur: Node | null = node;
