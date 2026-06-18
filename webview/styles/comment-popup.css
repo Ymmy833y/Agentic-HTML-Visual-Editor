@@ -49,6 +49,23 @@
   opacity: 0.4;
   cursor: default;
 }
+/* Resolve toggle when the comment is resolved. */
+.hw-cp-btn.hw-cp-resolved-on {
+  color: var(--vscode-charts-green, #1a7f37);
+  border-color: var(--vscode-charts-green, #1a7f37);
+  background: rgba(26, 127, 55, 0.12);
+}
+
+/* Author + last-updated line shown above each body/reply. */
+.hw-cp-meta {
+  font-size: 0.75em;
+  color: var(--hw-muted);
+  margin-bottom: 2px;
+  padding: 0 4px;
+}
+.hw-cp-meta.hw-cp-meta-ai {
+  color: var(--hw-comment-ai-underline, var(--hw-accent));
+}
 
 .hw-cp-body {
   border-top: 1px solid var(--hw-border);
@@ -105,8 +122,11 @@
   padding: 4px 4px 4px 8px;
   border-left: 2px solid var(--hw-border);
 }
-.hw-cp-reply-display {
+.hw-cp-reply-main {
   flex: 1;
+  min-width: 0;
+}
+.hw-cp-reply-display {
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;

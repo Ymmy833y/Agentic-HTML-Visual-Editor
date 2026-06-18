@@ -29,10 +29,13 @@ AI には極力シンプルな HTML を出力させ、ユーザーにはモダ�
 ### 独自タグ
 HTML だけでレビュー風の注釈を表現するインラインカスタム要素。AI から通常の要素として読み取れる:
 
-- `<comment id="...">対象テキスト<comment-body>本文</comment-body><comment-reply>返信</comment-reply>...</comment>`
-  - `<comment>` は注釈対象のテキスト範囲をインラインで囲み、WYSIWYG ではアンバー系のハイライト+下線で表示される。ハイライトをクリックすると本文・返信スレッドのポップアップが開く
+- `<comment id="...">対象テキスト<comment-body data-author="..." data-updated="...">本文</comment-body><comment-reply data-author="..." data-updated="...">返信</comment-reply>...</comment>`
+  - `<comment>` は注釈対象のテキスト範囲をインラインで囲み、WYSIWYG ではハイライト+枠線付きで表示される。ハイライトをクリックすると本文・返信スレッドのポップアップが開く
   - `<comment-body>`（`<comment>` ごとに 0 または 1 個）は本文を保持
   - `<comment-reply>`（`<comment>` ごとに 0 個以上）は返信を 1 件ずつ、DOM 順に保持
+  - **作成者・日時:** 各 body / reply は `data-author`（`human` または `ai`。人間側は将来的に個別ユーザー名を持つ場合がある）と `data-updated`（ISO 8601 のタイムスタンプ）を保持する。WYSIWYG ビューで編集するとこれらは自動で記録され、枠の色は作成者に応じて変わるため、人間と AI のコメントを見分けられる
+  - **解決状態:** `<comment>` はブール値の `data-resolved` 属性を持てる（ポップアップから切替）。解決済みのコメントは破線・淡色の枠に後退し、未解決のものは作成者色の実線枠を保つ
+  - **相手の注釈を編集する場合:** 人間が AI の書いたコメントを編集・削除しようとすると、まず確認が求められ、レビュー注釈を誤って上書きしないようにする
   - 本文と返信は WYSIWYG 上では非表示だが HTML ソースには残るので、人間も AI もマークアップを読めばスレッド全体を確認できる
   - 「HTML for Confluence Paste」ではこれらのタグはすべて剥がされ、対象テキストだけが残る
 

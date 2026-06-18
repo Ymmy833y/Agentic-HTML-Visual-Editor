@@ -15,6 +15,10 @@
   --hw-comment-highlight: rgba(245, 158, 11, 0.25);
   --hw-comment-highlight-hover: rgba(245, 158, 11, 0.4);
   --hw-comment-underline: rgba(217, 119, 6, 0.95);
+  /* AI-authored comments use a separate hue so authors are distinguishable. */
+  --hw-comment-ai-highlight: rgba(45, 156, 219, 0.22);
+  --hw-comment-ai-highlight-hover: rgba(45, 156, 219, 0.38);
+  --hw-comment-ai-underline: rgba(30, 120, 190, 0.95);
 }
 
 html,
@@ -236,6 +240,8 @@ body {
 }
 
 /* Custom <comment> tag: inline highlight on the annotated range. */
+/* An unresolved comment gets a solid box border in its author colour; a */
+/* resolved comment dims to a dashed, muted box so done threads recede. */
 #hw-root comment {
   background: var(--hw-comment-highlight);
   text-decoration: underline;
@@ -243,10 +249,37 @@ body {
   text-decoration-thickness: 2px;
   text-underline-offset: 2px;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 3px;
+  border: 1px solid var(--hw-comment-underline);
+  padding: 0 2px;
+  /* Keep the border drawn on every line when the run wraps inline. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 #hw-root comment:hover {
   background: var(--hw-comment-highlight-hover);
+}
+
+/* AI-authored comment: coloured by the body author (the thread's creator). */
+#hw-root comment:has(> comment-body[data-author='ai']) {
+  background: var(--hw-comment-ai-highlight);
+  text-decoration-color: var(--hw-comment-ai-underline);
+  border-color: var(--hw-comment-ai-underline);
+}
+#hw-root comment:has(> comment-body[data-author='ai']):hover {
+  background: var(--hw-comment-ai-highlight-hover);
+}
+
+/* Resolved comment: recede visually but stay clickable to reopen. */
+#hw-root comment[data-resolved] {
+  background: transparent;
+  text-decoration: none;
+  border-style: dashed;
+  border-color: var(--hw-muted);
+  opacity: 0.7;
+}
+#hw-root comment[data-resolved]:hover {
+  background: var(--hw-code-bg);
 }
 /* Comment body and replies live inside the <comment> element but are */
 /* edited only through the popup; hide them from the document flow.    */

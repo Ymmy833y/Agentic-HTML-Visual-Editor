@@ -1,11 +1,25 @@
 // Helpers that treat the DOM as the comment store.
 // A comment is represented as:
-//   <comment id="c-xxxxxx">target text<comment-body>body</comment-body><comment-reply>reply</comment-reply>...</comment>
+//   <comment id="c-xxxxxx" data-resolved>target text<comment-body data-author="ai" data-updated="...">body</comment-body><comment-reply data-author="human" data-updated="...">reply</comment-reply>...</comment>
 // The popup UI and commands read/write directly from these elements; there is
-// no separate metadata store.
+// no separate metadata store. Each body/reply carries its own author and last
+// update time; `data-resolved` lives on the <comment> parent (thread scope).
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const ID_LENGTH = 8;
+
+// Author label written when a human edits in the WYSIWYG view. The human side
+// may become multiple named users in the future, so this is just the default
+// local label, not the value the counterpart check keys off.
+export const LOCAL_AUTHOR = 'human';
+// Fixed label for the AI side. "Is this the counterpart?" is decided by
+// matching this value (not by comparing against LOCAL_AUTHOR), so adding more
+// human users later does not break the check.
+export const AI_AUTHOR = 'ai';
+
+const ATTR_AUTHOR = 'data-author';
+const ATTR_UPDATED = 'data-updated';
+const ATTR_RESOLVED = 'data-resolved';
 
 export function newCommentId(root: HTMLElement): string {
   for (let attempt = 0; attempt < 16; attempt++) {
@@ -25,11 +39,17 @@ export function getBody(comment: Element): string {
   return body?.textContent ?? '';
 }
 
-export function setBody(comment: Element, text: string): void {
+/**
+ * Set the comment body text. On first creation the body records its author; on
+ * later edits the author is preserved (so the counterpart's attribution stays)
+ * and only the update time is refreshed.
+ */
+export function setBody(comment: Element, text: string, author: string = LOCAL_AUTHOR): void {
   let body = comment.querySelector(':scope > comment-body');
   if (!body) {
     body = document.createElement('comment-body');
     body.setAttribute('contenteditable', 'false');
+    body.setAttribute(ATTR_AUTHOR, author);
     // Insert before any existing replies so the document order stays:
     // target text, body, replies.
     const firstReply = comment.querySelector(':scope > comment-reply');
@@ -40,26 +60,70 @@ export function setBody(comment: Element, text: string): void {
     }
   }
   body.textContent = text;
+  touch(body);
 }
 
 export function getReplies(comment: Element): Element[] {
   return Array.from(comment.querySelectorAll(':scope > comment-reply'));
 }
 
-export function addReply(comment: Element, text: string): HTMLElement {
+export function addReply(comment: Element, text: string, author: string = LOCAL_AUTHOR): HTMLElement {
   const reply = document.createElement('comment-reply');
   reply.setAttribute('contenteditable', 'false');
+  reply.setAttribute(ATTR_AUTHOR, author);
   reply.textContent = text;
+  touch(reply);
   comment.appendChild(reply);
   return reply;
 }
 
+/** Update reply text, refreshing the update time but keeping the author. */
 export function updateReply(reply: Element, text: string): void {
   reply.textContent = text;
+  touch(reply);
 }
 
 export function removeReply(reply: Element): void {
   reply.remove();
+}
+
+/** Author label of a body/reply entry. Empty string when unset (legacy data). */
+export function getAuthor(entry: Element): string {
+  return entry.getAttribute(ATTR_AUTHOR) ?? '';
+}
+
+/** Last-updated timestamp (ISO 8601) of a body/reply entry, or '' when unset. */
+export function getUpdated(entry: Element): string {
+  return entry.getAttribute(ATTR_UPDATED) ?? '';
+}
+
+/** True when the entry was authored by the AI side (the editing human's counterpart). */
+export function isCounterpart(entry: Element): boolean {
+  return getAuthor(entry) === AI_AUTHOR;
+}
+
+/** True when a comment contains any body/reply authored by the counterpart (AI). */
+export function hasCounterpartEntry(comment: Element): boolean {
+  const body = comment.querySelector(':scope > comment-body');
+  if (body && isCounterpart(body)) return true;
+  return getReplies(comment).some((r) => isCounterpart(r));
+}
+
+export function isResolved(comment: Element): boolean {
+  return comment.hasAttribute(ATTR_RESOLVED);
+}
+
+export function setResolved(comment: Element, resolved: boolean): void {
+  if (resolved) {
+    comment.setAttribute(ATTR_RESOLVED, '');
+  } else {
+    comment.removeAttribute(ATTR_RESOLVED);
+  }
+}
+
+/** Stamp an entry's last-updated time with the current instant (ISO 8601). */
+function touch(entry: Element): void {
+  entry.setAttribute(ATTR_UPDATED, new Date().toISOString());
 }
 
 export function commentsInDocumentOrder(root: HTMLElement): Element[] {
