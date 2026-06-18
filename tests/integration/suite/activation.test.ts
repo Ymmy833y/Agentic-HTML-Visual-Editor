@@ -10,9 +10,9 @@ suite('Activation', () => {
 
     const commands = await vscode.commands.getCommands(true);
     for (const id of [
-      'htmlWysiwyg.openInWysiwyg',
-      'htmlWysiwyg.copyAsHtml',
-      'htmlWysiwyg.copyAsConfluenceHtml',
+      'ahve.openInVisualEditor',
+      'ahve.copyAsHtml',
+      'ahve.copyAsConfluenceHtml',
     ]) {
       assert.ok(commands.includes(id), `command ${id} should be registered`);
     }

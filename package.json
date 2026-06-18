@@ -1,6 +1,6 @@
 {
-  "name": "html-wysiwyg",
-  "displayName": "HTML WYSIWYG",
+  "name": "agentic-html-visual-editor",
+  "displayName": "Agentic HTML Visual Editor",
   "description": "A WYSIWYG editor for facilitating interactions between AI and humans through HTML",
   "version": "0.0.1",
   "engines": {
@@ -16,26 +16,26 @@
   "contributes": {
     "commands": [
       {
-        "command": "htmlWysiwyg.openInWysiwyg",
+        "command": "ahve.openInVisualEditor",
         "title": "Open in WYSIWYG",
-        "category": "HTML WYSIWYG",
+        "category": "Agentic HTML Visual Editor",
         "icon": "$(edit)"
       },
       {
-        "command": "htmlWysiwyg.copyAsHtml",
+        "command": "ahve.copyAsHtml",
         "title": "Copy as HTML",
-        "category": "HTML WYSIWYG"
+        "category": "Agentic HTML Visual Editor"
       },
       {
-        "command": "htmlWysiwyg.copyAsConfluenceHtml",
+        "command": "ahve.copyAsConfluenceHtml",
         "title": "Copy as Confluence-compatible HTML",
-        "category": "HTML WYSIWYG"
+        "category": "Agentic HTML Visual Editor"
       }
     ],
     "customEditors": [
       {
-        "viewType": "htmlWysiwyg.editor",
-        "displayName": "HTML WYSIWYG",
+        "viewType": "ahve.editor",
+        "displayName": "Agentic HTML Visual Editor",
         "selector": [
           {
             "filenamePattern": "*.html"
@@ -47,23 +47,23 @@
     "menus": {
       "editor/title": [
         {
-          "command": "htmlWysiwyg.openInWysiwyg",
-          "when": "resourceExtname == .html && activeCustomEditorId != htmlWysiwyg.editor",
+          "command": "ahve.openInVisualEditor",
+          "when": "resourceExtname == .html && activeCustomEditorId != ahve.editor",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "htmlWysiwyg.openInWysiwyg",
+          "command": "ahve.openInVisualEditor",
           "when": "resourceExtname == .html"
         },
         {
-          "command": "htmlWysiwyg.copyAsHtml",
-          "when": "activeCustomEditorId == htmlWysiwyg.editor"
+          "command": "ahve.copyAsHtml",
+          "when": "activeCustomEditorId == ahve.editor"
         },
         {
-          "command": "htmlWysiwyg.copyAsConfluenceHtml",
-          "when": "activeCustomEditorId == htmlWysiwyg.editor"
+          "command": "ahve.copyAsConfluenceHtml",
+          "when": "activeCustomEditorId == ahve.editor"
         }
       ]
     }

@@ -1,14 +1,14 @@
 /* Comment popup: anchored next to a <comment> highlight; shows the body, */
 /* replies, and a reply input box.                                        */
 
-#hw-comment-popup {
+#ahve-comment-popup {
   position: absolute;
   z-index: 30;
   width: 320px;
   max-width: calc(100vw - 16px);
-  background: var(--hw-bg);
-  color: var(--hw-fg);
-  border: 1px solid var(--hw-border);
+  background: var(--ahve-bg);
+  color: var(--ahve-fg);
+  border: 1px solid var(--ahve-border);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
   padding: 8px;
@@ -17,129 +17,129 @@
   gap: 8px;
   font-size: 0.9em;
 }
-#hw-comment-popup[hidden] {
+#ahve-comment-popup[hidden] {
   display: none;
 }
 
-.hw-cp-header {
+.ahve-cp-header {
   display: flex;
   align-items: center;
   gap: 2px;
 }
-.hw-cp-spacer {
+.ahve-cp-spacer {
   flex: 1;
 }
-.hw-cp-btn {
+.ahve-cp-btn {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 2px 6px;
   cursor: pointer;
-  color: var(--hw-fg);
+  color: var(--ahve-fg);
   font: inherit;
   font-size: 0.95em;
   line-height: 1.1;
   min-width: 24px;
 }
-.hw-cp-btn:hover:not(:disabled) {
-  background: var(--hw-code-bg);
-  border-color: var(--hw-border);
+.ahve-cp-btn:hover:not(:disabled) {
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-border);
 }
-.hw-cp-btn:disabled {
+.ahve-cp-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }
 /* Resolve toggle when the comment is resolved. */
-.hw-cp-btn.hw-cp-resolved-on {
+.ahve-cp-btn.ahve-cp-resolved-on {
   color: var(--vscode-charts-green, #1a7f37);
   border-color: var(--vscode-charts-green, #1a7f37);
   background: rgba(26, 127, 55, 0.12);
 }
 
 /* Author + last-updated line shown above each body/reply. */
-.hw-cp-meta {
+.ahve-cp-meta {
   font-size: 0.75em;
-  color: var(--hw-muted);
+  color: var(--ahve-muted);
   margin-bottom: 2px;
   padding: 0 4px;
 }
-.hw-cp-meta.hw-cp-meta-ai {
-  color: var(--hw-comment-ai-underline, var(--hw-accent));
+.ahve-cp-meta.ahve-cp-meta-ai {
+  color: var(--ahve-comment-ai-underline, var(--ahve-accent));
 }
 
-.hw-cp-body {
-  border-top: 1px solid var(--hw-border);
+.ahve-cp-body {
+  border-top: 1px solid var(--ahve-border);
   padding-top: 8px;
 }
-.hw-cp-body-display {
+.ahve-cp-body-display {
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
   padding: 4px;
   border-radius: 4px;
 }
-.hw-cp-body-display:hover {
-  background: var(--hw-code-bg);
+.ahve-cp-body-display:hover {
+  background: var(--ahve-code-bg);
 }
-.hw-cp-body-display.hw-cp-empty {
-  color: var(--hw-muted);
+.ahve-cp-body-display.ahve-cp-empty {
+  color: var(--ahve-muted);
   font-style: italic;
 }
-.hw-cp-body-input,
-.hw-cp-reply-input {
+.ahve-cp-body-input,
+.ahve-cp-reply-input {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
   font-size: 0.95em;
-  color: var(--hw-fg);
-  background: var(--vscode-input-background, var(--hw-bg));
-  border: 1px solid var(--vscode-input-border, var(--hw-border));
+  color: var(--ahve-fg);
+  background: var(--vscode-input-background, var(--ahve-bg));
+  border: 1px solid var(--vscode-input-border, var(--ahve-border));
   border-radius: 4px;
   padding: 6px 8px;
   resize: vertical;
   min-height: 2em;
   outline: none;
 }
-.hw-cp-body-input:focus,
-.hw-cp-reply-input:focus {
-  border-color: var(--hw-accent);
-  box-shadow: 0 0 0 1px var(--hw-accent);
+.ahve-cp-body-input:focus,
+.ahve-cp-reply-input:focus {
+  border-color: var(--ahve-accent);
+  box-shadow: 0 0 0 1px var(--ahve-accent);
 }
 
-.hw-cp-replies {
+.ahve-cp-replies {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.hw-cp-replies:empty {
+.ahve-cp-replies:empty {
   display: none;
 }
-.hw-cp-reply-row {
+.ahve-cp-reply-row {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
   padding: 4px 4px 4px 8px;
-  border-left: 2px solid var(--hw-border);
+  border-left: 2px solid var(--ahve-border);
 }
-.hw-cp-reply-main {
+.ahve-cp-reply-main {
   flex: 1;
   min-width: 0;
 }
-.hw-cp-reply-display {
+.ahve-cp-reply-display {
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
   padding: 2px 4px;
   border-radius: 4px;
 }
-.hw-cp-reply-display:hover {
-  background: var(--hw-code-bg);
+.ahve-cp-reply-display:hover {
+  background: var(--ahve-code-bg);
 }
-.hw-cp-reply-del {
+.ahve-cp-reply-del {
   background: transparent;
   border: none;
-  color: var(--hw-muted);
+  color: var(--ahve-muted);
   cursor: pointer;
   padding: 0 4px;
   font-size: 1em;
@@ -147,14 +147,14 @@
   opacity: 0;
   transition: opacity 0.1s;
 }
-.hw-cp-reply-row:hover .hw-cp-reply-del {
+.ahve-cp-reply-row:hover .ahve-cp-reply-del {
   opacity: 1;
 }
-.hw-cp-reply-del:hover {
+.ahve-cp-reply-del:hover {
   color: var(--vscode-errorForeground, #d13438);
 }
 
-.hw-cp-reply-form {
-  border-top: 1px solid var(--hw-border);
+.ahve-cp-reply-form {
+  border-top: 1px solid var(--ahve-border);
   padding-top: 8px;
 }

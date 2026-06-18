@@ -11,7 +11,7 @@ async function pasteHtml(page: Page, html: string): Promise<void> {
       bubbles: true,
       cancelable: true,
     });
-    document.querySelector('#hw-root')!.dispatchEvent(evt);
+    document.querySelector('#ahve-root')!.dispatchEvent(evt);
   }, html);
 }
 
@@ -19,7 +19,7 @@ test.describe('Paste sanitization', () => {
   test('drops <script> elements from pasted HTML', async ({ page }) => {
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     await pasteHtml(page, '<p>safe</p><script>window.__pwned = true</script>');
 
@@ -34,7 +34,7 @@ test.describe('Paste sanitization', () => {
   test('strips on* attributes from pasted markup', async ({ page }) => {
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     await pasteHtml(page, '<p onclick="alert(1)" onmouseover="x">hi</p>');
 
@@ -47,7 +47,7 @@ test.describe('Paste sanitization', () => {
   test('removes javascript: URLs from pasted links', async ({ page }) => {
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     await pasteHtml(page, '<a href="javascript:alert(1)">click</a>');
 
@@ -59,7 +59,7 @@ test.describe('Paste sanitization', () => {
   test('drops <iframe>, <link>, <style>, <meta> from pasted content', async ({ page }) => {
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     await pasteHtml(
       page,
@@ -76,7 +76,7 @@ test.describe('Paste sanitization', () => {
   test('strips CF_HTML fragment markers and computed-style noise', async ({ page }) => {
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     await pasteHtml(
       page,
@@ -108,7 +108,7 @@ test.describe('Copy / paste round-trip', () => {
 
     // Select "foo <strong>bar</strong> baz" inside the first paragraph.
     await page.evaluate(() => {
-      const p = document.querySelector('#hw-root p')!;
+      const p = document.querySelector('#ahve-root p')!;
       const r = document.createRange();
       r.selectNodeContents(p);
       const sel = window.getSelection()!;
@@ -119,7 +119,7 @@ test.describe('Copy / paste round-trip', () => {
     await page.keyboard.press('Control+C');
 
     // Place the caret in the empty second paragraph and paste.
-    await caretAtEnd(page, '#hw-root p:nth-of-type(2)');
+    await caretAtEnd(page, '#ahve-root p:nth-of-type(2)');
     await page.keyboard.press('Control+V');
 
     const html = await getRootHtml(page);
@@ -142,7 +142,7 @@ test.describe('Copy / paste round-trip', () => {
 
     // Select the text "sample" by its inner offsets — mirrors a double-click.
     await page.evaluate(() => {
-      const text = document.querySelector('#hw-root strong')!.firstChild!;
+      const text = document.querySelector('#ahve-root strong')!.firstChild!;
       const r = document.createRange();
       r.setStart(text, 0);
       r.setEnd(text, 6);
@@ -154,7 +154,7 @@ test.describe('Copy / paste round-trip', () => {
 
     // Place the caret at the <br> in the second paragraph and paste.
     await page.evaluate(() => {
-      const br = document.querySelector('#hw-root p:nth-of-type(2) br')!;
+      const br = document.querySelector('#ahve-root p:nth-of-type(2) br')!;
       const r = document.createRange();
       r.setStartBefore(br);
       r.collapse(true);
@@ -180,7 +180,7 @@ test.describe('Copy / paste round-trip', () => {
 
     await mountEditor(page, '<p></p>');
     await focusEditor(page);
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
     // Seed the clipboard with rich HTML.
     await page.evaluate(async () => {
@@ -209,7 +209,7 @@ test.describe('Clear formatting', () => {
 
     // Select the entire paragraph contents.
     await page.evaluate(() => {
-      const p = document.querySelector('#hw-root p')!;
+      const p = document.querySelector('#ahve-root p')!;
       const r = document.createRange();
       r.selectNodeContents(p);
       const sel = window.getSelection()!;

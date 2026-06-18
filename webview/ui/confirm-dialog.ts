@@ -1,5 +1,5 @@
 // Modal confirmation dialog. The VSCode webview sandbox blocks window.confirm(),
-// so we render our own dialog reusing the shared `.hw-dialog-*` styles. Used to
+// so we render our own dialog reusing the shared `.ahve-dialog-*` styles. Used to
 // guard edits/deletes of comment content authored by the counterpart (AI).
 
 export interface ConfirmDialogOptions {
@@ -14,24 +14,24 @@ export interface ConfirmDialogOptions {
 export function openConfirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
-    overlay.className = 'hw-dialog-overlay';
+    overlay.className = 'ahve-dialog-overlay';
 
     const dialog = document.createElement('div');
-    dialog.className = 'hw-dialog';
+    dialog.className = 'ahve-dialog';
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-label', options.title ?? 'Confirm');
 
     const title = document.createElement('div');
-    title.className = 'hw-dialog-title';
+    title.className = 'ahve-dialog-title';
     title.textContent = options.title ?? 'Confirm';
 
     const message = document.createElement('div');
-    message.className = 'hw-dialog-message';
+    message.className = 'ahve-dialog-message';
     message.textContent = options.message;
 
     const actions = document.createElement('div');
-    actions.className = 'hw-dialog-actions';
+    actions.className = 'ahve-dialog-actions';
 
     const finish = (result: boolean): void => {
       document.removeEventListener('keydown', onKey, true);
@@ -54,11 +54,11 @@ export function openConfirmDialog(options: ConfirmDialogOptions): Promise<boolea
     const spacer = document.createElement('span');
     spacer.style.flex = '1';
     const confirmClass = options.danger
-      ? 'hw-dialog-btn hw-dialog-danger'
-      : 'hw-dialog-btn hw-dialog-primary';
+      ? 'ahve-dialog-btn ahve-dialog-danger'
+      : 'ahve-dialog-btn ahve-dialog-primary';
     actions.append(
       spacer,
-      button(options.cancelLabel ?? 'Cancel', 'hw-dialog-btn', () => finish(false)),
+      button(options.cancelLabel ?? 'Cancel', 'ahve-dialog-btn', () => finish(false)),
       button(options.confirmLabel ?? 'OK', confirmClass, () => finish(true)),
     );
 

@@ -6,8 +6,8 @@
 import { findMatches, type SearchOptions } from '../core/text-search';
 import { setupTooltip } from './tooltip';
 
-const HIGHLIGHT_ALL = 'hw-search';
-const HIGHLIGHT_CURRENT = 'hw-search-current';
+const HIGHLIGHT_ALL = 'ahve-search';
+const HIGHLIGHT_CURRENT = 'ahve-search-current';
 const DEBOUNCE_MS = 120;
 
 const supportsHighlight =
@@ -29,19 +29,19 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
   const opts: SearchOptions = { caseSensitive: false, wholeWord: false };
 
   const widget = document.createElement('div');
-  widget.id = 'hw-search';
-  widget.className = 'hw-search';
+  widget.id = 'ahve-search';
+  widget.className = 'ahve-search';
   widget.hidden = true;
   widget.setAttribute('role', 'search');
 
   const input = document.createElement('input');
   input.type = 'text';
-  input.className = 'hw-search-input';
+  input.className = 'ahve-search-input';
   input.placeholder = 'Find';
   input.setAttribute('aria-label', 'Find in document');
 
   const count = document.createElement('span');
-  count.className = 'hw-search-count';
+  count.className = 'ahve-search-count';
 
   const caseBtn = toggleButton('Aa', 'Match case', () => {
     opts.caseSensitive = !opts.caseSensitive;
@@ -214,7 +214,7 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
 function actionButton(label: string, tip: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-search-btn';
+  b.className = 'ahve-search-btn';
   b.textContent = label;
   b.addEventListener('click', onClick);
   setupTooltip(b, tip);
@@ -223,12 +223,12 @@ function actionButton(label: string, tip: string, onClick: () => void): HTMLButt
 
 function toggleButton(label: string, tip: string, onClick: () => void): HTMLButtonElement {
   const b = actionButton(label, tip, onClick);
-  b.classList.add('hw-search-toggle');
+  b.classList.add('ahve-search-toggle');
   b.setAttribute('aria-pressed', 'false');
   return b;
 }
 
 function setPressed(b: HTMLButtonElement, pressed: boolean): void {
-  b.classList.toggle('hw-search-active', pressed);
+  b.classList.toggle('ahve-search-active', pressed);
   b.setAttribute('aria-pressed', String(pressed));
 }

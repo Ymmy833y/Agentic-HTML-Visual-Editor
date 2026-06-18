@@ -10,16 +10,16 @@ import {
 test.describe('Table editing', () => {
   test('Table button opens the picker and inserts a grid of the chosen size', async ({ page }) => {
     await mountEditor(page, '<p>before</p>');
-    await caretAtEnd(page, '#hw-root p');
+    await caretAtEnd(page, '#ahve-root p');
 
-    await page.locator('#hw-toolbar button', { hasText: /^Table$/ }).click();
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
 
     // Pick a 3 (col) x 2 (row) cell in the grid by its data attributes.
-    await page.locator('#hw-table-picker .hw-tp-cell[data-row="2"][data-col="3"]').click();
+    await page.locator('#ahve-table-picker .ahve-tp-cell[data-row="2"][data-col="3"]').click();
 
     const html = await getRootHtml(page);
     expect(html).toContain('<table>');
-    const table = page.locator('#hw-root table').first();
+    const table = page.locator('#ahve-root table').first();
     await expect(table.locator('thead tr th')).toHaveCount(3);
     await expect(table.locator('tbody tr')).toHaveCount(1);
     await expect(table.locator('tbody td')).toHaveCount(3);
@@ -27,12 +27,12 @@ test.describe('Table editing', () => {
 
   test('inserting a table in the middle of a paragraph splits it', async ({ page }) => {
     await mountEditor(page, '<p>hello world</p>');
-    await selectTextInside(page, '#hw-root p', 5, 5);
+    await selectTextInside(page, '#ahve-root p', 5, 5);
 
-    await page.locator('#hw-toolbar button', { hasText: /^Table$/ }).click();
-    await page.locator('#hw-table-picker .hw-tp-cell[data-row="1"][data-col="1"]').click();
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
+    await page.locator('#ahve-table-picker .ahve-tp-cell[data-row="1"][data-col="1"]').click();
 
-    const paragraphs = page.locator('#hw-root > p');
+    const paragraphs = page.locator('#ahve-root > p');
     await expect(paragraphs).toHaveCount(2);
     expect((await paragraphs.nth(0).textContent())?.trim()).toBe('hello');
     expect((await paragraphs.nth(1).textContent())?.trim()).toBe('world');
@@ -44,14 +44,14 @@ test.describe('Table editing', () => {
       '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
     );
 
-    const cell = page.locator('#hw-root td').first();
+    const cell = page.locator('#ahve-root td').first();
     await cell.click({ button: 'right' });
-    await expect(page.locator('#hw-table-menu')).toBeVisible();
+    await expect(page.locator('#ahve-table-menu')).toBeVisible();
 
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Insert row below' }).click();
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Insert row below' }).click();
 
-    await expect(page.locator('#hw-root tbody tr')).toHaveCount(2);
-    await expect(page.locator('#hw-root tbody tr').nth(1).locator('td')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr').nth(1).locator('td')).toHaveCount(2);
   });
 
   test('right-click "Convert row to header" promotes the row into thead', async ({ page }) => {
@@ -60,12 +60,12 @@ test.describe('Table editing', () => {
       '<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></tbody></table>',
     );
 
-    const firstCell = page.locator('#hw-root td').first();
+    const firstCell = page.locator('#ahve-root td').first();
     await firstCell.click({ button: 'right' });
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert row to header' }).click();
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert row to header' }).click();
 
-    await expect(page.locator('#hw-root thead th')).toHaveCount(2);
-    await expect(page.locator('#hw-root tbody tr')).toHaveCount(1);
+    await expect(page.locator('#ahve-root thead th')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr')).toHaveCount(1);
   });
 
   test('right-click "Convert column to header" promotes the column to <th scope="row">', async ({ page }) => {
@@ -77,13 +77,13 @@ test.describe('Table editing', () => {
       '</tbody></table>',
     );
 
-    await page.locator('#hw-root td').first().click({ button: 'right' });
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert column to header' }).click();
+    await page.locator('#ahve-root td').first().click({ button: 'right' });
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert column to header' }).click();
 
-    await expect(page.locator('#hw-root tbody tr').nth(0).locator('th[scope="row"]')).toHaveCount(1);
-    await expect(page.locator('#hw-root tbody tr').nth(1).locator('th[scope="row"]')).toHaveCount(1);
+    await expect(page.locator('#ahve-root tbody tr').nth(0).locator('th[scope="row"]')).toHaveCount(1);
+    await expect(page.locator('#ahve-root tbody tr').nth(1).locator('th[scope="row"]')).toHaveCount(1);
     // The second column is unchanged.
-    await expect(page.locator('#hw-root tbody tr td')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr td')).toHaveCount(2);
   });
 
   test('a row-header column flips back to <td> via "Convert column to body"', async ({ page }) => {
@@ -95,12 +95,12 @@ test.describe('Table editing', () => {
       '</tbody></table>',
     );
 
-    await page.locator('#hw-root th').first().click({ button: 'right' });
-    await expect(page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert column to body' })).toBeVisible();
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert column to body' }).click();
+    await page.locator('#ahve-root th').first().click({ button: 'right' });
+    await expect(page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert column to body' })).toBeVisible();
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert column to body' }).click();
 
-    await expect(page.locator('#hw-root th')).toHaveCount(0);
-    await expect(page.locator('#hw-root td')).toHaveCount(4);
+    await expect(page.locator('#ahve-root th')).toHaveCount(0);
+    await expect(page.locator('#ahve-root td')).toHaveCount(4);
   });
 
   test('"Use percentage widths" rewrites <col> widths in % and sets table width to 100%', async ({ page }) => {
@@ -112,18 +112,18 @@ test.describe('Table editing', () => {
       '</tbody></table>',
     );
 
-    await page.locator('#hw-root td').first().click({ button: 'right' });
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Use percentage widths' }).click();
+    await page.locator('#ahve-root td').first().click({ button: 'right' });
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Use percentage widths' }).click();
 
     const widths = await page.evaluate(() => {
-      const cols = document.querySelectorAll('#hw-root table colgroup col');
+      const cols = document.querySelectorAll('#ahve-root table colgroup col');
       return Array.from(cols).map((c) => (c as HTMLElement).style.width);
     });
     expect(widths.length).toBe(3);
     for (const w of widths) expect(w).toMatch(/%$/);
 
     const tableWidth = await page.evaluate(() => {
-      const t = document.querySelector('#hw-root table') as HTMLTableElement;
+      const t = document.querySelector('#ahve-root table') as HTMLTableElement;
       return t.style.width;
     });
     expect(tableWidth).toBe('100%');
@@ -139,11 +139,11 @@ test.describe('Table editing', () => {
     );
 
     // Switch to percent mode first.
-    await page.locator('#hw-root td').first().click({ button: 'right' });
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Use percentage widths' }).click();
+    await page.locator('#ahve-root td').first().click({ button: 'right' });
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Use percentage widths' }).click();
 
     // Then drag the right edge of the first cell.
-    const firstCell = page.locator('#hw-root td').first();
+    const firstCell = page.locator('#ahve-root td').first();
     const box = await firstCell.boundingBox();
     if (!box) throw new Error('cell has no bounding box');
     const startX = box.x + box.width - 1;
@@ -154,7 +154,7 @@ test.describe('Table editing', () => {
     await page.mouse.up();
 
     const firstColWidth = await page.evaluate(() => {
-      const col = document.querySelector('#hw-root table colgroup col');
+      const col = document.querySelector('#ahve-root table colgroup col');
       return col ? (col as HTMLElement).style.width : null;
     });
     expect(firstColWidth).toMatch(/%$/);
@@ -166,13 +166,13 @@ test.describe('Table editing', () => {
       '<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>',
     );
 
-    await page.locator('#hw-root th').first().click({ button: 'right' });
-    await expect(page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert row to body' })).toBeVisible();
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Convert row to body' }).click();
+    await page.locator('#ahve-root th').first().click({ button: 'right' });
+    await expect(page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert row to body' })).toBeVisible();
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Convert row to body' }).click();
 
-    await expect(page.locator('#hw-root thead')).toHaveCount(0);
-    await expect(page.locator('#hw-root tbody tr')).toHaveCount(2);
-    await expect(page.locator('#hw-root th')).toHaveCount(0);
+    await expect(page.locator('#ahve-root thead')).toHaveCount(0);
+    await expect(page.locator('#ahve-root tbody tr')).toHaveCount(2);
+    await expect(page.locator('#ahve-root th')).toHaveCount(0);
   });
 
   test('dragging from a cell\'s right edge resizes the column via <col style="width:Npx">', async ({ page }) => {
@@ -184,7 +184,7 @@ test.describe('Table editing', () => {
       '</tbody></table>',
     );
 
-    const firstCell = page.locator('#hw-root td').first();
+    const firstCell = page.locator('#ahve-root td').first();
     const box = await firstCell.boundingBox();
     if (!box) throw new Error('cell has no bounding box');
 
@@ -197,7 +197,7 @@ test.describe('Table editing', () => {
     await page.mouse.up();
 
     const colWidth = await page.evaluate(() => {
-      const col = document.querySelector('#hw-root table colgroup col');
+      const col = document.querySelector('#ahve-root table colgroup col');
       return col ? (col as HTMLElement).style.width : null;
     });
     expect(colWidth).toMatch(/^\d+px$/);
@@ -205,7 +205,7 @@ test.describe('Table editing', () => {
     expect(px).toBeGreaterThan(60);
 
     const tableLayout = await page.evaluate(() => {
-      const t = document.querySelector('#hw-root table') as HTMLTableElement;
+      const t = document.querySelector('#ahve-root table') as HTMLTableElement;
       return t.style.tableLayout;
     });
     expect(tableLayout).toBe('fixed');
@@ -220,7 +220,7 @@ test.describe('Table editing', () => {
       '</tbody></table>',
     );
 
-    const lastCell = page.locator('#hw-root tr').first().locator('td').nth(2);
+    const lastCell = page.locator('#ahve-root tr').first().locator('td').nth(2);
     const box = await lastCell.boundingBox();
     if (!box) throw new Error('cell has no bounding box');
 
@@ -232,7 +232,7 @@ test.describe('Table editing', () => {
     await page.mouse.up();
 
     const lastColWidth = await page.evaluate(() => {
-      const cols = document.querySelectorAll('#hw-root table colgroup col');
+      const cols = document.querySelectorAll('#ahve-root table colgroup col');
       const last = cols[cols.length - 1] as HTMLElement | undefined;
       return last ? last.style.width : null;
     });
@@ -249,7 +249,7 @@ test.describe('Table editing', () => {
     await focusEditor(page);
     // Place caret in the first cell.
     await page.evaluate(() => {
-      const cell = document.querySelector('#hw-root td')!;
+      const cell = document.querySelector('#ahve-root td')!;
       const r = document.createRange();
       r.selectNodeContents(cell);
       r.collapse(true);
@@ -290,7 +290,7 @@ test.describe('Table editing', () => {
     );
     await focusEditor(page);
     await page.evaluate(() => {
-      const cells = document.querySelectorAll('#hw-root td');
+      const cells = document.querySelectorAll('#ahve-root td');
       const last = cells[cells.length - 1];
       const r = document.createRange();
       r.selectNodeContents(last);
@@ -301,8 +301,8 @@ test.describe('Table editing', () => {
     });
 
     await page.keyboard.press('Tab');
-    await expect(page.locator('#hw-root tbody tr')).toHaveCount(2);
-    await expect(page.locator('#hw-root tbody tr').nth(1).locator('td')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr')).toHaveCount(2);
+    await expect(page.locator('#ahve-root tbody tr').nth(1).locator('td')).toHaveCount(2);
   });
 
   test('Shift+click + "Merge cells" merges the rectangle into a single cell', async ({ page }) => {
@@ -313,14 +313,14 @@ test.describe('Table editing', () => {
 
     // Plain click on "a" pins it as the merge candidate; Shift+click on "d"
     // promotes "a" into the merge anchor for the next context menu.
-    await page.locator('#hw-root td', { hasText: 'a' }).click();
-    await page.locator('#hw-root td', { hasText: 'd' }).click({ modifiers: ['Shift'] });
+    await page.locator('#ahve-root td', { hasText: 'a' }).click();
+    await page.locator('#ahve-root td', { hasText: 'd' }).click({ modifiers: ['Shift'] });
 
     // Right-click on "d" — cell="d", mergeAnchor="a" — so "Merge cells" appears.
-    await page.locator('#hw-root td', { hasText: 'd' }).click({ button: 'right' });
-    await page.locator('#hw-table-menu .hw-tm-item', { hasText: 'Merge cells' }).click();
+    await page.locator('#ahve-root td', { hasText: 'd' }).click({ button: 'right' });
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Merge cells' }).click();
 
-    const cells = page.locator('#hw-root td');
+    const cells = page.locator('#ahve-root td');
     await expect(cells).toHaveCount(1);
     const merged = cells.first();
     await expect(merged).toHaveAttribute('rowspan', '2');

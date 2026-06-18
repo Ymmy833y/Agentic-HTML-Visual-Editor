@@ -3,7 +3,7 @@
 
 export function makeRoot(html: string = ''): HTMLElement {
   const root = document.createElement('div');
-  root.id = 'hw-root';
+  root.id = 'ahve-root';
   root.innerHTML = html;
   document.body.replaceChildren(root);
   return root;

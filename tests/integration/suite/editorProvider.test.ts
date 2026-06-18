@@ -2,13 +2,13 @@ import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 import { activateExtension, closeAllEditors, fixtureUri, sleep } from './helpers';
 
-suite('HtmlWysiwygEditorProvider', () => {
+suite('AhveEditorProvider', () => {
   suiteSetup(activateExtension);
   teardown(closeAllEditors);
 
   test('the custom editor tab is labelled with filename and (WYSIWYG) suffix', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg', uri);
+    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
     await sleep(500);
 
     const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
@@ -18,7 +18,7 @@ suite('HtmlWysiwygEditorProvider', () => {
 
   test('the custom editor accepts a workspace edit to the underlying document', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('htmlWysiwyg.openInWysiwyg', uri);
+    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
     await sleep(500);
 
     const doc = vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uri.fsPath);

@@ -13,15 +13,15 @@ function makeBtn(label = 'btn'): HTMLButtonElement {
 }
 
 describe('setupTooltip', () => {
-  it('lazily creates #hw-tooltip in body on first mouseenter', () => {
+  it('lazily creates #ahve-tooltip in body on first mouseenter', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Hello');
 
-    expect(document.getElementById('hw-tooltip')).toBeNull();
+    expect(document.getElementById('ahve-tooltip')).toBeNull();
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
-    expect(document.getElementById('hw-tooltip')).not.toBeNull();
+    expect(document.getElementById('ahve-tooltip')).not.toBeNull();
   });
 
   it('sets tooltip text on mouseenter', () => {
@@ -30,36 +30,36 @@ describe('setupTooltip', () => {
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
-    expect(document.getElementById('hw-tooltip')!.textContent).toBe('Bold');
+    expect(document.getElementById('ahve-tooltip')!.textContent).toBe('Bold');
   });
 
-  it('adds hw-tooltip-visible on mouseenter', () => {
+  it('adds ahve-tooltip-visible on mouseenter', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Bold');
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
-    expect(document.getElementById('hw-tooltip')!.classList.contains('hw-tooltip-visible')).toBe(true);
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(true);
   });
 
-  it('removes hw-tooltip-visible on mouseleave', () => {
+  it('removes ahve-tooltip-visible on mouseleave', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Bold');
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
     btn.dispatchEvent(new MouseEvent('mouseleave'));
 
-    expect(document.getElementById('hw-tooltip')!.classList.contains('hw-tooltip-visible')).toBe(false);
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(false);
   });
 
-  it('removes hw-tooltip-visible on click', () => {
+  it('removes ahve-tooltip-visible on click', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Bold');
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
     btn.dispatchEvent(new MouseEvent('click'));
 
-    expect(document.getElementById('hw-tooltip')!.classList.contains('hw-tooltip-visible')).toBe(false);
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(false);
   });
 
   it('updates text when a second element is hovered', () => {
@@ -69,11 +69,11 @@ describe('setupTooltip', () => {
     setupTooltip(btn2, 'Second');
 
     btn1.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(document.getElementById('hw-tooltip')!.textContent).toBe('First');
+    expect(document.getElementById('ahve-tooltip')!.textContent).toBe('First');
 
     btn1.dispatchEvent(new MouseEvent('mouseleave'));
     btn2.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(document.getElementById('hw-tooltip')!.textContent).toBe('Second');
+    expect(document.getElementById('ahve-tooltip')!.textContent).toBe('Second');
   });
 
   it('positions tooltip below the element (top = rect.bottom + 6)', () => {
@@ -84,22 +84,22 @@ describe('setupTooltip', () => {
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
-    expect(document.getElementById('hw-tooltip')!.style.top).toBe('56px');
+    expect(document.getElementById('ahve-tooltip')!.style.top).toBe('56px');
   });
 
-  it('re-creates #hw-tooltip after body is cleared', () => {
+  it('re-creates #ahve-tooltip after body is cleared', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Test');
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(document.getElementById('hw-tooltip')).not.toBeNull();
+    expect(document.getElementById('ahve-tooltip')).not.toBeNull();
 
     document.body.replaceChildren();
-    expect(document.getElementById('hw-tooltip')).toBeNull();
+    expect(document.getElementById('ahve-tooltip')).toBeNull();
 
     document.body.appendChild(btn);
     btn.dispatchEvent(new MouseEvent('mouseenter'));
-    expect(document.getElementById('hw-tooltip')).not.toBeNull();
+    expect(document.getElementById('ahve-tooltip')).not.toBeNull();
   });
 
   it('has aria-hidden="true" on the tooltip element', () => {
@@ -108,6 +108,6 @@ describe('setupTooltip', () => {
 
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
-    expect(document.getElementById('hw-tooltip')!.getAttribute('aria-hidden')).toBe('true');
+    expect(document.getElementById('ahve-tooltip')!.getAttribute('aria-hidden')).toBe('true');
   });
 });

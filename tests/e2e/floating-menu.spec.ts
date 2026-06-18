@@ -4,19 +4,19 @@ import { focusEditor, mountEditor, selectTextInside } from './helpers/page';
 test.describe('Floating menu', () => {
   test('is hidden when no selection exists and shows for a non-empty selection', async ({ page }) => {
     await mountEditor(page, '<p>hello world that is long enough to position above</p>');
-    const menu = page.locator('#hw-floating-menu');
+    const menu = page.locator('#ahve-floating-menu');
     await expect(menu).toBeHidden();
 
     await focusEditor(page);
-    await selectTextInside(page, '#hw-root p', 0, 5);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
     await expect(menu).toBeVisible();
   });
 
   test('returns to hidden when the selection collapses', async ({ page }) => {
     await mountEditor(page, '<p>hello world</p>');
     await focusEditor(page);
-    await selectTextInside(page, '#hw-root p', 0, 5);
-    const menu = page.locator('#hw-floating-menu');
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    const menu = page.locator('#ahve-floating-menu');
     await expect(menu).toBeVisible();
 
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
@@ -32,9 +32,9 @@ test.describe('Floating menu', () => {
       '<p style="margin-top: 200px">hello world that is long enough to measure</p>',
     );
     await focusEditor(page);
-    await selectTextInside(page, '#hw-root p', 0, 5);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
 
-    const menu = page.locator('#hw-floating-menu');
+    const menu = page.locator('#ahve-floating-menu');
     await expect(menu).toBeVisible();
 
     const menuBox = await menu.boundingBox();
@@ -51,8 +51,8 @@ test.describe('Floating menu', () => {
   test('clicking Bold in the floating menu wraps the selection', async ({ page }) => {
     await mountEditor(page, '<p>hello world</p>');
     await focusEditor(page);
-    await selectTextInside(page, '#hw-root p', 0, 5);
-    await page.locator('#hw-floating-menu button', { hasText: /^B$/ }).click();
-    await expect(page.locator('#hw-root strong')).toHaveText('hello');
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.locator('#ahve-floating-menu button', { hasText: /^B$/ }).click();
+    await expect(page.locator('#ahve-root strong')).toHaveText('hello');
   });
 });

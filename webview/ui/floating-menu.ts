@@ -17,7 +17,7 @@ const VIEWPORT_PADDING = 8;
 
 export function mountFloatingMenu(root: HTMLElement, opts: FloatingMenuOptions): void {
   const menu = document.createElement('div');
-  menu.id = 'hw-floating-menu';
+  menu.id = 'ahve-floating-menu';
   menu.hidden = true;
   menu.setAttribute('role', 'toolbar');
 
@@ -38,10 +38,10 @@ export function mountFloatingMenu(root: HTMLElement, opts: FloatingMenuOptions):
   menu.addEventListener('click', (e) => {
     // Walk up from the click target so events on SVG children of icon buttons
     // still resolve to their button element.
-    const button = (e.target as Element | null)?.closest('.hw-fm-btn');
+    const button = (e.target as Element | null)?.closest('.ahve-fm-btn');
     if (!button) return;
     // Link and Comment buttons manage their own follow-up actions.
-    if (button.classList.contains('hw-fm-link') || button.classList.contains('hw-fm-comment')) {
+    if (button.classList.contains('ahve-fm-link') || button.classList.contains('ahve-fm-comment')) {
       return;
     }
     opts.onCommand();
@@ -59,7 +59,7 @@ export function mountFloatingMenu(root: HTMLElement, opts: FloatingMenuOptions):
 function btn(label: string, title: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-fm-btn';
+  b.className = 'ahve-fm-btn';
   b.title = title;
   b.textContent = label;
   b.addEventListener('click', onClick);
@@ -69,7 +69,7 @@ function btn(label: string, title: string, onClick: () => void): HTMLButtonEleme
 function iconBtn(svgHtml: string, title: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-fm-btn hw-fm-icon';
+  b.className = 'ahve-fm-btn ahve-fm-icon';
   b.title = title;
   b.innerHTML = svgHtml;
   b.addEventListener('click', onClick);
@@ -79,7 +79,7 @@ function iconBtn(svgHtml: string, title: string, onClick: () => void): HTMLButto
 function linkBtn(onLink: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-fm-btn hw-fm-link';
+  b.className = 'ahve-fm-btn ahve-fm-link';
   b.title = 'Link';
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
@@ -89,7 +89,7 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
 function commentBtn(onAddComment: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-fm-btn hw-fm-comment';
+  b.className = 'ahve-fm-btn ahve-fm-comment';
   b.title = 'Comment on selection';
   b.textContent = 'Comment';
   b.addEventListener('click', onAddComment);

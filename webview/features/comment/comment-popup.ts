@@ -31,18 +31,18 @@ export function mountCommentPopup(
   let current: Element | null = null;
 
   const popup = document.createElement('div');
-  popup.id = 'hw-comment-popup';
+  popup.id = 'ahve-comment-popup';
   popup.hidden = true;
   popup.setAttribute('role', 'dialog');
   popup.setAttribute('aria-label', 'Comment');
 
   const header = document.createElement('div');
-  header.className = 'hw-cp-header';
+  header.className = 'ahve-cp-header';
 
   const prevBtn = headerBtn('↑', 'Previous comment', () => navigate(-1));
   const nextBtn = headerBtn('↓', 'Next comment', () => navigate(1));
   const spacer = document.createElement('span');
-  spacer.className = 'hw-cp-spacer';
+  spacer.className = 'ahve-cp-spacer';
   const resolveBtn = headerBtn('✓', 'Toggle resolved', () => toggleResolved());
   const trashBtn = headerBtn('🗑', 'Delete comment', () => {
     void deleteCurrent();
@@ -52,15 +52,15 @@ export function mountCommentPopup(
   header.append(prevBtn, nextBtn, spacer, resolveBtn, trashBtn, closeBtn);
 
   const bodySection = document.createElement('div');
-  bodySection.className = 'hw-cp-body';
+  bodySection.className = 'ahve-cp-body';
 
   const repliesSection = document.createElement('div');
-  repliesSection.className = 'hw-cp-replies';
+  repliesSection.className = 'ahve-cp-replies';
 
   const replyForm = document.createElement('div');
-  replyForm.className = 'hw-cp-reply-form';
+  replyForm.className = 'ahve-cp-reply-form';
   const replyInput = document.createElement('textarea');
-  replyInput.className = 'hw-cp-reply-input';
+  replyInput.className = 'ahve-cp-reply-input';
   replyInput.placeholder = 'Reply';
   replyInput.rows = 1;
   replyForm.appendChild(replyInput);
@@ -106,7 +106,7 @@ export function mountCommentPopup(
     if (current.contains(target)) return;
     // A modal confirm dialog (e.g. the counterpart-edit guard) renders above the
     // popup; clicking it must not be treated as an outside click that closes us.
-    if (target instanceof Element && target.closest('.hw-dialog-overlay')) return;
+    if (target instanceof Element && target.closest('.ahve-dialog-overlay')) return;
     close();
   });
 
@@ -140,7 +140,7 @@ export function mountCommentPopup(
 
   function updateResolveButton(): void {
     if (!current) return;
-    resolveBtn.classList.toggle('hw-cp-resolved-on', cdom.isResolved(current));
+    resolveBtn.classList.toggle('ahve-cp-resolved-on', cdom.isResolved(current));
   }
 
   function toggleResolved(): void {
@@ -160,9 +160,9 @@ export function mountCommentPopup(
       if (meta) bodySection.appendChild(meta);
     }
     const display = document.createElement('div');
-    display.className = 'hw-cp-body-display';
+    display.className = 'ahve-cp-body-display';
     if (text === '') {
-      display.classList.add('hw-cp-empty');
+      display.classList.add('ahve-cp-empty');
       display.textContent = 'Add a comment';
     } else {
       display.textContent = text;
@@ -179,7 +179,7 @@ export function mountCommentPopup(
     if (body && cdom.isCounterpart(body) && !(await confirmCounterpartEdit('edit'))) return;
     if (!current) return;
     const ta = document.createElement('textarea');
-    ta.className = 'hw-cp-body-input';
+    ta.className = 'ahve-cp-body-input';
     ta.value = cdom.getBody(current);
     ta.rows = Math.max(2, ta.value.split('\n').length);
     bodySection.replaceChildren(ta);
@@ -218,15 +218,15 @@ export function mountCommentPopup(
 
   function renderReplyRow(reply: Element): HTMLElement {
     const row = document.createElement('div');
-    row.className = 'hw-cp-reply-row';
+    row.className = 'ahve-cp-reply-row';
 
     const main = document.createElement('div');
-    main.className = 'hw-cp-reply-main';
+    main.className = 'ahve-cp-reply-main';
     const meta = metaLine(reply);
     if (meta) main.appendChild(meta);
 
     const display = document.createElement('div');
-    display.className = 'hw-cp-reply-display';
+    display.className = 'ahve-cp-reply-display';
     display.textContent = reply.textContent ?? '';
     display.addEventListener('click', () => {
       void editReply(reply, row);
@@ -235,7 +235,7 @@ export function mountCommentPopup(
 
     const del = document.createElement('button');
     del.type = 'button';
-    del.className = 'hw-cp-reply-del';
+    del.className = 'ahve-cp-reply-del';
     setupTooltip(del, 'Delete reply');
     del.textContent = '×';
     del.addEventListener('click', (e) => {
@@ -255,7 +255,7 @@ export function mountCommentPopup(
   async function editReply(reply: Element, row: HTMLElement): Promise<void> {
     if (cdom.isCounterpart(reply) && !(await confirmCounterpartEdit('edit'))) return;
     const ta = document.createElement('textarea');
-    ta.className = 'hw-cp-reply-input';
+    ta.className = 'ahve-cp-reply-input';
     ta.value = reply.textContent ?? '';
     ta.rows = Math.max(1, ta.value.split('\n').length);
     row.replaceChildren(ta);
@@ -324,8 +324,8 @@ export function mountCommentPopup(
     const parts = [formatAuthor(author), formatTime(cdom.getUpdated(entry))].filter((p) => p !== '');
     if (parts.length === 0) return null;
     const meta = document.createElement('div');
-    meta.className = 'hw-cp-meta';
-    meta.classList.toggle('hw-cp-meta-ai', author === cdom.AI_AUTHOR);
+    meta.className = 'ahve-cp-meta';
+    meta.classList.toggle('ahve-cp-meta-ai', author === cdom.AI_AUTHOR);
     meta.textContent = parts.join(' · ');
     return meta;
   }
@@ -398,7 +398,7 @@ function formatTime(iso: string): string {
 function headerBtn(label: string, title: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-cp-btn';
+  b.className = 'ahve-cp-btn';
   setupTooltip(b, title);
   b.textContent = label;
   b.addEventListener('click', onClick);

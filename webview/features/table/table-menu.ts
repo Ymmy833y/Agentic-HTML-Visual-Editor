@@ -48,7 +48,7 @@ export function mountTableMenu(
   opts: TableMenuOptions,
 ): TableMenuHandle {
   const menu = document.createElement('div');
-  menu.id = 'hw-table-menu';
+  menu.id = 'ahve-table-menu';
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   document.body.appendChild(menu);
@@ -252,7 +252,7 @@ export function mountTableMenu(
 function menuButton(item: MenuItem, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = 'hw-tm-item';
+  b.className = 'ahve-tm-item';
   b.textContent = item.label;
   b.disabled = !item.enabled;
   if (item.enabled) b.addEventListener('click', onClick);
@@ -261,7 +261,7 @@ function menuButton(item: MenuItem, onClick: () => void): HTMLButtonElement {
 
 function separator(): HTMLElement {
   const s = document.createElement('div');
-  s.className = 'hw-tm-sep';
+  s.className = 'ahve-tm-sep';
   s.setAttribute('aria-hidden', 'true');
   return s;
 }

@@ -1,12 +1,12 @@
 import type * as vscode from 'vscode';
-import { registerOpenInWysiwygCommand } from './commands/openInWysiwyg';
+import { registerOpenInVisualEditorCommand } from './commands/openInVisualEditor';
 import { registerCopyCommands } from './commands/copy';
-import { HtmlWysiwygEditorProvider } from './editor/HtmlWysiwygEditorProvider';
+import { AhveEditorProvider } from './editor/AhveEditorProvider';
 
 export function activate(context: vscode.ExtensionContext): void {
-  registerOpenInWysiwygCommand(context);
+  registerOpenInVisualEditorCommand(context);
   registerCopyCommands(context);
-  context.subscriptions.push(HtmlWysiwygEditorProvider.register(context));
+  context.subscriptions.push(AhveEditorProvider.register(context));
 }
 
 export function deactivate(): void {
