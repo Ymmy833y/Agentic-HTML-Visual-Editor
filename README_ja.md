@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.1-F59E0B?style=for-the-badge" alt="Version 0.1.1" />
+  <img src="https://img.shields.io/badge/version-0.1.2-F59E0B?style=for-the-badge" alt="Version 0.1.2" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -14,7 +14,7 @@
 素の `.html` ファイルを **モダンで直感的な WYSIWYG エディタ**に変える VSCode 拡張です。AI コーディングエージェントには極力シンプルな HTML を出力させ、人間はそれを読みやすく編集できます。ディスク上の HTML が、両者にとっての単一かつ可搬な情報源であり続けます。
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="サンプル文書を表示する WYSIWYG ビュー。インラインコメントのスレッドポップアップが開いている" width="820" />
+  <img src="https://i.imgur.com/d3e22EW.png" alt="サンプル文書を表示する WYSIWYG ビュー。インラインコメントのスレッドポップアップが開いている" width="820" />
   <br />
   <em>HTML 文書を編集する WYSIWYG ビュー。インラインのレビューコメントスレッドを開いた状態。</em>
 </p>
