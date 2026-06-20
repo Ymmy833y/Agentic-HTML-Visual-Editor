@@ -14,7 +14,7 @@
 素の `.html` ファイルを **モダンで直感的な WYSIWYG エディタ**に変える VSCode 拡張です。AI コーディングエージェントには極力シンプルな HTML を出力させ、人間はそれを読みやすく編集できます。ディスク上の HTML が、両者にとっての単一かつ可搬な情報源であり続けます。
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="サンプル文書を表示する WYSIWYG ビュー。インラインコメントのスレッドポップアップが開いている" width="820" />
+  <img src="https://i.imgur.com/d3e22EW.png" alt="サンプル文書を表示する WYSIWYG ビュー。インラインコメントのスレッドポップアップが開いている" width="820" />
   <br />
   <em>HTML 文書を編集する WYSIWYG ビュー。インラインのレビューコメントスレッドを開いた状態。</em>
 </p>
