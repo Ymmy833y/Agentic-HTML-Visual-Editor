@@ -115,7 +115,7 @@ async function handleLink(): Promise<void> {
   const result = await openLinkDialog(currentUrl);
   if (result.action === 'cancel') return;
 
-  root!.focus();
+  root!.focus({ preventScroll: true });
   sel.removeAllRanges();
   sel.addRange(savedRange);
 
@@ -168,7 +168,7 @@ function setMergeAnchor(cell: HTMLTableCellElement | null): void {
 
 const tablePicker = mountTablePicker({
   onPick: (rows, cols, withHeader) => {
-    root.focus();
+    root.focus({ preventScroll: true });
     insertTable({ rows, cols, withHeader }, ctx);
     editor.notifyChanged();
   },

@@ -82,4 +82,40 @@ test.describe('Link dialog (Ctrl+K)', () => {
     await expect(page.locator('.ahve-dialog')).toHaveCount(0);
     expect(await getRootHtml(page)).toBe('<p>click here</p>');
   });
+
+  test('cursor is positioned inside the <a> after inserting a link', async ({ page }) => {
+    await mountEditor(page, '<p>click here</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.keyboard.press('Control+k');
+
+    await page.locator('.ahve-dialog-input').fill('https://example.com');
+    await page.keyboard.press('Enter');
+
+    const cursorInLink = await page.evaluate(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return false;
+      const a = document.querySelector('#ahve-root a');
+      if (!a) return false;
+      return a.contains(sel.anchorNode);
+    });
+    expect(cursorInLink).toBe(true);
+  });
+
+  test('scroll position is preserved after inserting a link', async ({ page }) => {
+    const lines = Array.from({ length: 60 }, (_, i) => `<p>Paragraph ${i + 1} with some filler text to take up vertical space</p>`).join('');
+    await mountEditor(page, `${lines}<p>target line</p>`);
+    await focusEditor(page);
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+
+    await selectTextInside(page, '#ahve-root p:last-child', 0, 6);
+    await page.keyboard.press('Control+k');
+    await page.locator('.ahve-dialog-input').fill('https://example.com');
+    await page.keyboard.press('Enter');
+
+    const scrollAfter = await page.evaluate(() => window.scrollY);
+    expect(scrollAfter).toBeGreaterThan(scrollBefore * 0.5);
+  });
 });
