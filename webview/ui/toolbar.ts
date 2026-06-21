@@ -249,7 +249,7 @@ function buildBlockDropdown(
       item.addEventListener('click', () => {
         // Restore editor selection (may have been lost when the dropdown opened).
         const saved = getSavedRange();
-        root.focus();
+        root.focus({ preventScroll: true });
         if (saved) {
           const sel = window.getSelection();
           if (sel) { sel.removeAllRanges(); sel.addRange(saved); }

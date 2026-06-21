@@ -281,6 +281,25 @@ describe('insertLink', () => {
     insertLink('', ctxOf(root));
     expect(root.innerHTML).toBe('<p>foo</p>');
   });
+
+  it('places cursor inside the new <a> after wrapping a selection', () => {
+    const root = makeRoot('<p>click here</p>');
+    const text = root.querySelector('p')!.firstChild!;
+    selectTextRange(text, 0, 5);
+    insertLink('https://example.com', ctxOf(root));
+    const sel = window.getSelection()!;
+    const a = root.querySelector('a')!;
+    expect(a.contains(sel.anchorNode)).toBe(true);
+  });
+
+  it('places cursor inside the new <a> after inserting at a collapsed caret', () => {
+    const root = makeRoot('<p>foo</p>');
+    caretAtStart(root.querySelector('p')!);
+    insertLink('https://example.com', ctxOf(root));
+    const sel = window.getSelection()!;
+    const a = root.querySelector('a')!;
+    expect(a.contains(sel.anchorNode)).toBe(true);
+  });
 });
 
 // Helper: set a cross-node selection from (startNode, startOff) to (endNode, endOff).
