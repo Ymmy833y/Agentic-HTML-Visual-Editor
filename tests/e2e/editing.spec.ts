@@ -282,4 +282,18 @@ test.describe('Keyboard shortcuts', () => {
     await page.keyboard.press('Control+Shift+0');
     expect(await getRootHtml(page)).toBe('<p>title</p>');
   });
+
+  // Ctrl+Alt+<digit> is a fallback for Ctrl+Shift+<digit>, which some platforms
+  // reserve at the OS/IME level (e.g. Windows input-language hotkeys).
+  test('Ctrl+Alt+1..6 set heading levels; Ctrl+Alt+0 restores P', async ({ page }) => {
+    await mountEditor(page, '<p>title</p>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root p');
+    await page.keyboard.press('Control+Alt+3');
+    expect(await getRootHtml(page)).toBe('<h3>title</h3>');
+
+    await caretAtEnd(page, '#ahve-root h3');
+    await page.keyboard.press('Control+Alt+0');
+    expect(await getRootHtml(page)).toBe('<p>title</p>');
+  });
 });

@@ -123,8 +123,8 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `Ctrl+I` | Italic (`<em>`) |
 | `Ctrl+K` | Insert link (`<a>`) |
 | `Ctrl+\` | Clear inline formatting |
-| `Ctrl+Shift+1`–`6` | Set heading H1–H6 |
-| `Ctrl+Shift+0` | Convert to paragraph |
+| `Ctrl+Shift+1`–`6` / `Ctrl+Alt+1`–`6` | Set heading H1–H6 |
+| `Ctrl+Shift+0` / `Ctrl+Alt+0` | Convert to paragraph |
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Tab` / `Shift+Tab` | Indent/outdent list items, or move between table cells |
 | `Ctrl+F` | In-document search |

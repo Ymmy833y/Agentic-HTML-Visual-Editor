@@ -8,6 +8,20 @@ import type { CommandContext } from '../shared/command-context';
 
 export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
 
+/**
+ * Map a Ctrl/Cmd+Shift+<digit> keydown to a block tag: Digit1–Digit6 → h1–h6,
+ * Digit0 → p (plain). Returns null for any other key.
+ *
+ * Matches on `KeyboardEvent.code` (the physical key) rather than `.key`,
+ * because while Shift is held `.key` is the shifted symbol ('!', '@', …) — not
+ * the digit — so a digit test against `.key` never fires in a real browser.
+ */
+export function headingShortcutTag(code: string): BlockTag | null {
+  const m = /^Digit([0-6])$/.exec(code);
+  if (!m) return null;
+  return m[1] === '0' ? 'p' : (('h' + m[1]) as BlockTag);
+}
+
 /** Replace the current block element's tag (e.g. P → H1). */
 export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
   const sel = window.getSelection();
