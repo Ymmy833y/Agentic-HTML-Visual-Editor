@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test';
-import { focusEditor, mountEditor, selectTextInside } from './helpers/page';
+import type { Page } from '@playwright/test';
+import {
+  DEBOUNCE_MS,
+  focusEditor,
+  getEditMessages,
+  mountEditor,
+  selectTextInside,
+} from './helpers/page';
+
+// Collapse the caret at a character offset inside the first text node of a
+// comment's target (the editable text before <comment-body>).
+async function caretInCommentTarget(page: Page, offset: number): Promise<void> {
+  await page.evaluate((offset) => {
+    const comment = document.querySelector('#ahve-root comment');
+    if (!comment) throw new Error('no comment');
+    const target = comment.firstChild;
+    if (!target) throw new Error('comment has no target text');
+    const r = document.createRange();
+    r.setStart(target, offset);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }, offset);
+}
 
 test.describe('Comment', () => {
   test('clicking Comment in the floating menu wraps the selection and opens the popup', async ({ page }) => {
@@ -88,6 +112,45 @@ test.describe('Comment', () => {
     await expect(popup).toBeHidden();
     await expect(page.locator('#ahve-root comment')).toHaveCount(0);
     await expect(page.locator('#ahve-root p')).toHaveText('hello world');
+  });
+
+  test('does not nest a comment when the selection is inside an existing comment', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>hi <comment id="c-existing">target<comment-body>note</comment-body></comment> bye</p>',
+    );
+    await focusEditor(page);
+    // Select part of the existing comment's target text.
+    await selectTextInside(page, '#ahve-root comment', 0, 3);
+
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    // No new comment was created and the popup did not open.
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-comment-popup')).toBeHidden();
+  });
+
+  test('does not create a comment that would wrap an existing one', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>aa <comment id="c-existing">mid<comment-body>note</comment-body></comment> bb</p>',
+    );
+    await focusEditor(page);
+    // Select from the leading text, across the comment, into the trailing text.
+    await page.evaluate(() => {
+      const p = document.querySelector('#ahve-root p')!;
+      const range = document.createRange();
+      range.setStart(p.firstChild!, 1); // inside "aa "
+      range.setEnd(p.lastChild!, 2); // inside " bb"
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-comment-popup')).toBeHidden();
   });
 
   test('does not add a comment when the selection spans two paragraphs', async ({ page }) => {
@@ -251,5 +314,157 @@ test.describe('Comment', () => {
       .locator('#ahve-root comment#c-a')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(humanBg).not.toBe(aiBg);
+  });
+});
+
+// Editing in and around an inline <comment> must never corrupt it: the browser
+// default contenteditable split/merge would otherwise cut through the comment
+// (whose <comment-body> is contenteditable=false), losing the target text or
+// body and duplicating the id. See keepCommentWholeOnEnter in editor-core and
+// the COMMENT guard in serialize.
+test.describe('Comment editing keeps comments intact', () => {
+  const SAMPLE =
+    '<p>This is sample <comment id="c-gsb0lvjq">text' +
+    '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-24T10:05:36.074Z">This is comment</comment-body>' +
+    '</comment>.</p>';
+
+  // Structured snapshot of the comment state, read from the live DOM.
+  async function readState(page: Page) {
+    return page.evaluate(() => {
+      const root = document.querySelector('#ahve-root')!;
+      const ps = Array.from(root.querySelectorAll(':scope > p'));
+      const comments = Array.from(root.querySelectorAll('comment'));
+      const c = comments[0] as HTMLElement | undefined;
+      const target = c && c.firstChild && c.firstChild.nodeType === Node.TEXT_NODE
+        ? c.firstChild.textContent
+        : null;
+      const body = c?.querySelector('comment-body') ?? null;
+      return {
+        pCount: ps.length,
+        commentCount: comments.length,
+        commentId: c?.getAttribute('id') ?? null,
+        targetText: target,
+        bodyText: body?.textContent ?? null,
+        bodyAuthor: body?.getAttribute('data-author') ?? null,
+        firstPHasComment: c ? (ps[0]?.contains(c) ?? false) : false,
+        lastPText: ps[ps.length - 1]?.textContent ?? null,
+      };
+    });
+  }
+
+  test('Enter at the end of comment target keeps the comment whole and typing lands outside it (bug ①)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length); // caret right after "text"
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('a');
+
+    await expect(page.locator('#ahve-root > p')).toHaveCount(2);
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.commentId).toBe('c-gsb0lvjq');
+    expect(state.targetText).toBe('text');
+    expect(state.bodyText).toBe('This is comment');
+    expect(state.bodyAuthor).toBe('human');
+    expect(state.firstPHasComment).toBe(true);
+    // The typed "a" landed in the new paragraph, not inside the comment body.
+    expect(state.lastPText).toBe('a.');
+  });
+
+  test('Enter in the middle of comment target does not split the comment', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 2); // "te|xt"
+
+    await page.keyboard.press('Enter');
+
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.targetText).toBe('text'); // target text not cut
+    expect(state.bodyText).toBe('This is comment');
+  });
+
+  test('Enter at the start of comment target leaves the comment on the current line', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 0); // before the first char of "text"
+
+    await page.keyboard.press('Enter');
+
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.targetText).toBe('text');
+    expect(state.firstPHasComment).toBe(true); // comment stayed on the current (first) line
+  });
+
+  test('the comment survives serialization to the host after an Enter near it (bug ②)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length);
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('a');
+
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    expect(edits.length).toBeGreaterThan(0);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-gsb0lvjq"');
+    expect(html).toContain('This is comment');
+    expect(html).toContain('data-author="human"');
+    // Exactly one <comment> element in the serialized output (no duplicate id).
+    // `[\s>]` avoids matching the <comment-body> child tag.
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+
+  test('Backspace just after a comment does not delete its body', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>a <comment id="c1">text<comment-body data-author="human">note</comment-body></comment> b</p>',
+    );
+    await focusEditor(page);
+    // Caret at the start of the " b" text node that follows the comment.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const after = comment.nextSibling!;
+      const r = document.createRange();
+      r.setStart(after, 0);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+
+    await page.keyboard.press('Backspace');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment.locator('comment-body')).toHaveText('note');
+  });
+
+  test('Delete just before a comment does not delete its body', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>a <comment id="c1">text<comment-body data-author="human">note</comment-body></comment> b</p>',
+    );
+    await focusEditor(page);
+    // Caret at the end of the "a " text node that precedes the comment.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const before = comment.previousSibling!;
+      const r = document.createRange();
+      r.setStart(before, before.textContent!.length);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+
+    await page.keyboard.press('Delete');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment.locator('comment-body')).toHaveText('note');
   });
 });
