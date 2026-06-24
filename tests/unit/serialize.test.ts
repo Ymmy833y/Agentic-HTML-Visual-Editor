@@ -61,6 +61,36 @@ describe('formatForSerialize: images', () => {
   });
 });
 
+describe('formatForSerialize: comments are never pruned', () => {
+  it('keeps a comment with target text and body that is the only child of its block', () => {
+    const html = '<p><comment id="c1">text<comment-body data-author="human">note</comment-body></comment></p>';
+    expect(format(html)).toBe(html);
+  });
+
+  it('keeps a just-added comment whose body has not been typed yet (empty target and body)', () => {
+    // Regression: serialize must not treat the empty inline <comment> as an
+    // empty wrapper and drop it when a debounced save fires before the body is
+    // typed. The save echo's remount would otherwise make the loss permanent.
+    const html = '<p><comment id="c1"><comment-body data-author="human"></comment-body></comment></p>';
+    expect(format(html)).toBe(html);
+  });
+
+  it('keeps a fully empty comment element', () => {
+    const html = '<p><comment id="c1"></comment></p>';
+    expect(format(html)).toBe(html);
+  });
+
+  it('keeps a comment surrounded by text', () => {
+    const html = '<p>before <comment id="c1">x<comment-body>n</comment-body></comment> after</p>';
+    expect(format(html)).toBe(html);
+  });
+
+  it('survives a full round-trip (parse + inject + serialize) without losing an empty comment', () => {
+    const saved = '<p><comment id="c1"><comment-body data-author="human"></comment-body></comment></p>';
+    expect(roundtrip(saved)).toBe(saved);
+  });
+});
+
 describe('formatForSerialize: preserves existing whitespace', () => {
   it('keeps a leading whitespace text node before the first block', () => {
     const root = document.createElement('div');

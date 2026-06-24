@@ -72,6 +72,14 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
         scheduleChange();
         return;
       }
+      // Keep an inline <comment> whole: split the block at the boundary just
+      // after the comment so the browser default never cuts through it (which
+      // corrupts the contenteditable=false body and duplicates the id).
+      if (keepCommentWholeOnEnter(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
       // Continue inline formatting onto the new line when the caret sits at the
       // end of a formatted block (e.g. Enter after fully-bold text stays bold).
       if (handleFormattedEnter(root)) {
@@ -105,6 +113,16 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
         return;
       }
       if (handleBlockquoteShortcut(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+    }
+    if (e.inputType === 'deleteContentBackward') {
+      // Backspace with the caret right after a comment must not let the browser
+      // delete across the comment boundary (which destroys the
+      // contenteditable=false body). Shrink the comment's target text instead.
+      if (handleCommentBackspace(root)) {
         e.preventDefault();
         scheduleChange();
         return;
@@ -304,6 +322,134 @@ function handleFormattedEnter(root: HTMLElement): boolean {
   selection.removeAllRanges();
   selection.addRange(newRange);
   return true;
+}
+
+/**
+ * Keep an inline <comment> whole when Enter splits its block. The comment's
+ * target text is editable, but its `contenteditable="false"` <comment-body>
+ * makes the browser's default paragraph split cut through the comment when the
+ * caret sits inside it — corrupting the body and duplicating the comment id.
+ * (Relocating the caret and deferring to the default does not help: Chromium
+ * splits using the selection as it was before the event, ignoring the change.)
+ *
+ * So we split the block ourselves at the boundary just AFTER the whole comment:
+ * the comment (and everything before it) stays on the current line, and only
+ * the content after the comment moves into a fresh sibling block. Returns
+ * whether the split was performed (i.e. the caret was inside a comment).
+ */
+function keepCommentWholeOnEnter(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const comment = findAncestor(range.startContainer, 'COMMENT', root);
+  if (!comment) return false;
+  const block = findBlockAncestor(comment, root);
+  if (!block) return false;
+
+  // Extract everything after the comment up to the block end. extractContents
+  // splits any inline-format wrappers between the comment and the block, so a
+  // nested comment (e.g. inside <strong>) is handled correctly.
+  const tailRange = document.createRange();
+  tailRange.setStartAfter(comment);
+  tailRange.setEnd(block, block.childNodes.length);
+  const tail = tailRange.extractContents();
+
+  const newBlock = document.createElement(block.tagName.toLowerCase());
+  newBlock.appendChild(tail);
+  if (newBlock.childNodes.length === 0) {
+    newBlock.appendChild(document.createElement('br'));
+  }
+  block.after(newBlock);
+
+  const newRange = document.createRange();
+  newRange.setStart(newBlock, 0);
+  newRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(newRange);
+  return true;
+}
+
+/**
+ * Backspace with the caret immediately after a <comment>: the browser default
+ * deletes across the comment boundary and destroys its contenteditable=false
+ * body. Instead, shrink the comment's editable target text by one character,
+ * preserving the body/replies. When no target text is left to shrink, remove
+ * the whole (now anchorless) comment so a stray empty highlight does not linger.
+ * Returns whether it handled the deletion.
+ */
+function handleCommentBackspace(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  const before = nodeImmediatelyBeforeCaret(range);
+  if (!before || before.nodeType !== Node.ELEMENT_NODE) return false;
+  const comment = before as Element;
+  if (comment.tagName !== 'COMMENT') return false;
+
+  const text = lastNonEmptyTargetText(comment);
+  if (text) {
+    text.deleteData(text.data.length - 1, 1);
+    return true;
+  }
+
+  const parent = comment.parentNode;
+  if (!parent) return false;
+  const index = Array.prototype.indexOf.call(parent.childNodes, comment);
+  comment.remove();
+  const r = document.createRange();
+  r.setStart(parent, index);
+  r.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(r);
+  return true;
+}
+
+/** The node directly before a collapsed caret, or null when the caret sits
+ *  mid-text (a normal in-place deletion the caller should leave to the browser). */
+function nodeImmediatelyBeforeCaret(range: Range): Node | null {
+  const { startContainer, startOffset } = range;
+  if (startContainer.nodeType === Node.TEXT_NODE) {
+    return startOffset === 0 ? startContainer.previousSibling : null;
+  }
+  return startOffset > 0 ? startContainer.childNodes[startOffset - 1] : null;
+}
+
+/** Deepest, last non-empty text node within a comment's editable target region
+ *  (the content before the first <comment-body>/<comment-reply>), or null. */
+function lastNonEmptyTargetText(comment: Element): Text | null {
+  const kids = comment.childNodes;
+  let end = kids.length;
+  for (let i = 0; i < kids.length; i++) {
+    const n = kids[i];
+    if (n.nodeType === Node.ELEMENT_NODE) {
+      const tag = (n as Element).tagName;
+      if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') {
+        end = i;
+        break;
+      }
+    }
+  }
+  for (let i = end - 1; i >= 0; i--) {
+    const found = deepestLastNonEmptyText(kids[i]);
+    if (found) return found;
+  }
+  return null;
+}
+
+function deepestLastNonEmptyText(node: Node): Text | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node as Text).data.length > 0 ? (node as Text) : null;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return null;
+  for (let i = node.childNodes.length - 1; i >= 0; i--) {
+    const found = deepestLastNonEmptyText(node.childNodes[i]);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**

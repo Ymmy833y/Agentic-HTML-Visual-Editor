@@ -140,6 +140,12 @@ function isPlaceholderOrEmptyWrapper(node: Node): boolean {
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as Element;
   if (el.tagName === 'BR') return true;
+  // A <comment> is a deliberate annotation keyed by id; it must never be
+  // mistaken for an empty inline wrapper and pruned, even when its target text
+  // and body are momentarily empty (e.g. a just-added comment whose body has
+  // not been typed yet). Otherwise a debounced save firing during that window
+  // would drop the comment, and the save echo's remount would make it permanent.
+  if (el.tagName === 'COMMENT') return false;
   if (BLOCK_TAGS.has(el.tagName) || VOID_CONTENT_TAGS.has(el.tagName)) return false;
   return Array.from(el.childNodes).every(isPlaceholderOrEmptyWrapper);
 }

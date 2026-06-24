@@ -26,6 +26,15 @@ export function addComment(ctx: CommandContext): HTMLElement | null {
   const endScope = findCommentScopeAncestor(range.endContainer, ctx.root);
   if (!startScope || startScope !== endScope) return null;
 
+  // Comments are flat: a new comment must not nest inside, contain, or partially
+  // overlap an existing one (that produces corrupt structures like a <comment>
+  // wrapping another <comment>). Reject when the selection intersects any
+  // existing comment. Range.intersectsNode treats a merely-adjacent boundary as
+  // no overlap, so commenting text right next to an existing comment is allowed.
+  for (const existing of ctx.root.querySelectorAll('comment')) {
+    if (range.intersectsNode(existing)) return null;
+  }
+
   const comment = document.createElement('comment');
   comment.setAttribute('id', newCommentId(ctx.root));
   try {

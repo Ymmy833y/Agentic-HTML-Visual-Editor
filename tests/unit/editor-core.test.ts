@@ -511,3 +511,145 @@ describe('setupEditor: Enter inherits inline formatting at the end of a block', 
     expect(evt.defaultPrevented).toBe(false);
   });
 });
+
+// Pressing Enter with the caret inside a comment's target text must not let the
+// browser default split cut through the comment (which corrupts its
+// contenteditable=false body and duplicates its id). The editor splits the
+// block itself at the boundary just after the whole <comment>, so the comment
+// stays whole on the current line and only the content after it moves down.
+describe('setupEditor: Enter keeps an inline comment whole', () => {
+  function placeCaret(node: Node, offset: number): void {
+    const r = document.createRange();
+    r.setStart(node, offset);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  it('splits after the whole comment, keeping its body intact (caret at target end)', () => {
+    const root = makeRoot(
+      '<p>This is sample <comment id="c1">text' +
+        '<comment-body contenteditable="false" data-author="human">note</comment-body></comment>.</p>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    placeCaret(comment.firstChild!, 'text'.length);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+
+    const ps = root.querySelectorAll(':scope > p');
+    expect(ps).toHaveLength(2);
+    // The comment (with body) stays whole in the first paragraph.
+    expect(ps[0].querySelectorAll('comment')).toHaveLength(1);
+    expect(ps[0].querySelector('comment-body')!.textContent).toBe('note');
+    expect(ps[0].querySelector('comment')!.firstChild!.textContent).toBe('text');
+    // Only the trailing "." moved to the new paragraph.
+    expect(ps[1].textContent).toBe('.');
+    // Exactly one comment overall (no duplicate id).
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(ps[1]);
+    expect(sel.anchorOffset).toBe(0);
+  });
+
+  it('does not cut the target text when the caret is mid-target', () => {
+    const root = makeRoot('<p>x <comment id="c1">hello<comment-body>n</comment-body></comment> y</p>');
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    placeCaret(comment.firstChild!, 2); // "he|llo"
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(root.querySelector('comment')!.firstChild!.textContent).toBe('hello'); // not cut
+    const ps = root.querySelectorAll(':scope > p');
+    expect(ps[1].textContent).toBe(' y');
+  });
+
+  it('creates an empty new block when the comment is at the block end', () => {
+    const root = makeRoot('<p>x <comment id="c1">t<comment-body>n</comment-body></comment></p>');
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    placeCaret(comment.firstChild!, 1);
+
+    dispatchBeforeInput(root, 'insertParagraph');
+    const ps = root.querySelectorAll(':scope > p');
+    expect(ps).toHaveLength(2);
+    expect(ps[1].innerHTML).toBe('<br>');
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+  });
+
+  it('leaves the caret alone when it is not inside a comment', () => {
+    const root = makeRoot('<p>plain text here</p>');
+    setupEditor(root, () => {});
+    const p = root.querySelector('p')!;
+    placeCaret(p.firstChild!, 5);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+    expect(evt.defaultPrevented).toBe(false);
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(p.firstChild);
+    expect(sel.anchorOffset).toBe(5);
+  });
+});
+
+// Backspace with the caret right after a comment must not delete across the
+// boundary into the contenteditable=false body. The editor shrinks the target
+// text instead, and removes the whole comment only once it has no anchor text.
+describe('setupEditor: Backspace just after a comment', () => {
+  function caretAfterComment(root: HTMLElement): void {
+    const comment = root.querySelector('comment')!;
+    const r = document.createRange();
+    r.setStart(comment.nextSibling!, 0);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  it('shrinks the target text instead of deleting the body', () => {
+    const root = makeRoot(
+      '<p>a <comment id="c1">text<comment-body data-author="human">note</comment-body></comment> b</p>',
+    );
+    setupEditor(root, () => {});
+    caretAfterComment(root);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    const comment = root.querySelector('comment')!;
+    expect(comment.querySelector('comment-body')!.textContent).toBe('note');
+    expect(comment.firstChild!.textContent).toBe('tex'); // one char shorter
+  });
+
+  it('removes the comment once its target text is exhausted', () => {
+    const root = makeRoot('<p>a <comment id="c1">x<comment-body>n</comment-body></comment> b</p>');
+    setupEditor(root, () => {});
+    caretAfterComment(root);
+
+    // First backspace: "x" -> "" (empty target text node remains, comment kept).
+    dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(root.querySelector('comment')!.firstChild!.textContent).toBe('');
+    // Second backspace: no anchor text left -> the comment is removed.
+    caretAfterComment(root);
+    dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(root.querySelectorAll('comment')).toHaveLength(0);
+  });
+
+  it('leaves a normal mid-text backspace to the browser', () => {
+    const root = makeRoot('<p>hello</p>');
+    setupEditor(root, () => {});
+    const p = root.querySelector('p')!;
+    const r = document.createRange();
+    r.setStart(p.firstChild!, 3);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});
