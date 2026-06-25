@@ -4,7 +4,7 @@
 // notifications so callers can serialize and push edits back.
 
 import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from '../shared/constants';
-import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr } from '../shared/dom-utils';
+import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
 import { toggleList } from '../commands/block-format';
 
 const DEBOUNCE_MS = 250;
@@ -123,6 +123,32 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
       // delete across the comment boundary (which destroys the
       // contenteditable=false body). Shrink the comment's target text instead.
       if (handleCommentBackspace(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+      // Backspace at the very start of a block merges it into the previous
+      // block. The browser default merge cuts through a trailing comment and
+      // wraps moved heading text in a presentational span; do it ourselves so
+      // the comment stays whole and no style wrapper is injected.
+      if (handleBlockMergeBackspace(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+    }
+    if (e.inputType === 'deleteContentForward') {
+      // Delete near a comment must skip its (display:none, contenteditable=false)
+      // metadata and remove only the next visible character; the browser default
+      // mistakes the metadata for the next deletable node and wipes the body.
+      if (handleCommentDelete(root)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+      // Delete at the very end of a block pulls the next block into it — the
+      // mirror of the Backspace merge, with the same comment/style hazards.
+      if (handleBlockMergeForward(root)) {
         e.preventDefault();
         scheduleChange();
         return;
@@ -372,32 +398,147 @@ function keepCommentWholeOnEnter(root: HTMLElement): boolean {
 }
 
 /**
- * Backspace with the caret immediately after a <comment>: the browser default
- * deletes across the comment boundary and destroys its contenteditable=false
- * body. Instead, shrink the comment's editable target text by one character,
- * preserving the body/replies. When no target text is left to shrink, remove
- * the whole (now anchorless) comment so a stray empty highlight does not linger.
- * Returns whether it handled the deletion.
+ * A comment's body/replies are display:none and contenteditable=false, so the
+ * browser default deletion repeatedly mistakes them for "the next thing to
+ * delete" and wipes the body as collateral. Both of these handlers enforce one
+ * rule: deletions act only on *visible* characters (target text + surrounding
+ * text) in the key direction, never on the invisible metadata. When the caret
+ * sits inside or next to a comment, we perform the single-character deletion
+ * ourselves; far from comments we defer to the browser (return false).
+ *
+ * Spot to delete: one character at {text}[{index}], or — when {text} is null —
+ * remove the whole (now anchorless) {comment}.
  */
+interface DeletionSpot {
+  text: Text | null;
+  index: number;
+  comment: Element | null;
+}
+
 function handleCommentBackspace(root: HTMLElement): boolean {
+  return handleCommentDeletion(root, backwardDeletionSpot);
+}
+
+function handleCommentDelete(root: HTMLElement): boolean {
+  return handleCommentDeletion(root, forwardDeletionSpot);
+}
+
+function handleCommentDeletion(
+  root: HTMLElement,
+  findSpot: (range: Range, root: HTMLElement) => DeletionSpot | null,
+): boolean {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
   if (!range.collapsed || !root.contains(range.startContainer)) return false;
 
-  const before = nodeImmediatelyBeforeCaret(range);
-  if (!before || before.nodeType !== Node.ELEMENT_NODE) return false;
-  const comment = before as Element;
-  if (comment.tagName !== 'COMMENT') return false;
+  const spot = findSpot(range, root);
+  if (!spot) return false;
 
-  const text = lastNonEmptyTargetText(comment);
-  if (text) {
-    text.deleteData(text.data.length - 1, 1);
+  if (spot.text) {
+    spot.text.deleteData(spot.index, 1);
     return true;
   }
+  if (spot.comment) removeAnchorlessComment(spot.comment, selection);
+  return true;
+}
 
+/** Backspace: the previous visible character, skipping comment metadata. */
+function backwardDeletionSpot(range: Range, root: HTMLElement): DeletionSpot | null {
+  const { startContainer: sc, startOffset: so } = range;
+
+  // A character within the current text node, only inside the comment danger
+  // zone (in a comment's target text, or in text adjacent to a comment).
+  if (sc.nodeType === Node.TEXT_NODE && so > 0) {
+    if (!isCommentDangerText(sc as Text, root)) return null;
+    return { text: sc as Text, index: so - 1, comment: findAncestor(sc, 'COMMENT', root) };
+  }
+
+  // Otherwise resolve the node immediately before the caret.
+  const before = nodeImmediatelyBeforeCaret(range);
+  if (!before) return null;
+  if (before.nodeType === Node.TEXT_NODE) {
+    const t = before as Text;
+    if (t.data.length === 0 || !isCommentDangerText(t, root)) return null;
+    return { text: t, index: t.data.length - 1, comment: findAncestor(t, 'COMMENT', root) };
+  }
+  if (before.nodeType !== Node.ELEMENT_NODE) return null;
+  const comment = ownerCommentForMeta(before as Element);
+  if (!comment) return null;
+  // Shrink the comment's target from its end; remove it once nothing is left.
+  const text = lastNonEmptyTargetText(comment);
+  return { text, index: text ? text.data.length - 1 : -1, comment };
+}
+
+/** Delete: the next visible character, skipping comment metadata. */
+function forwardDeletionSpot(range: Range, root: HTMLElement): DeletionSpot | null {
+  const { startContainer: sc, startOffset: so } = range;
+
+  if (sc.nodeType === Node.TEXT_NODE && so < (sc as Text).data.length) {
+    if (!isCommentDangerText(sc as Text, root)) return null;
+    return { text: sc as Text, index: so, comment: findAncestor(sc, 'COMMENT', root) };
+  }
+
+  const after = nodeImmediatelyAfterCaret(range);
+  if (after) {
+    if (after.nodeType === Node.TEXT_NODE) {
+      const t = after as Text;
+      if (t.data.length === 0 || !isCommentDangerText(t, root)) return null;
+      return { text: t, index: 0, comment: findAncestor(t, 'COMMENT', root) };
+    }
+    if (after.nodeType === Node.ELEMENT_NODE) {
+      const el = after as Element;
+      if (el.tagName === 'COMMENT') {
+        // Just before a comment: delete its first target character.
+        return { text: firstNonEmptyTargetText(el), index: 0, comment: el };
+      }
+      const meta = ownerCommentForMeta(el);
+      if (meta) {
+        // At a comment's trailing edge (next node is its metadata): skip the
+        // metadata and delete the first character of the following text.
+        const text = firstVisibleTextAfter(meta);
+        return text ? { text, index: 0, comment: null } : null;
+      }
+    }
+    return null;
+  }
+
+  // Caret at the trailing edge inside a comment (after the metadata / its end):
+  // the next visible character is the first one of the text following it.
+  const host = findAncestor(sc, 'COMMENT', root);
+  if (host) {
+    const text = firstVisibleTextAfter(host);
+    if (text) return { text, index: 0, comment: null };
+  }
+  return null;
+}
+
+/** True when a text node is in the comment danger zone: inside a comment's
+ *  target text, or directly adjacent (prev/next sibling) to a comment. */
+function isCommentDangerText(text: Text, root: HTMLElement): boolean {
+  if (findAncestor(text, 'COMMENT', root) && !isInCommentMeta(text, root)) return true;
+  const prev = text.previousSibling;
+  if (prev && prev.nodeType === Node.ELEMENT_NODE && (prev as Element).tagName === 'COMMENT') return true;
+  const next = text.nextSibling;
+  if (next && next.nodeType === Node.ELEMENT_NODE && (next as Element).tagName === 'COMMENT') return true;
+  return false;
+}
+
+/** The comment owning a node that is a comment element or a comment's metadata,
+ *  else null. */
+function ownerCommentForMeta(el: Element): Element | null {
+  if (el.tagName === 'COMMENT') return el;
+  if (el.tagName === 'COMMENT-BODY' || el.tagName === 'COMMENT-REPLY') {
+    const p = el.parentElement;
+    if (p && p.tagName === 'COMMENT') return p;
+  }
+  return null;
+}
+
+/** Remove an anchorless comment and drop the caret where it stood. */
+function removeAnchorlessComment(comment: Element, selection: Selection): void {
   const parent = comment.parentNode;
-  if (!parent) return false;
+  if (!parent) return;
   const index = Array.prototype.indexOf.call(parent.childNodes, comment);
   comment.remove();
   const r = document.createRange();
@@ -405,7 +546,17 @@ function handleCommentBackspace(root: HTMLElement): boolean {
   r.collapse(true);
   selection.removeAllRanges();
   selection.addRange(r);
-  return true;
+}
+
+/** First non-empty text node after a comment within its block, or null. */
+function firstVisibleTextAfter(comment: Element): Text | null {
+  let n: Node | null = comment.nextSibling;
+  while (n) {
+    const t = deepestFirstNonEmptyText(n);
+    if (t) return t;
+    n = n.nextSibling;
+  }
+  return null;
 }
 
 /** The node directly before a collapsed caret, or null when the caret sits
@@ -450,6 +601,163 @@ function deepestLastNonEmptyText(node: Node): Text | null {
     if (found) return found;
   }
   return null;
+}
+
+/** The node directly after a collapsed caret, or null when the caret sits
+ *  mid-text (a normal in-place forward deletion the caller should not redirect). */
+function nodeImmediatelyAfterCaret(range: Range): Node | null {
+  const { startContainer, startOffset } = range;
+  if (startContainer.nodeType === Node.TEXT_NODE) {
+    return startOffset === (startContainer as Text).data.length
+      ? startContainer.nextSibling
+      : null;
+  }
+  return startOffset < startContainer.childNodes.length
+    ? startContainer.childNodes[startOffset]
+    : null;
+}
+
+/** Deepest, first non-empty text node within a comment's editable target region
+ *  (the content before the first <comment-body>/<comment-reply>), or null. */
+function firstNonEmptyTargetText(comment: Element): Text | null {
+  const kids = comment.childNodes;
+  let end = kids.length;
+  for (let i = 0; i < kids.length; i++) {
+    const n = kids[i];
+    if (n.nodeType === Node.ELEMENT_NODE) {
+      const tag = (n as Element).tagName;
+      if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') {
+        end = i;
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < end; i++) {
+    const found = deepestFirstNonEmptyText(kids[i]);
+    if (found) return found;
+  }
+  return null;
+}
+
+function deepestFirstNonEmptyText(node: Node): Text | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node as Text).data.length > 0 ? (node as Text) : null;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return null;
+  for (let i = 0; i < node.childNodes.length; i++) {
+    const found = deepestFirstNonEmptyText(node.childNodes[i]);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Blocks whose Backspace-at-start / Delete-at-end merge we take over from the
+// browser. They carry inline content only: LI keeps the browser's list
+// behavior, and PRE / SUMMARY / DETAILS have structural semantics we leave be.
+const MERGEABLE_BLOCK_TAGS = new Set([
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'DIV',
+]);
+
+/**
+ * A block we are willing to merge: a mergeable tag whose element children are
+ * all inline. A nested block/list/table would make a flat content move
+ * ambiguous, so such blocks are deferred to the browser default. (A
+ * `<comment>` is inline and does not disqualify the block.)
+ */
+function isMergeableLeafBlock(el: Element | null): el is HTMLElement {
+  if (!el || !MERGEABLE_BLOCK_TAGS.has(el.tagName)) return false;
+  for (const child of Array.from(el.children)) {
+    const tag = child.tagName;
+    if (BLOCK_TAGS.has(tag) || tag === 'UL' || tag === 'OL' || tag === 'TABLE') {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Mirror of {@link isCaretAtBlockEnd}: nothing significant precedes the caret
+ *  within the block (only whitespace / <br> / empty inline wrappers). */
+function isCaretAtBlockStart(range: Range, block: Element): boolean {
+  const head = document.createRange();
+  head.setStart(block, 0);
+  head.setEnd(range.startContainer, range.startOffset);
+  const fragment = head.cloneContents();
+  return Array.from(fragment.childNodes).every(isInsignificantTail);
+}
+
+/**
+ * Merge two adjacent blocks by relocating `next`'s children to the end of
+ * `prev`, then removing `next`. Nodes are moved by reference (never deleted
+ * across a boundary), so a trailing/leading <comment> keeps its
+ * contenteditable=false body intact and no presentational wrapper is injected.
+ * When one side is an empty placeholder, the empty block is dropped and the
+ * other kept verbatim so an adjacent blank line never swallows a heading's
+ * block type. The caret lands at the join.
+ */
+function mergeBlocks(prev: HTMLElement, next: HTMLElement, selection: Selection): void {
+  const prevEmpty = isBlockEmptyOrStubBr(prev);
+  const nextEmpty = isBlockEmptyOrStubBr(next);
+
+  const r = document.createRange();
+  if (prevEmpty || nextEmpty) {
+    // Drop the empty block; keep the other untouched. Keeping `next` puts the
+    // caret at its start; keeping `prev` puts it at prev's end.
+    const kept = prevEmpty ? next : prev;
+    (prevEmpty ? prev : next).remove();
+    r.setStart(kept, prevEmpty ? 0 : kept.childNodes.length);
+  } else {
+    const boundary = prev.lastChild; // non-null: prev is non-empty
+    while (next.firstChild) prev.appendChild(next.firstChild);
+    next.remove();
+    if (boundary) r.setStartAfter(boundary);
+    else r.setStart(prev, 0);
+  }
+  r.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(r);
+}
+
+/**
+ * Backspace at the very start of a mergeable block folds it into the previous
+ * mergeable block (the inverse of {@link keepCommentWholeOnEnter}). Returns
+ * whether it handled the deletion; otherwise the browser default runs.
+ */
+function handleBlockMergeBackspace(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  const block = findBlockAncestor(range.startContainer, root);
+  if (!isMergeableLeafBlock(block)) return false;
+  if (!isCaretAtBlockStart(range, block)) return false;
+
+  const prev = block.previousElementSibling;
+  if (!isMergeableLeafBlock(prev)) return false;
+
+  mergeBlocks(prev, block, selection);
+  return true;
+}
+
+/**
+ * Delete at the very end of a mergeable block pulls the next mergeable block
+ * into it — the mirror of {@link handleBlockMergeBackspace}.
+ */
+function handleBlockMergeForward(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  const block = findBlockAncestor(range.startContainer, root);
+  if (!isMergeableLeafBlock(block)) return false;
+  if (!isCaretAtBlockEnd(range, block)) return false;
+
+  const next = block.nextElementSibling;
+  if (!isMergeableLeafBlock(next)) return false;
+
+  mergeBlocks(block, next, selection);
+  return true;
 }
 
 /**
