@@ -653,3 +653,256 @@ describe('setupEditor: Backspace just after a comment', () => {
     expect(evt.defaultPrevented).toBe(false);
   });
 });
+
+// A comment's <comment-body>/<comment-reply> are display:none and
+// contenteditable=false; the browser default deletion mistakes them for the
+// next deletable node and wipes the body. Deletions must act only on visible
+// characters (target text + surrounding text), skipping the metadata.
+describe('setupEditor: deletion skips comment metadata (visible chars only)', () => {
+  function caret(node: Node, offset: number): void {
+    const r = document.createRange();
+    r.setStart(node, offset);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+  const SAMPLE =
+    '<h2>Hea<comment id="c1">di' +
+    '<comment-body contenteditable="false" data-author="human">Comment</comment-body>' +
+    '</comment>ng</h2>';
+
+  it('Delete at the comment trailing edge removes the following "n", keeping body (reported bug)', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment, comment.childNodes.length); // after the (display:none) body
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.firstChild!.textContent).toBe('di'); // target untouched
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(comment.nextSibling!.textContent).toBe('g'); // "ng" -> "g"
+  });
+
+  it('Delete from the text-level target end also skips metadata and removes "n"', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.firstChild!, 2); // end of "di"
+
+    dispatchBeforeInput(root, 'deleteContentForward');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.nextSibling!.textContent).toBe('g');
+  });
+
+  it('Backspace at the comment trailing edge shrinks the target "i", keeping body', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.firstChild!, 2); // end of "di"
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe('d'); // "di" -> "d"
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(comment.nextSibling!.textContent).toBe('ng'); // following text untouched
+  });
+
+  it('Delete just before a comment shrinks its first target char, keeping body', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const hea = root.querySelector('h2')!.firstChild!;
+    caret(hea, hea.textContent!.length); // "Hea|", just before the comment
+
+    dispatchBeforeInput(root, 'deleteContentForward');
+    expect(comment.firstChild!.textContent).toBe('i'); // "di" -> "i"
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('Delete on text right after a comment removes its first char without harming the body', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.nextSibling!, 0); // start of "ng"
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.nextSibling!.textContent).toBe('g');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('leaves a normal delete far from any comment to the browser', () => {
+    const root = makeRoot('<p>hello</p>');
+    setupEditor(root, () => {});
+    caret(root.querySelector('p')!.firstChild!, 2);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});
+
+// Backspace at the start of a block (and the mirror, Delete at a block's end)
+// merges adjacent blocks ourselves. The browser default merge cuts through a
+// trailing comment's contenteditable=false body and wraps moved heading text in
+// a presentational <span style="font-size">; relocating the nodes by reference
+// keeps the comment whole and injects no style wrapper.
+describe('setupEditor: Backspace/Delete merges adjacent blocks', () => {
+  it('folds a heading into the previous heading, keeping a trailing comment whole (reported bug)', () => {
+    const root = makeRoot(
+      '<h2>Head<comment id="c-z8tsbr26">in' +
+        '<comment-body contenteditable="false" data-author="human">ほげ</comment-body></comment></h2>' +
+        '<h2>gs</h2>',
+    );
+    setupEditor(root, () => {});
+    const second = root.querySelectorAll('h2')[1];
+    caretAtStart(second);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(true);
+
+    const headings = root.querySelectorAll(':scope > h2');
+    expect(headings).toHaveLength(1);
+    const h2 = headings[0];
+    // The comment and its body survive intact, with no duplicate.
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(h2.querySelector('comment')!.getAttribute('id')).toBe('c-z8tsbr26');
+    expect(h2.querySelector('comment')!.firstChild!.textContent).toBe('in');
+    expect(h2.querySelector('comment-body')!.textContent).toBe('ほげ');
+    // No presentational span / font-size wrapper was injected around "gs".
+    expect(h2.querySelector('span')).toBeNull();
+    expect(h2.innerHTML).not.toContain('font-size');
+    expect(h2.lastChild!.textContent).toBe('gs');
+    // Caret lands at the join, right after the comment.
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(h2);
+  });
+
+  it('merges two plain headings verbatim without a style wrapper', () => {
+    const root = makeRoot('<h2>foo</h2><h2>bar</h2>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('h2')[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(true);
+    const headings = root.querySelectorAll(':scope > h2');
+    expect(headings).toHaveLength(1);
+    expect(headings[0].querySelector('span')).toBeNull();
+    expect(headings[0].textContent).toBe('foobar');
+  });
+
+  it('merges paragraphs and leaves the caret at the join', () => {
+    const root = makeRoot('<p>foo</p><p>bar</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('p')[1]);
+
+    dispatchBeforeInput(root, 'deleteContentBackward');
+    const ps = root.querySelectorAll(':scope > p');
+    expect(ps).toHaveLength(1);
+    expect(ps[0].textContent).toBe('foobar');
+    const sel = window.getSelection()!;
+    // Caret sits between the original "foo" and the moved "bar".
+    expect(sel.anchorNode).toBe(ps[0]);
+    expect(sel.anchorOffset).toBe(1);
+  });
+
+  it('drops an empty previous block and keeps the current block type', () => {
+    const root = makeRoot('<p><br></p><h2>Title</h2>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('h2')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(0);
+    const headings = root.querySelectorAll(':scope > h2');
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe('Title'); // heading not absorbed into a <p>
+  });
+
+  it('drops the current empty block and parks the caret at the previous end', () => {
+    const root = makeRoot('<h2>Head</h2><p><br></p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(0);
+    const h2 = root.querySelector('h2')!;
+    expect(h2.textContent).toBe('Head');
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(h2);
+    expect(sel.anchorOffset).toBe(h2.childNodes.length);
+  });
+
+  it('defers to the browser when there is no previous block', () => {
+    const root = makeRoot('<h2>only</h2>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('h2')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('defers to the browser when the previous sibling is a list', () => {
+    const root = makeRoot('<ul><li>a</li></ul><p>b</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('defers to the browser when an adjacent block nests another block', () => {
+    const root = makeRoot('<div><p>x</p></div><p>y</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('p')[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('does not fire when the caret is not at the block start', () => {
+    const root = makeRoot('<p>foo</p><p>bar</p>');
+    setupEditor(root, () => {});
+    const second = root.querySelectorAll('p')[1];
+    const r = document.createRange();
+    r.setStart(second.firstChild!, 1); // "b|ar"
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('Delete at a block end pulls the next block in, keeping a trailing comment whole', () => {
+    const root = makeRoot(
+      '<h2>Head<comment id="c1">in' +
+        '<comment-body contenteditable="false" data-author="human">note</comment-body></comment></h2>' +
+        '<h2>gs</h2>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('h2')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > h2')).toHaveLength(1);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    const h2 = root.querySelector('h2')!;
+    expect(h2.querySelector('comment-body')!.textContent).toBe('note');
+    expect(h2.querySelector('span')).toBeNull();
+    expect(h2.lastChild!.textContent).toBe('gs');
+  });
+
+  it('Delete defers to the browser when there is no next block', () => {
+    const root = makeRoot('<p>only</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+});

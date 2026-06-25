@@ -467,4 +467,102 @@ test.describe('Comment editing keeps comments intact', () => {
     await expect(comment).toHaveCount(1);
     await expect(comment.locator('comment-body')).toHaveText('note');
   });
+
+  test('Enter then Backspace re-merges the heading without losing the comment or injecting a style span (bug ③)', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<h2>Head<comment id="c-z8tsbr26">in' +
+        '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-24T11:18:44.358Z">ほげ</comment-body>' +
+        '</comment>gs</h2>',
+    );
+    await focusEditor(page);
+
+    // 1) Enter right after "in": keepCommentWholeOnEnter moves "gs" to a new <h2>.
+    await caretInCommentTarget(page, 'in'.length);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#ahve-root > h2')).toHaveCount(2);
+
+    // 2) Backspace at the start of the "gs" line merges it back into the heading.
+    await page.evaluate(() => {
+      const second = document.querySelectorAll('#ahve-root > h2')[1];
+      const r = document.createRange();
+      r.setStart(second, 0);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.press('Backspace');
+
+    // The two headings re-merge into one, with the comment and its body intact.
+    await expect(page.locator('#ahve-root > h2')).toHaveCount(1);
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment).toHaveAttribute('id', 'c-z8tsbr26');
+    await expect(comment.locator('comment-body')).toHaveText('ほげ');
+    // "gs" is plain heading text again — no <span style="font-size"> overlay.
+    await expect(page.locator('#ahve-root > h2 span')).toHaveCount(0);
+    const h2Html = await page.locator('#ahve-root > h2').innerHTML();
+    expect(h2Html).not.toContain('font-size');
+    expect(h2Html).toContain('gs');
+
+    // A subsequent edit still serializes a single, intact comment to the host
+    // (Enter+Backspace alone round-trips to the original, so it is deduped — type
+    // a character to force a fresh edit message).
+    await page.keyboard.type('x');
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    expect(edits.length).toBeGreaterThan(0);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-z8tsbr26"');
+    expect(html).toContain('ほげ');
+    expect(html).not.toContain('font-size');
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+
+  test('Delete at the comment trailing edge removes the next visible char, not the body (bug ④)', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<h2>Hea<comment id="c-5m4ikno2">di' +
+        '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-25T11:19:48.504Z">Comment</comment-body>' +
+        '</comment>ng</h2>',
+    );
+    await focusEditor(page);
+
+    // Caret at the comment's internal trailing edge (after the display:none body),
+    // i.e. visually just before "n". The metadata must be skipped.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const r = document.createRange();
+      r.setStart(comment, comment.childNodes.length);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.press('Delete');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment).toHaveAttribute('id', 'c-5m4ikno2');
+    await expect(comment.locator('comment-body')).toHaveText('Comment'); // body survives
+    // The comment target is untouched and only the following "n" was removed.
+    const h2Text = await page.locator('#ahve-root > h2').evaluate((el) => {
+      const c = el.querySelector('comment')!;
+      return {
+        target: c.firstChild?.textContent ?? null,
+        after: c.nextSibling?.textContent ?? null,
+      };
+    });
+    expect(h2Text.target).toBe('di');
+    expect(h2Text.after).toBe('g');
+
+    // The serialized edit keeps a single, intact comment with its body.
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-5m4ikno2"');
+    expect(html).toContain('Comment');
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
 });
