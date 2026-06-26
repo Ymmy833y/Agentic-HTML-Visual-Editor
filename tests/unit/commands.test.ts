@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { clearFormatting, toggleInline } from '../../webview/commands/inline-format';
-import { insertDetails, insertHr, setBlockTag } from '../../webview/commands/block-format';
+import { headingShortcutTag, insertDetails, insertHr, setBlockTag } from '../../webview/commands/block-format';
 import { insertLink } from '../../webview/commands/link';
 import { findInlineAncestor, getCurrentBlockTag } from '../../webview/commands/query';
 import { addComment, removeComment } from '../../webview/features/comment/comment-commands';
@@ -88,6 +88,35 @@ describe('setBlockTag', () => {
     expect(root.innerHTML).toBe(
       '<details open=""><summary>title</summary><p>body</p></details>',
     );
+  });
+});
+
+describe('headingShortcutTag', () => {
+  it('maps Digit1–Digit6 to h1–h6', () => {
+    expect(headingShortcutTag('Digit1')).toBe('h1');
+    expect(headingShortcutTag('Digit2')).toBe('h2');
+    expect(headingShortcutTag('Digit3')).toBe('h3');
+    expect(headingShortcutTag('Digit4')).toBe('h4');
+    expect(headingShortcutTag('Digit5')).toBe('h5');
+    expect(headingShortcutTag('Digit6')).toBe('h6');
+  });
+
+  it('maps Digit0 to p (plain)', () => {
+    expect(headingShortcutTag('Digit0')).toBe('p');
+  });
+
+  // Regression: Ctrl+Shift+<digit> must be matched on `code`, because with Shift
+  // held `event.key` is the shifted symbol ('!', '@', …), never the digit.
+  it('matches on event.code, so the shifted symbol on event.key is irrelevant', () => {
+    expect(headingShortcutTag('Digit2')).toBe('h2'); // event.key would be '@'
+  });
+
+  it('returns null for digits outside 0–6 and non-digit codes', () => {
+    expect(headingShortcutTag('Digit7')).toBeNull();
+    expect(headingShortcutTag('Digit9')).toBeNull();
+    expect(headingShortcutTag('KeyA')).toBeNull();
+    expect(headingShortcutTag('Numpad2')).toBeNull();
+    expect(headingShortcutTag('')).toBeNull();
   });
 });
 
@@ -280,6 +309,25 @@ describe('insertLink', () => {
     caretAtStart(root.querySelector('p')!);
     insertLink('', ctxOf(root));
     expect(root.innerHTML).toBe('<p>foo</p>');
+  });
+
+  it('places cursor inside the new <a> after wrapping a selection', () => {
+    const root = makeRoot('<p>click here</p>');
+    const text = root.querySelector('p')!.firstChild!;
+    selectTextRange(text, 0, 5);
+    insertLink('https://example.com', ctxOf(root));
+    const sel = window.getSelection()!;
+    const a = root.querySelector('a')!;
+    expect(a.contains(sel.anchorNode)).toBe(true);
+  });
+
+  it('places cursor inside the new <a> after inserting at a collapsed caret', () => {
+    const root = makeRoot('<p>foo</p>');
+    caretAtStart(root.querySelector('p')!);
+    insertLink('https://example.com', ctxOf(root));
+    const sel = window.getSelection()!;
+    const a = root.querySelector('a')!;
+    expect(a.contains(sel.anchorNode)).toBe(true);
   });
 });
 

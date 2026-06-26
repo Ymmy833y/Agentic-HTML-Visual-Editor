@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test';
-import { focusEditor, mountEditor, selectTextInside } from './helpers/page';
+import type { Page } from '@playwright/test';
+import {
+  DEBOUNCE_MS,
+  focusEditor,
+  getEditMessages,
+  mountEditor,
+  selectTextInside,
+} from './helpers/page';
+
+// Collapse the caret at a character offset inside the first text node of a
+// comment's target (the editable text before <comment-body>).
+async function caretInCommentTarget(page: Page, offset: number): Promise<void> {
+  await page.evaluate((offset) => {
+    const comment = document.querySelector('#ahve-root comment');
+    if (!comment) throw new Error('no comment');
+    const target = comment.firstChild;
+    if (!target) throw new Error('comment has no target text');
+    const r = document.createRange();
+    r.setStart(target, offset);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }, offset);
+}
 
 test.describe('Comment', () => {
   test('clicking Comment in the floating menu wraps the selection and opens the popup', async ({ page }) => {
@@ -88,6 +112,45 @@ test.describe('Comment', () => {
     await expect(popup).toBeHidden();
     await expect(page.locator('#ahve-root comment')).toHaveCount(0);
     await expect(page.locator('#ahve-root p')).toHaveText('hello world');
+  });
+
+  test('does not nest a comment when the selection is inside an existing comment', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>hi <comment id="c-existing">target<comment-body>note</comment-body></comment> bye</p>',
+    );
+    await focusEditor(page);
+    // Select part of the existing comment's target text.
+    await selectTextInside(page, '#ahve-root comment', 0, 3);
+
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    // No new comment was created and the popup did not open.
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-comment-popup')).toBeHidden();
+  });
+
+  test('does not create a comment that would wrap an existing one', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>aa <comment id="c-existing">mid<comment-body>note</comment-body></comment> bb</p>',
+    );
+    await focusEditor(page);
+    // Select from the leading text, across the comment, into the trailing text.
+    await page.evaluate(() => {
+      const p = document.querySelector('#ahve-root p')!;
+      const range = document.createRange();
+      range.setStart(p.firstChild!, 1); // inside "aa "
+      range.setEnd(p.lastChild!, 2); // inside " bb"
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-comment-popup')).toBeHidden();
   });
 
   test('does not add a comment when the selection spans two paragraphs', async ({ page }) => {
@@ -251,5 +314,549 @@ test.describe('Comment', () => {
       .locator('#ahve-root comment#c-a')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(humanBg).not.toBe(aiBg);
+  });
+
+  // The caret is tinted in the author colour while it edits inside a comment and
+  // reverts to the default outside, so the visually-identical inside-end and
+  // just-outside positions are told apart by colour without any added spacing.
+  test('the caret is tinted inside a comment and default outside, by author colour', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>plain <comment id="c-h">human<comment-body data-author="human">h</comment-body></comment> ' +
+        '<comment id="c-a">ai<comment-body data-author="ai">a</comment-body></comment></p>',
+    );
+    const caretColorOf = (selector: string) =>
+      page.locator(selector).evaluate((el) => getComputedStyle(el).caretColor);
+
+    const outside = await caretColorOf('#ahve-root p');
+    const human = await caretColorOf('#ahve-root comment#c-h');
+    const ai = await caretColorOf('#ahve-root comment#c-a');
+
+    // Inside (either author) differs from outside: the colour shift is the cue.
+    expect(human).not.toBe(outside);
+    expect(ai).not.toBe(outside);
+    // Human vs AI carets use their own author hues.
+    expect(human).not.toBe(ai);
+  });
+});
+
+// Editing in and around an inline <comment> must never corrupt it: the browser
+// default contenteditable split/merge would otherwise cut through the comment
+// (whose <comment-body> is contenteditable=false), losing the target text or
+// body and duplicating the id. See keepCommentWholeOnEnter in editor-core and
+// the COMMENT guard in serialize.
+test.describe('Comment editing keeps comments intact', () => {
+  const SAMPLE =
+    '<p>This is sample <comment id="c-gsb0lvjq">text' +
+    '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-24T10:05:36.074Z">This is comment</comment-body>' +
+    '</comment>.</p>';
+
+  // Structured snapshot of the comment state, read from the live DOM.
+  async function readState(page: Page) {
+    return page.evaluate(() => {
+      const root = document.querySelector('#ahve-root')!;
+      const ps = Array.from(root.querySelectorAll(':scope > p'));
+      const comments = Array.from(root.querySelectorAll('comment'));
+      const c = comments[0] as HTMLElement | undefined;
+      const target = c && c.firstChild && c.firstChild.nodeType === Node.TEXT_NODE
+        ? c.firstChild.textContent
+        : null;
+      const body = c?.querySelector('comment-body') ?? null;
+      return {
+        pCount: ps.length,
+        commentCount: comments.length,
+        commentId: c?.getAttribute('id') ?? null,
+        targetText: target,
+        bodyText: body?.textContent ?? null,
+        bodyAuthor: body?.getAttribute('data-author') ?? null,
+        firstPHasComment: c ? (ps[0]?.contains(c) ?? false) : false,
+        lastPText: ps[ps.length - 1]?.textContent ?? null,
+      };
+    });
+  }
+
+  test('Enter at the end of comment target keeps the comment whole and typing lands outside it (bug ①)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length); // caret right after "text"
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('a');
+
+    await expect(page.locator('#ahve-root > p')).toHaveCount(2);
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.commentId).toBe('c-gsb0lvjq');
+    expect(state.targetText).toBe('text');
+    expect(state.bodyText).toBe('This is comment');
+    expect(state.bodyAuthor).toBe('human');
+    expect(state.firstPHasComment).toBe(true);
+    // The typed "a" landed in the new paragraph, not inside the comment body.
+    expect(state.lastPText).toBe('a.');
+  });
+
+  test('Enter in the middle of comment target does not split the comment', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 2); // "te|xt"
+
+    await page.keyboard.press('Enter');
+
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.targetText).toBe('text'); // target text not cut
+    expect(state.bodyText).toBe('This is comment');
+  });
+
+  test('Enter at the start of comment target leaves the comment on the current line', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 0); // before the first char of "text"
+
+    await page.keyboard.press('Enter');
+
+    const state = await readState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.targetText).toBe('text');
+    expect(state.firstPHasComment).toBe(true); // comment stayed on the current (first) line
+  });
+
+  test('the comment survives serialization to the host after an Enter near it (bug ②)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length);
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('a');
+
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    expect(edits.length).toBeGreaterThan(0);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-gsb0lvjq"');
+    expect(html).toContain('This is comment');
+    expect(html).toContain('data-author="human"');
+    // Exactly one <comment> element in the serialized output (no duplicate id).
+    // `[\s>]` avoids matching the <comment-body> child tag.
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+
+  test('Backspace just after a comment does not delete its body', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>a <comment id="c1">text<comment-body data-author="human">note</comment-body></comment> b</p>',
+    );
+    await focusEditor(page);
+    // Caret at the start of the " b" text node that follows the comment.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const after = comment.nextSibling!;
+      const r = document.createRange();
+      r.setStart(after, 0);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+
+    await page.keyboard.press('Backspace');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment.locator('comment-body')).toHaveText('note');
+  });
+
+  test('Delete just before a comment does not delete its body', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>a <comment id="c1">text<comment-body data-author="human">note</comment-body></comment> b</p>',
+    );
+    await focusEditor(page);
+    // Caret at the end of the "a " text node that precedes the comment.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const before = comment.previousSibling!;
+      const r = document.createRange();
+      r.setStart(before, before.textContent!.length);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+
+    await page.keyboard.press('Delete');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment.locator('comment-body')).toHaveText('note');
+  });
+
+  test('Enter then Backspace re-merges the heading without losing the comment or injecting a style span (bug ③)', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<h2>Head<comment id="c-z8tsbr26">in' +
+        '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-24T11:18:44.358Z">ほげ</comment-body>' +
+        '</comment>gs</h2>',
+    );
+    await focusEditor(page);
+
+    // 1) Enter right after "in": keepCommentWholeOnEnter moves "gs" to a new <h2>.
+    await caretInCommentTarget(page, 'in'.length);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#ahve-root > h2')).toHaveCount(2);
+
+    // 2) Backspace at the start of the "gs" line merges it back into the heading.
+    await page.evaluate(() => {
+      const second = document.querySelectorAll('#ahve-root > h2')[1];
+      const r = document.createRange();
+      r.setStart(second, 0);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.press('Backspace');
+
+    // The two headings re-merge into one, with the comment and its body intact.
+    await expect(page.locator('#ahve-root > h2')).toHaveCount(1);
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment).toHaveAttribute('id', 'c-z8tsbr26');
+    await expect(comment.locator('comment-body')).toHaveText('ほげ');
+    // "gs" is plain heading text again — no <span style="font-size"> overlay.
+    await expect(page.locator('#ahve-root > h2 span')).toHaveCount(0);
+    const h2Html = await page.locator('#ahve-root > h2').innerHTML();
+    expect(h2Html).not.toContain('font-size');
+    expect(h2Html).toContain('gs');
+
+    // A subsequent edit still serializes a single, intact comment to the host
+    // (Enter+Backspace alone round-trips to the original, so it is deduped — type
+    // a character to force a fresh edit message).
+    await page.keyboard.type('x');
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    expect(edits.length).toBeGreaterThan(0);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-z8tsbr26"');
+    expect(html).toContain('ほげ');
+    expect(html).not.toContain('font-size');
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+
+  test('Delete at the comment trailing edge removes the next visible char, not the body (bug ④)', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<h2>Hea<comment id="c-5m4ikno2">di' +
+        '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-25T11:19:48.504Z">Comment</comment-body>' +
+        '</comment>ng</h2>',
+    );
+    await focusEditor(page);
+
+    // Caret at the comment's internal trailing edge (after the display:none body),
+    // i.e. visually just before "n". The metadata must be skipped.
+    await page.evaluate(() => {
+      const comment = document.querySelector('#ahve-root comment')!;
+      const r = document.createRange();
+      r.setStart(comment, comment.childNodes.length);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.press('Delete');
+
+    const comment = page.locator('#ahve-root comment');
+    await expect(comment).toHaveCount(1);
+    await expect(comment).toHaveAttribute('id', 'c-5m4ikno2');
+    await expect(comment.locator('comment-body')).toHaveText('Comment'); // body survives
+    // The comment target is untouched and only the following "n" was removed.
+    const h2Text = await page.locator('#ahve-root > h2').evaluate((el) => {
+      const c = el.querySelector('comment')!;
+      return {
+        target: c.firstChild?.textContent ?? null,
+        after: c.nextSibling?.textContent ?? null,
+      };
+    });
+    expect(h2Text.target).toBe('di');
+    expect(h2Text.after).toBe('g');
+
+    // The serialized edit keeps a single, intact comment with its body.
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('id="c-5m4ikno2"');
+    expect(html).toContain('Comment');
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+});
+
+// The end of a comment's target text (inside) and the position just after
+// </comment> (outside) render at the same spot because the <comment-body> is
+// display:none. ArrowRight steps the caret outside so the next character is
+// typed after the comment; ArrowLeft steps back inside. See
+// handleCommentArrowRight / handleInsertOutsideComment in editor-core.
+test.describe('Comment inside/outside typing', () => {
+  // A comment sitting at the very end of its block (nothing after </comment>).
+  const TAIL =
+    '<p>Sample <comment id="c-tail01">text' +
+    '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-26T00:00:00.000Z">Comment</comment-body>' +
+    '</comment></p>';
+
+  async function tailState(page: Page) {
+    return page.evaluate(() => {
+      const root = document.querySelector('#ahve-root')!;
+      const p = root.querySelector('p')!;
+      const comment = root.querySelector('comment');
+      const body = comment?.querySelector('comment-body') ?? null;
+      const next = comment?.nextSibling ?? null;
+      const outsideText =
+        next && next.nodeType === Node.TEXT_NODE ? next.textContent : null;
+      return {
+        commentCount: root.querySelectorAll('comment').length,
+        nestedCount: root.querySelectorAll('comment comment').length,
+        commentId: comment?.getAttribute('id') ?? null,
+        target: comment?.firstChild?.textContent ?? null,
+        bodyText: body?.textContent ?? null,
+        outsideText,
+        commentInsideP: comment ? p.contains(comment) : false,
+      };
+    });
+  }
+
+  test('ArrowRight then typing lands after the comment, not inside it', async ({ page }) => {
+    await mountEditor(page, TAIL);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length); // caret right after "text"
+
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('abc');
+
+    const state = await tailState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.nestedCount).toBe(0);
+    expect(state.commentId).toBe('c-tail01');
+    expect(state.target).toBe('text'); // comment target unchanged
+    expect(state.bodyText).toBe('Comment'); // body intact
+    expect(state.outsideText).toBe('abc'); // typed text is a sibling after </comment>
+    expect(state.commentInsideP).toBe(true);
+
+    // The serialized edit places the text outside the comment.
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    const html = edits[edits.length - 1].html;
+    expect(html).toContain('</comment>abc</p>');
+    expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
+  });
+
+  test('stepping outside resets the caret to the default colour, and the marker never serializes', async ({ page }) => {
+    await mountEditor(page, TAIL);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length);
+
+    const comment = page.locator('#ahve-root comment');
+    const caretColorOf = (selector: string) =>
+      page.locator(selector).evaluate((el) => getComputedStyle(el).caretColor);
+
+    // The default caret colour (what plain block text uses) and the author
+    // colour the comment tints the caret with while it is edited inside.
+    const defaultColor = await caretColorOf('#ahve-root p');
+    const insideColor = await caretColorOf('#ahve-root comment');
+    expect(insideColor).not.toBe(defaultColor);
+
+    // ArrowRight steps outside: the marker appears and resets the boundary
+    // caret (painted with this comment's caret-color) back to the default.
+    await page.keyboard.press('ArrowRight');
+    await expect(comment).toHaveAttribute('data-ahve-caret-outside', '');
+    expect(await caretColorOf('#ahve-root comment')).toBe(defaultColor);
+
+    // ArrowLeft steps back inside: the marker clears and the author colour returns.
+    await page.keyboard.press('ArrowLeft');
+    await expect(comment).not.toHaveAttribute('data-ahve-caret-outside', '');
+    expect(await caretColorOf('#ahve-root comment')).toBe(insideColor);
+
+    // The marker is UI-only and must never reach the saved file.
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('z');
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    const html = edits[edits.length - 1].html;
+    expect(html).not.toContain('data-ahve-caret-outside');
+    expect(html).toContain('</comment>z</p>');
+  });
+
+  test('ArrowLeft after stepping out re-enters the comment so typing appends to the target', async ({ page }) => {
+    await mountEditor(page, TAIL);
+    await focusEditor(page);
+    await caretInCommentTarget(page, 'text'.length);
+
+    await page.keyboard.press('ArrowRight'); // step outside
+    await page.keyboard.press('ArrowLeft'); // step back inside
+    await page.keyboard.type('Z');
+
+    const state = await tailState(page);
+    expect(state.commentCount).toBe(1);
+    expect(state.target).toBe('textZ'); // appended inside the comment
+    expect(state.bodyText).toBe('Comment');
+    expect(state.outsideText).toBeNull(); // nothing outside the comment
+  });
+
+  // Every caret position that renders at the comment's trailing edge must, after
+  // ArrowRight, type the next character OUTSIDE the comment while the comment and
+  // its body survive — mirroring the delete sweep's exhaustive coverage.
+  const TRAILING_EDGE = [
+    'target-end-text', // inside, "text|" at the text-node level
+    'comment-trailing-edge', // inside, after the (display:none) body
+  ] as const;
+
+  for (const where of TRAILING_EDGE) {
+    test(`ArrowRight + type from ${where} inserts outside and keeps the comment`, async ({ page }) => {
+      await mountEditor(page, TAIL);
+      await focusEditor(page);
+      await page.evaluate((where) => {
+        const comment = document.querySelector('#ahve-root comment')!;
+        const r = document.createRange();
+        if (where === 'target-end-text') {
+          r.setStart(comment.firstChild!, comment.firstChild!.textContent!.length);
+        } else {
+          r.setStart(comment, comment.childNodes.length);
+        }
+        r.collapse(true);
+        const sel = window.getSelection()!;
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }, where);
+
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.type('Q');
+
+      const state = await tailState(page);
+      expect(state.commentCount).toBe(1);
+      expect(state.nestedCount).toBe(0);
+      expect(state.target).toBe('text');
+      expect(state.bodyText).toBe('Comment');
+      expect(state.outsideText).toBe('Q');
+    });
+  }
+});
+
+// Authoritative boundary matrix: drive REAL keyboard input and assert, for every
+// inside/outside × leading/trailing case, both WHERE the typed character lands in
+// the DOM and the CARET COLOUR. jsdom and programmatic boundary selections cannot
+// model the browser's caret normalisation/affinity, so only this real-Chromium
+// matrix proves the behaviour. The caret is only ever pre-placed at a position the
+// browser KEEPS (the text just before the comment for the leading edge; the target
+// end for the trailing edge); the inside/outside choice is then made with a real
+// arrow key, exactly as a user would.
+test.describe('Comment boundary typing — real keyboard, all four cases', () => {
+  const SAMPLE =
+    '<p>g<comment id="c1">rap' +
+    '<comment-body contenteditable="false" data-author="human" data-updated="2026-06-26T00:00:00.000Z">com</comment-body>' +
+    '</comment>e</p>';
+
+  async function readState(page: Page) {
+    return page.evaluate(() => {
+      const c = document.querySelector('#ahve-root comment');
+      return {
+        count: document.querySelectorAll('#ahve-root comment').length,
+        nested: document.querySelectorAll('#ahve-root comment comment').length,
+        target: c?.firstChild?.textContent ?? null,
+        before: c?.previousSibling?.textContent ?? null,
+        after: c?.nextSibling?.textContent ?? null,
+        body: c?.querySelector('comment-body')?.textContent ?? null,
+      };
+    });
+  }
+
+  // Pre-place the caret at a STICKY boundary position (one the browser keeps):
+  // 'before' = end of the text node just before the comment (outside, leading);
+  // 'inside-end' = end of the target text (inside, trailing).
+  async function placeSticky(page: Page, where: 'before' | 'inside-end') {
+    await page.evaluate((where) => {
+      const c = document.querySelector('#ahve-root comment')!;
+      const node = where === 'before' ? c.previousSibling! : c.firstChild!;
+      const r = document.createRange();
+      r.setStart(node, node.textContent!.length);
+      r.collapse(true);
+      const s = window.getSelection()!;
+      s.removeAllRanges();
+      s.addRange(r);
+    }, where);
+  }
+
+  const caretColor = (page: Page, selector: string) =>
+    page.locator(selector).evaluate((el) => getComputedStyle(el).caretColor);
+
+  test('leading edge, no arrow: typing lands before the comment (outside)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await placeSticky(page, 'before');
+
+    await page.keyboard.type('b');
+
+    const s = await readState(page);
+    expect(s.count).toBe(1);
+    expect(s.before).toBe('gb'); // typed outside, before the comment
+    expect(s.target).toBe('rap'); // target unchanged
+  });
+
+  test('leading edge, ArrowRight: caret turns the author colour and typing lands inside the target start', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    // Read the colours before any caret is placed (no marker yet): the comment
+    // tints the caret with the author colour, plain block text uses the default.
+    const defaultColor = await caretColor(page, '#ahve-root p');
+    const authorColor = await caretColor(page, '#ahve-root comment');
+    expect(authorColor).not.toBe(defaultColor);
+
+    await focusEditor(page);
+    await placeSticky(page, 'before');
+
+    // ArrowRight signals "type inside": the caret does not move, but its colour
+    // flips to the author colour (rendered via the comment's parent).
+    await page.keyboard.press('ArrowRight');
+    expect(await caretColor(page, '#ahve-root p')).toBe(authorColor);
+
+    await page.keyboard.type('b');
+
+    const s = await readState(page);
+    expect(s.count).toBe(1);
+    expect(s.nested).toBe(0);
+    expect(s.before).toBe('g'); // text before the comment is untouched
+    expect(s.target).toBe('brap'); // typed INSIDE, at the target start
+    expect(s.body).toBe('com');
+  });
+
+  test('trailing edge, no arrow: typing lands inside the target end', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await placeSticky(page, 'inside-end');
+
+    await page.keyboard.type('b');
+
+    const s = await readState(page);
+    expect(s.target).toBe('rapb'); // inside, at the target end
+    expect(s.after).toBe('e'); // nothing added outside
+  });
+
+  test('trailing edge, ArrowRight: caret turns default and typing lands after the comment (outside)', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await focusEditor(page);
+    await placeSticky(page, 'inside-end');
+
+    await page.keyboard.press('ArrowRight');
+    // Outside: the caret reverts to the default colour.
+    expect(await caretColor(page, '#ahve-root comment')).toBe(await caretColor(page, '#ahve-root p'));
+
+    await page.keyboard.type('b');
+
+    const s = await readState(page);
+    expect(s.target).toBe('rap'); // target unchanged
+    expect(s.after).toBe('be'); // typed outside, after the comment
+
+    // Neither transient marker may reach the saved file.
+    await page.waitForTimeout(DEBOUNCE_MS + 100);
+    const edits = await getEditMessages(page);
+    const html = edits[edits.length - 1].html;
+    expect(html).not.toContain('data-ahve-caret-outside');
+    expect(html).not.toContain('data-ahve-caret-inside');
   });
 });

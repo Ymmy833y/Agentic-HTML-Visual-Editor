@@ -178,7 +178,7 @@ export function restoreSelection(root: HTMLElement, saved: SavedSelection): bool
   const focus = resolvePosition(root, saved.focus);
   if (!anchor || !focus) return false;
 
-  root.focus();
+  root.focus({ preventScroll: true });
   sel.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
   return true;
 }

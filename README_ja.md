@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.2-F59E0B?style=for-the-badge" alt="Version 0.1.2" />
+  <img src="https://img.shields.io/badge/version-0.1.3-F59E0B?style=for-the-badge" alt="Version 0.1.3" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -101,6 +101,7 @@ HTML だけでレビュー風の注釈を表現するインラインカスタム
 - **作成者・日時:** 各 body / reply は `data-author`（`human` または `ai`）と `data-updated`（ISO 8601 のタイムスタンプ）を保持する。WYSIWYG ビューで編集するとこれらは自動で記録され、枠の色は作成者に応じて変わるため、人間と AI のコメントを見分けられる。
 - **解決状態:** `<comment>` はブール値の `data-resolved` 属性を持てる（ポップアップから切替）。解決済みのコメントは破線・淡色の枠に後退し、未解決のものは作成者色の実線枠を保つ。
 - **相手の注釈を編集する場合:** 人間が AI の書いたコメントを編集・削除しようとすると、まず確認が求められ、レビュー注釈を誤って上書きしないようにする。
+- **境界での入力:** カーソルがコメントの先頭・末尾の端にあるとき、続けて入力する文字をコメントの内側に含めるか外側に出すかを選べる。内側に入る場合はカーソルがコメントの色に、外側に出る場合は既定の色になるため、どちら側に入力されるかが一目で分かる。コメント周辺のテキストを編集してもコメントは丸ごと保持され、入れ子にならない。
 - 本文と返信は WYSIWYG 上では非表示だが HTML ソースには残るので、人間も AI もマークアップを読めばスレッド全体を確認できる。
 
 ### ✅ リスト編集
@@ -123,8 +124,8 @@ HTML だけでレビュー風の注釈を表現するインラインカスタム
 | `Ctrl+I` | 斜体（`<em>`） |
 | `Ctrl+K` | リンク挿入（`<a>`） |
 | `Ctrl+\` | インライン書式のクリア |
-| `Ctrl+Shift+1`〜`6` | 見出し H1〜H6 に設定 |
-| `Ctrl+Shift+0` | 段落化 |
+| `Ctrl+Shift+1`〜`6` / `Ctrl+Alt+1`〜`6` | 見出し H1〜H6 に設定 |
+| `Ctrl+Shift+0` / `Ctrl+Alt+0` | 段落化 |
 | `Ctrl+Shift+V` | プレーンテキストとして貼付け |
 | `Tab` / `Shift+Tab` | リスト項目のネスト昇降、またはテーブルセル間の移動 |
 | `Ctrl+F` | ドキュメント内検索 |

@@ -10,7 +10,7 @@ import { injectEmptyBlockPlaceholders } from './core/placeholder';
 import { captureSelection, restoreSelection } from './core/selection';
 import { setupEditor } from './core/editor-core';
 import { clearFormatting, toggleInline } from './commands/inline-format';
-import { dedentListItem, indentListItem, setBlockTag, type BlockTag } from './commands/block-format';
+import { dedentListItem, headingShortcutTag, indentListItem, setBlockTag } from './commands/block-format';
 import { insertLink } from './commands/link';
 import { findInlineAncestor } from './commands/query';
 import { findAncestor } from './shared/dom-utils';
@@ -115,7 +115,7 @@ async function handleLink(): Promise<void> {
   const result = await openLinkDialog(currentUrl);
   if (result.action === 'cancel') return;
 
-  root!.focus();
+  root!.focus({ preventScroll: true });
   sel.removeAllRanges();
   sel.addRange(savedRange);
 
@@ -168,7 +168,7 @@ function setMergeAnchor(cell: HTMLTableCellElement | null): void {
 
 const tablePicker = mountTablePicker({
   onPick: (rows, cols, withHeader) => {
-    root.focus();
+    root.focus({ preventScroll: true });
     insertTable({ rows, cols, withHeader }, ctx);
     editor.notifyChanged();
   },
@@ -406,21 +406,24 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
     }
   }
 
-  if (mod && e.shiftKey && !e.altKey) {
-    if (e.key.toLowerCase() === 'v') {
-      // Set the flag and let the paste event fire; it will consume the flag.
-      pendingPlainPaste = true;
-      return;
-    }
-    if (/^[1-6]$/.test(e.key)) {
+  if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v') {
+    // Set the flag and let the paste event fire; it will consume the flag.
+    pendingPlainPaste = true;
+    return;
+  }
+
+  // Block-type shortcuts: Ctrl/Cmd + (Shift or Alt) + digit. Digit1–6 → h1–h6,
+  // Digit0 → p (plain). Ctrl/Cmd+Alt+<digit> is an equivalent fallback because
+  // some platforms reserve Ctrl+Shift+<digit> at the OS/IME level (e.g. Windows
+  // input-language hotkeys) so it never reaches the webview. `shiftKey !==
+  // altKey` accepts exactly one of the two modifiers. Match on e.code, not
+  // e.key: with Shift held e.key is the shifted symbol ('!', '@', …), never the
+  // digit, so a digit test on e.key never matches in a real browser.
+  if (mod && e.shiftKey !== e.altKey) {
+    const blockTag = headingShortcutTag(e.code);
+    if (blockTag) {
       e.preventDefault();
-      setBlockTag(('h' + e.key) as BlockTag, ctx);
-      editor.notifyChanged();
-      return;
-    }
-    if (e.key === '0') {
-      e.preventDefault();
-      setBlockTag('p', ctx);
+      setBlockTag(blockTag, ctx);
       editor.notifyChanged();
       return;
     }
