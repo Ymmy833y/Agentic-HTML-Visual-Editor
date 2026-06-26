@@ -906,3 +906,276 @@ describe('setupEditor: Backspace/Delete merges adjacent blocks', () => {
     expect(evt.defaultPrevented).toBe(false);
   });
 });
+
+// The end of a comment's target text (inside the comment) and the position just
+// after </comment> (outside it) render at the same spot because the
+// <comment-body> is display:none. ArrowRight steps the caret outside so the next
+// character is typed after the comment; ArrowLeft steps back inside. A dedicated
+// insertText handler guarantees outside typing lands after </comment> rather
+// than being absorbed back into the comment.
+describe('setupEditor: typing inside vs outside a comment', () => {
+  const SAMPLE =
+    '<p>Sample <comment id="c1">text' +
+    '<comment-body contenteditable="false" data-author="human">Comment</comment-body>' +
+    '</comment></p>';
+
+  function placeCaret(node: Node, offset: number): void {
+    const r = document.createRange();
+    r.setStart(node, offset);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  function dispatchKeydown(target: HTMLElement, key: string): KeyboardEvent {
+    const evt = new KeyboardEvent('keydown', { key, cancelable: true, bubbles: true });
+    target.dispatchEvent(evt);
+    return evt;
+  }
+
+  function commentOf(root: HTMLElement): HTMLElement {
+    return root.querySelector('comment')!;
+  }
+
+  it('ArrowRight at the target end steps the caret just outside the comment', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.firstChild!, 'text'.length);
+
+    const evt = dispatchKeydown(root, 'ArrowRight');
+    expect(evt.defaultPrevented).toBe(true);
+
+    const sel = window.getSelection()!;
+    expect(sel.isCollapsed).toBe(true);
+    // The caret now sits in the <p>, right after the comment element.
+    const p = comment.parentElement!;
+    expect(sel.anchorNode).toBe(p);
+    expect(sel.anchorOffset).toBe(Array.prototype.indexOf.call(p.childNodes, comment) + 1);
+  });
+
+  it('ArrowRight mid-target is left to the browser (caret unchanged)', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.firstChild!, 2); // "te|xt"
+
+    const evt = dispatchKeydown(root, 'ArrowRight');
+    expect(evt.defaultPrevented).toBe(false);
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(comment.firstChild);
+    expect(sel.anchorOffset).toBe(2);
+  });
+
+  it('ArrowRight from the comment-internal trailing edge also steps outside', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment, comment.childNodes.length); // after the display:none body
+
+    const evt = dispatchKeydown(root, 'ArrowRight');
+    expect(evt.defaultPrevented).toBe(true);
+    const p = comment.parentElement!;
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(p);
+    expect(sel.anchorOffset).toBe(Array.prototype.indexOf.call(p.childNodes, comment) + 1);
+  });
+
+  it('ArrowLeft just outside a comment re-enters at the target end', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const r = document.createRange();
+    r.setStartAfter(comment);
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchKeydown(root, 'ArrowLeft');
+    expect(evt.defaultPrevented).toBe(true);
+    const after = window.getSelection()!;
+    expect(after.anchorNode).toBe(comment.firstChild);
+    expect(after.anchorOffset).toBe('text'.length);
+  });
+
+  it('ArrowLeft elsewhere is left to the browser', () => {
+    const root = makeRoot('<p>plain</p>');
+    setupEditor(root, () => {});
+    const p = root.querySelector('p')!;
+    placeCaret(p.firstChild!, 3);
+
+    const evt = dispatchKeydown(root, 'ArrowLeft');
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('Shift+ArrowRight (selection extension) is not hijacked', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.firstChild!, 'text'.length);
+
+    const evt = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      shiftKey: true,
+      cancelable: true,
+      bubbles: true,
+    });
+    root.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('insertText just outside a comment lands after </comment> as a sibling text node', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const r = document.createRange();
+    r.setStartAfter(comment); // caret just outside, no following text node yet
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+    expect(evt.defaultPrevented).toBe(true);
+
+    // A new text node "a" now follows the comment, outside it.
+    expect(comment.nextSibling!.nodeType).toBe(Node.TEXT_NODE);
+    expect(comment.nextSibling!.textContent).toBe('a');
+    // The comment is untouched: single element, id, target text, and body.
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.getAttribute('id')).toBe('c1');
+    expect(comment.firstChild!.textContent).toBe('text');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    // Caret sits after the inserted character.
+    const after = window.getSelection()!;
+    expect(after.anchorNode).toBe(comment.nextSibling);
+    expect(after.anchorOffset).toBe(1);
+  });
+
+  it('insertText just outside prepends into an existing following text node', () => {
+    const root = makeRoot(
+      '<p>a <comment id="c1">text<comment-body>note</comment-body></comment> b</p>',
+    );
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.nextSibling!, 0); // start of the " b" text node, outside
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'X');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.nextSibling!.textContent).toBe('X b');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('note');
+  });
+
+  it('insertText at the inside target end is left to the browser (no outside node added)', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.firstChild!, 'text'.length); // inside, at the target end
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+    expect(evt.defaultPrevented).toBe(false);
+    // Nothing was inserted outside the comment.
+    expect(comment.nextSibling).toBeNull();
+  });
+
+  it('marks the comment with the caret-outside attribute while the caret sits after it', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const sel = window.getSelection()!;
+
+    // Caret just outside (after) the comment -> the marker appears (CSS resets
+    // the caret colour to the default there).
+    const out = document.createRange();
+    out.setStartAfter(comment);
+    out.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(out);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(true);
+
+    // Caret back inside (target end) -> the marker is cleared.
+    placeCaret(comment.firstChild!, 'text'.length);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(false);
+  });
+
+  // Leading edge — mirror of the trailing-edge cases above.
+
+  it('ArrowLeft at the target start steps the caret just before the comment', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    placeCaret(comment.firstChild!, 0); // inside, at the target start
+
+    const evt = dispatchKeydown(root, 'ArrowLeft');
+    expect(evt.defaultPrevented).toBe(true);
+
+    const p = comment.parentElement!;
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(p);
+    expect(sel.anchorOffset).toBe(Array.prototype.indexOf.call(p.childNodes, comment));
+  });
+
+  // NOTE: jsdom cannot model the browser's caret normalisation/affinity, so this
+  // only verifies the routing logic (caret stays put, intent armed, next char
+  // routed inside). The authoritative check is the real-keyboard e2e matrix.
+  it('ArrowRight just before a comment arms type-inside: caret stays, marker flips, next char lands at the target start', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const p = comment.parentElement!;
+    const idx = Array.prototype.indexOf.call(p.childNodes, comment);
+    placeCaret(p, idx); // just before comment
+
+    const evt = dispatchKeydown(root, 'ArrowRight');
+    expect(evt.defaultPrevented).toBe(true);
+    // The caret does not move (the inside-start position cannot be represented)...
+    const sel = window.getSelection()!;
+    expect(sel.anchorNode).toBe(p);
+    expect(sel.anchorOffset).toBe(idx);
+    // ...but the comment is marked so its parent tints the caret author-colour.
+    expect(comment.hasAttribute('data-ahve-caret-inside')).toBe(true);
+
+    // The next typed character lands INSIDE, at the target start.
+    const ins = dispatchBeforeInput(root, 'insertText', 'X');
+    expect(ins.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe('Xtext'); // prepended inside the target
+    expect(comment.previousSibling!.textContent).toBe('Sample '); // text before unchanged
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('insertText just before a comment appends to the preceding text node, outside it', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const p = comment.parentElement!;
+    placeCaret(p, Array.prototype.indexOf.call(p.childNodes, comment)); // just before comment
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'X');
+    expect(evt.defaultPrevented).toBe(true);
+    // "Sample " grew by the typed char; the comment and its target are untouched.
+    expect(comment.previousSibling!.textContent).toBe('Sample X');
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.firstChild!.textContent).toBe('text');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('marks the comment with the caret-outside attribute while the caret sits before it', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = commentOf(root);
+    const p = comment.parentElement!;
+
+    placeCaret(p, Array.prototype.indexOf.call(p.childNodes, comment)); // just before comment
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(true);
+
+    placeCaret(comment.firstChild!, 1); // back inside the target
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(false);
+  });
+});

@@ -89,6 +89,17 @@ describe('formatForSerialize: comments are never pruned', () => {
     const saved = '<p><comment id="c1"><comment-body data-author="human"></comment-body></comment></p>';
     expect(roundtrip(saved)).toBe(saved);
   });
+
+  it('strips the transient caret-outside marker so it never reaches the saved file', () => {
+    const html =
+      '<p><comment id="c1" data-ahve-caret-outside="">text' +
+      '<comment-body data-author="human">note</comment-body></comment>after</p>';
+    const out = format(html);
+    expect(out).not.toContain('data-ahve-caret-outside');
+    expect(out).toBe(
+      '<p><comment id="c1">text<comment-body data-author="human">note</comment-body></comment>after</p>',
+    );
+  });
 });
 
 describe('formatForSerialize: preserves existing whitespace', () => {

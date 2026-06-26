@@ -255,6 +255,11 @@ body {
   border-radius: 3px;
   border: 1px solid var(--ahve-comment-underline);
   padding: 0 2px;
+  /* Tint the caret in the author colour while it edits inside the comment, so */
+  /* it reverts to the default colour once the caret steps outside (arrow keys). */
+  /* An inside edge and the matching just-outside position render at the same */
+  /* spot, so this colour shift distinguishes them without adding any space. */
+  caret-color: var(--ahve-comment-underline);
   /* Keep the border drawn on every line when the run wraps inline. */
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -263,11 +268,33 @@ body {
   background: var(--ahve-comment-highlight-hover);
 }
 
+/* The caret has stepped just outside this comment (ArrowRight past </comment>, */
+/* or ArrowLeft before <comment>). The browser paints the boundary caret with */
+/* this comment's caret-color, so resetting it to the default flips the caret */
+/* from the author colour back to default — the cue that the next character */
+/* lands beyond the comment. No layout change; the data-ahve-caret-outside */
+/* attribute is transient UI state stripped on save. */
+#ahve-root comment[data-ahve-caret-outside] {
+  caret-color: auto;
+}
+
+/* ArrowRight at a comment's leading edge arms "type inside": the caret is */
+/* physically in the comment's parent (the browser normalises the inside-start */
+/* position outward), so tint the PARENT's caret with the author colour to show */
+/* the next character lands inside. Transient; stripped on save. */
+#ahve-root :has(> comment[data-ahve-caret-inside]) {
+  caret-color: var(--ahve-comment-underline);
+}
+#ahve-root :has(> comment[data-ahve-caret-inside] > comment-body[data-author='ai']) {
+  caret-color: var(--ahve-comment-ai-underline);
+}
+
 /* AI-authored comment: coloured by the body author (the thread's creator). */
 #ahve-root comment:has(> comment-body[data-author='ai']) {
   background: var(--ahve-comment-ai-highlight);
   text-decoration-color: var(--ahve-comment-ai-underline);
   border-color: var(--ahve-comment-ai-underline);
+  caret-color: var(--ahve-comment-ai-underline);
 }
 #ahve-root comment:has(> comment-body[data-author='ai']):hover {
   background: var(--ahve-comment-ai-highlight-hover);
