@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-06-26
+
+### Added
+
+- `Ctrl+Alt+1`–`6` / `Ctrl+Alt+0` as an alternative to the `Ctrl+Shift` heading/paragraph shortcuts, for platforms that reserve `Ctrl+Shift+<digit>` at the OS/IME level
+- Type-at-boundary editing for inline comments: with the caret at a comment's leading or trailing edge, choose whether the next characters land inside or just outside the comment, with the caret colour indicating which side
+
+### Fixed
+
+- Make heading/paragraph keyboard shortcuts fire reliably by matching on `KeyboardEvent.code` instead of the shifted `key`
+- Prevent inline comments from being lost, corrupted, or nested while editing their text or an adjacent range
+- Keep comments whole across block merges and deletions of adjacent content
+- Prevent the viewport from scrolling to the top when focus is restored after closing a dialog (link insertion, table picker)
+
 ## [0.1.2] - 2026-06-20
 
 ### Changed

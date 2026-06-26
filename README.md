@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.2-F59E0B?style=for-the-badge" alt="Version 0.1.2" />
+  <img src="https://img.shields.io/badge/version-0.1.3-F59E0B?style=for-the-badge" alt="Version 0.1.3" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -101,6 +101,7 @@ A review-style annotation that is fully expressed in HTML, so AI agents can read
 - **Author & time:** each body/reply carries `data-author` (`human` or `ai`) and a `data-updated` ISO 8601 timestamp. Editing in the WYSIWYG view fills these in automatically; the box colour is keyed off the author, so human- and AI-authored comments are distinguishable.
 - **Resolved state:** a `<comment>` may carry a boolean `data-resolved` attribute (toggled from the popup). Resolved comments recede to a dashed, muted box; unresolved ones keep a solid coloured box.
 - **Editing the counterpart's notes:** when a human edits or deletes a comment the AI authored, the view asks for confirmation first, so review notes are not overwritten by accident.
+- **Typing at the boundary:** with the caret at a comment's leading or trailing edge you can choose whether the next characters join the comment or stay outside it — the caret takes on the comment's colour when typing will land inside, and the default colour when it will land outside. Comments stay whole and never nest, even as you edit the text around them.
 - The body and replies are hidden from the document flow visually but remain in the HTML source, so any reader — human or AI — can see the full thread by inspecting the markup.
 
 ### ✅ List editing
