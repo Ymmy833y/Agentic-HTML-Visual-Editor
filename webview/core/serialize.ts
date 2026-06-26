@@ -18,6 +18,8 @@
 //
 // `<pre>` and `<table>` subtrees stay opaque.
 
+import { CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR } from '../shared/constants';
+
 export const EMPTYABLE_BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'BLOCKQUOTE', 'DIV', 'LI', 'SUMMARY',
@@ -46,9 +48,21 @@ export function formatForSerialize(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
   // The marker lives on the live DOM only for the duration of the clone.
   if (active) active.removeAttribute(ACTIVE_ATTR);
+  stripTransientCommentMarkers(clone);
   pruneEmptyBlocks(clone);
   fillMissingBlockGaps(clone);
   return clone.innerHTML;
+}
+
+// Drop the transient caret-colour markers (UI-only; see CARET_OUTSIDE_ATTR /
+// CARET_INSIDE_ATTR) so the caret state never reaches the saved file.
+function stripTransientCommentMarkers(scope: Element): void {
+  for (const c of Array.from(
+    scope.querySelectorAll(`comment[${CARET_OUTSIDE_ATTR}], comment[${CARET_INSIDE_ATTR}]`),
+  )) {
+    c.removeAttribute(CARET_OUTSIDE_ATTR);
+    c.removeAttribute(CARET_INSIDE_ATTR);
+  }
 }
 
 function pruneEmptyBlocks(scope: Element): void {

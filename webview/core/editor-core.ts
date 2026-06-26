@@ -3,7 +3,7 @@
 // lightweight markdown-style shortcuts, and dispatches debounced change
 // notifications so callers can serialize and push edits back.
 
-import { BLOCK_TAGS, INLINE_FORMAT_TAGS } from '../shared/constants';
+import { BLOCK_TAGS, CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR, INLINE_FORMAT_TAGS } from '../shared/constants';
 import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
 import { toggleList } from '../commands/block-format';
 
@@ -40,6 +40,17 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
   }
 
   let pending: number | null = null;
+  // True while an IME composition is active. Rewriting the DOM then would cancel
+  // it, so the presentational-tag normalizer and the comment-boundary insertText
+  // handler both stand down until compositionend.
+  let composing = false;
+
+  // Comment leading-edge state. The browser normalises the inside-start caret to
+  // the outside, so the caret position alone cannot say "type inside". ArrowRight
+  // there arms this one-shot intent; the next typed character is routed into the
+  // comment's target start and the flag is cleared. Per-editor (closure) so it
+  // never leaks across instances or tests.
+  const boundary: { pendingInside: Element | null } = { pendingInside: null };
 
   const scheduleChange = (): void => {
     if (pending !== null) {
@@ -52,6 +63,9 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
   };
 
   root.addEventListener('beforeinput', (e: InputEvent) => {
+    // Any input other than typing a character cancels a pending leading-edge
+    // "type inside" intent (it is meaningful only for the immediate next char).
+    if (e.inputType !== 'insertText') boundary.pendingInside = null;
     if (e.inputType === 'insertParagraph') {
       // Enter inside a <summary> must not split it into two summaries; move the
       // caret into the details body instead.
@@ -118,6 +132,22 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
         return;
       }
     }
+    // Typing near a comment boundary must land where the user intends, not where
+    // the browser absorbs it: into the target start when ArrowRight armed the
+    // leading edge, after </comment> on the trailing edge, before <comment> on
+    // the leading edge. Skipped during IME composition (compositionend covers it).
+    if (
+      e.inputType === 'insertText' &&
+      !composing &&
+      typeof e.data === 'string' &&
+      e.data.length > 0
+    ) {
+      if (handleBoundaryInsert(root, boundary, e.data)) {
+        e.preventDefault();
+        scheduleChange();
+        return;
+      }
+    }
     if (e.inputType === 'deleteContentBackward') {
       // Backspace with the caret right after a comment must not let the browser
       // delete across the comment boundary (which destroys the
@@ -156,14 +186,40 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
     }
   });
 
+  // ArrowRight/ArrowLeft cross the boundaries of an inline <comment>. A target
+  // edge (inside the comment) and the matching just-outside position render
+  // identically, so these keys deterministically choose which side the next
+  // character is typed on: ArrowRight steps out at the trailing edge / in at the
+  // leading edge, ArrowLeft does the mirror. Plain horizontal arrows only;
+  // modified arrows, vertical arrows, and Shift selection fall through.
+  root.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key === 'ArrowRight') {
+      if (handleCommentArrowRight(root, boundary)) e.preventDefault();
+    } else if (e.key === 'ArrowLeft') {
+      if (handleCommentArrowLeft(root, boundary)) e.preventDefault();
+    }
+  });
+
+  // Colour the caret by which side of a comment boundary it sits on. The browser
+  // paints the boundary caret with the adjacent comment's caret-color (caret
+  // affinity), so: CARET_OUTSIDE_ATTR resets a just-outside caret to the default;
+  // CARET_INSIDE_ATTR (armed by ArrowRight at a leading edge) tints the comment's
+  // parent with the author colour even though the caret is physically outside.
+  // selectionchange only fires on document; the markers are transient UI state
+  // (stripped on serialize), never schedule a change, and change no layout.
+  document.addEventListener('selectionchange', () => syncCaretMarkers(root, boundary));
+
   // The browser's contenteditable inserts presentational tags (<b>, <i>) for
   // its built-in bold/italic — e.g. after the only character in a <strong> is
   // deleted, the leftover bold state makes the next keystroke a <b>. Rewrite
   // those to the semantic tags the editor uses so formatting stays consistent.
   // Skip while an IME composition is active; rewriting then would cancel it.
-  let composing = false;
   root.addEventListener('compositionstart', () => {
     composing = true;
+    // IME composes at the (normalised, outside) caret, so a leading-edge inside
+    // intent cannot be honoured for it; drop it rather than mis-route the commit.
+    boundary.pendingInside = null;
   });
   root.addEventListener('compositionend', () => {
     composing = false;
@@ -395,6 +451,296 @@ function keepCommentWholeOnEnter(root: HTMLElement): boolean {
   selection.removeAllRanges();
   selection.addRange(newRange);
   return true;
+}
+
+/** Per-editor comment-boundary state (see the `boundary` closure var). */
+interface BoundaryState {
+  pendingInside: Element | null;
+}
+
+/**
+ * ArrowRight near an inline comment: at the visible trailing edge (inside) it
+ * steps the caret just past </comment> so the next character lands outside; when
+ * the caret sits just before a comment (outside) it arms a "type inside" intent
+ * for that comment's leading edge. The leading inside-start caret cannot be kept
+ * (the browser normalises it back outside), so we do NOT move the caret there;
+ * instead the next typed character is routed into the target start (see
+ * {@link handleBoundaryInsert}) and the caret colour flips via the marker.
+ * Returns whether the key was handled.
+ */
+function handleCommentArrowRight(root: HTMLElement, boundary: BoundaryState): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  // Inside the trailing edge -> step out, just past the comment.
+  const trailing = caretAtCommentTrailingEdge(range, root);
+  if (trailing) {
+    boundary.pendingInside = null;
+    placeCaret(selection, (r) => r.setStartAfter(trailing));
+    syncCaretMarkers(root, boundary);
+    return true;
+  }
+  // Just before a comment (outside) -> arm "type inside" for its leading edge.
+  const ahead = commentJustAfterCaret(root);
+  if (ahead) {
+    boundary.pendingInside = ahead;
+    syncCaretMarkers(root, boundary); // tint the caret author-colour immediately
+    return true; // caret stays put (the inside position cannot be represented)
+  }
+  return false;
+}
+
+/**
+ * ArrowLeft near an inline comment: cancels a pending leading-edge inside intent
+ * (stay outside); else when the caret sits just after a comment (outside) it
+ * re-enters at the target end; else at the visible leading edge (inside) it steps
+ * the caret just before <comment>. The mirror of {@link handleCommentArrowRight}.
+ * Returns whether the key was handled.
+ */
+function handleCommentArrowLeft(root: HTMLElement, boundary: BoundaryState): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  // Cancel a pending "type inside" intent: step back out (caret stays put).
+  if (boundary.pendingInside && commentJustAfterCaret(root) === boundary.pendingInside) {
+    boundary.pendingInside = null;
+    syncCaretMarkers(root, boundary);
+    return true;
+  }
+  // Just after a comment (outside) -> step in, to the target end.
+  const behind = commentJustBeforeCaret(root);
+  if (behind) {
+    const target = lastNonEmptyTargetText(behind);
+    placeCaret(selection, (r) =>
+      target ? r.setStart(target, target.data.length) : r.setStart(behind, 0),
+    );
+    syncCaretMarkers(root, boundary);
+    return true;
+  }
+  // Inside the leading edge -> step out, just before the comment.
+  const leading = caretAtCommentLeadingEdge(range, root);
+  if (leading) {
+    placeCaret(selection, (r) => r.setStartBefore(leading));
+    syncCaretMarkers(root, boundary);
+    return true;
+  }
+  return false;
+}
+
+/** Collapse a fresh range configured by `place` and make it the selection. */
+function placeCaret(selection: Selection, place: (r: Range) => void): void {
+  const r = document.createRange();
+  place(r);
+  r.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(r);
+}
+
+/**
+ * Route a typed character at a comment boundary. First honours a pending
+ * leading-edge "type inside" intent (ArrowRight) by inserting at the target
+ * start; otherwise inserts just after (trailing) or just before (leading) the
+ * comment when the caret sits immediately outside it. Returns whether it handled
+ * the insertion.
+ */
+function handleBoundaryInsert(root: HTMLElement, boundary: BoundaryState, data: string): boolean {
+  const pending = boundary.pendingInside;
+  if (pending && commentJustAfterCaret(root) === pending) {
+    boundary.pendingInside = null;
+    insertAtTargetStart(pending, data);
+    return true;
+  }
+  return handleInsertAfterComment(root, data) || handleInsertBeforeComment(root, data);
+}
+
+/**
+ * Insert text at the very start of a comment's editable target (prepending to
+ * its first target text node, or creating one before the metadata), then place
+ * the caret just after it — a position genuinely inside the comment that the
+ * browser keeps. Used to honour the leading-edge "type inside" intent.
+ */
+function insertAtTargetStart(comment: Element, data: string): void {
+  const selection = window.getSelection()!;
+  const target = firstNonEmptyTargetText(comment);
+  if (target) {
+    target.insertData(0, data);
+    placeCaret(selection, (r) => r.setStart(target, data.length));
+  } else {
+    const textNode = document.createTextNode(data);
+    comment.insertBefore(textNode, comment.firstChild);
+    placeCaret(selection, (r) => r.setStart(textNode, data.length));
+  }
+}
+
+/**
+ * Insert typed text just after a comment (outside it) when the caret sits
+ * immediately past the comment's close. Reaching that position requires
+ * ArrowRight (see {@link handleCommentArrowRight}); the browser would otherwise
+ * absorb the keystroke back into the comment's target. The text is prepended to
+ * an existing following text node, or a fresh text node is created after the
+ * comment. Returns whether it inserted the text.
+ */
+function handleInsertAfterComment(root: HTMLElement, data: string): boolean {
+  const comment = commentJustBeforeCaret(root);
+  if (!comment) return false;
+  const selection = window.getSelection()!;
+  const next = comment.nextSibling;
+  if (next && next.nodeType === Node.TEXT_NODE) {
+    (next as Text).insertData(0, data);
+    placeCaret(selection, (r) => r.setStart(next, data.length));
+  } else {
+    const textNode = document.createTextNode(data);
+    comment.after(textNode);
+    placeCaret(selection, (r) => r.setStart(textNode, data.length));
+  }
+  return true;
+}
+
+/**
+ * Mirror of {@link handleInsertAfterComment} for the leading edge: insert typed
+ * text just before a comment (outside it) when the caret sits immediately before
+ * <comment>. The text is appended to an existing preceding text node, or a fresh
+ * text node is created before the comment. Returns whether it inserted the text.
+ */
+function handleInsertBeforeComment(root: HTMLElement, data: string): boolean {
+  const comment = commentJustAfterCaret(root);
+  if (!comment) return false;
+  const selection = window.getSelection()!;
+  const prev = comment.previousSibling;
+  if (prev && prev.nodeType === Node.TEXT_NODE) {
+    const at = (prev as Text).data.length;
+    (prev as Text).insertData(at, data);
+    placeCaret(selection, (r) => r.setStart(prev, at + data.length));
+  } else {
+    const textNode = document.createTextNode(data);
+    comment.before(textNode);
+    placeCaret(selection, (r) => r.setStart(textNode, data.length));
+  }
+  return true;
+}
+
+/**
+ * The <comment> a collapsed caret sits immediately after (just past its close),
+ * or null — "the node immediately before the caret is a comment". Shared by the
+ * after-insertion handler, the ArrowLeft re-entry, and the caret-outside marker.
+ */
+function commentJustBeforeCaret(root: HTMLElement): Element | null {
+  const range = collapsedCaretRange(root);
+  if (!range) return null;
+  const before = nodeImmediatelyBeforeCaret(range);
+  if (!before || before.nodeType !== Node.ELEMENT_NODE) return null;
+  return (before as Element).tagName === 'COMMENT' ? (before as Element) : null;
+}
+
+/**
+ * The <comment> a collapsed caret sits immediately before (just outside its
+ * open), or null — "the node immediately after the caret is a comment". Shared
+ * by the before-insertion handler, the ArrowRight step-in, and the marker.
+ */
+function commentJustAfterCaret(root: HTMLElement): Element | null {
+  const range = collapsedCaretRange(root);
+  if (!range) return null;
+  const after = nodeImmediatelyAfterCaret(range);
+  if (!after || after.nodeType !== Node.ELEMENT_NODE) return null;
+  return (after as Element).tagName === 'COMMENT' ? (after as Element) : null;
+}
+
+/** The current collapsed caret range inside root, or null. */
+function collapsedCaretRange(root: HTMLElement): Range | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return null;
+  return range;
+}
+
+/**
+ * Reconcile the transient caret-colour markers with the caret position and the
+ * leading-edge intent. At most one comment is marked: CARET_INSIDE_ATTR when a
+ * "type inside" intent is armed and the caret still sits at that comment's
+ * leading edge (parent tinted author-colour); otherwise CARET_OUTSIDE_ATTR on a
+ * comment the caret sits just outside of (its own caret reset to default). A
+ * caret that has moved off the armed leading edge clears the intent.
+ */
+function syncCaretMarkers(root: HTMLElement, boundary: BoundaryState): void {
+  for (const c of Array.from(
+    root.querySelectorAll(`comment[${CARET_INSIDE_ATTR}], comment[${CARET_OUTSIDE_ATTR}]`),
+  )) {
+    c.removeAttribute(CARET_INSIDE_ATTR);
+    c.removeAttribute(CARET_OUTSIDE_ATTR);
+  }
+
+  const ahead = commentJustAfterCaret(root);
+  if (boundary.pendingInside) {
+    if (boundary.pendingInside === ahead) {
+      ahead.setAttribute(CARET_INSIDE_ATTR, '');
+      return;
+    }
+    boundary.pendingInside = null; // caret left the armed leading edge
+  }
+  const outside = ahead ?? commentJustBeforeCaret(root);
+  if (outside) outside.setAttribute(CARET_OUTSIDE_ATTR, '');
+}
+
+/**
+ * The comment whose visible trailing edge the collapsed caret sits at, or null.
+ * "Visible trailing edge" means no visible (non-metadata) text remains between
+ * the caret and the comment's end, which covers the target-text end, the
+ * element offset before the body, and the position after the (display:none)
+ * body. A caret mid-target (visible text still follows) returns null.
+ */
+function caretAtCommentTrailingEdge(range: Range, root: HTMLElement): Element | null {
+  return caretAtCommentEdge(range, root, 'trailing');
+}
+
+/**
+ * Mirror of {@link caretAtCommentTrailingEdge} for the leading edge: the comment
+ * whose visible start the caret sits at (no visible text between the comment's
+ * start and the caret), or null.
+ */
+function caretAtCommentLeadingEdge(range: Range, root: HTMLElement): Element | null {
+  return caretAtCommentEdge(range, root, 'leading');
+}
+
+/**
+ * The comment the caret sits at the visible edge of, on the given side, or null.
+ * Clones the span between the caret and the comment's matching boundary and
+ * checks it carries no visible (non-metadata) text.
+ */
+function caretAtCommentEdge(
+  range: Range,
+  root: HTMLElement,
+  side: 'leading' | 'trailing',
+): Element | null {
+  const comment = findAncestor(range.startContainer, 'COMMENT', root);
+  if (!comment) return null;
+  const span = document.createRange();
+  if (side === 'trailing') {
+    span.setStart(range.startContainer, range.startOffset);
+    span.setEnd(comment, comment.childNodes.length);
+  } else {
+    span.setStart(comment, 0);
+    span.setEnd(range.startContainer, range.startOffset);
+  }
+  const fragment = span.cloneContents();
+  return Array.from(fragment.childNodes).every(isInsignificantOrMeta) ? comment : null;
+}
+
+/**
+ * Like {@link isInsignificantTail} but also treats a comment's metadata
+ * (<comment-body>/<comment-reply>) as insignificant, so a caret sitting before
+ * that metadata still counts as the comment's trailing edge.
+ */
+function isInsignificantOrMeta(node: Node): boolean {
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const tag = (node as Element).tagName;
+    if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') return true;
+  }
+  return isInsignificantTail(node);
 }
 
 /**
