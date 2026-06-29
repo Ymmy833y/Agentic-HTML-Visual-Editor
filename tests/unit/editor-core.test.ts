@@ -287,6 +287,61 @@ describe('setupEditor: block shortcuts also fire inside <div>', () => {
   });
 });
 
+// Table cells hold bare inline content (no block wrapper), so the block
+// shortcuts must wrap that content in a <p> on demand and act inside the cell.
+describe('setupEditor: block shortcuts inside a bare table cell', () => {
+  function cell(html: string): { root: HTMLElement; td: HTMLElement } {
+    const root = makeRoot(`<table><tbody><tr><td>${html}</td></tr></tbody></table>`);
+    setupEditor(root, () => {});
+    return { root, td: root.querySelector('td')! };
+  }
+
+  it('converts "# " into a heading inside the cell', () => {
+    const { td } = cell('#');
+    caretAtEnd(td);
+    const evt = dispatchBeforeInput(td, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(td.innerHTML).toBe('<h1><br></h1>');
+  });
+
+  it('converts "- " into a bulleted list inside the cell', () => {
+    const { td } = cell('-');
+    caretAtEnd(td);
+    const evt = dispatchBeforeInput(td, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(td.innerHTML).toBe('<ul><li><br></li></ul>');
+  });
+
+  it('converts "> " into a blockquote inside the cell', () => {
+    const { td } = cell('&gt;');
+    caretAtEnd(td);
+    const evt = dispatchBeforeInput(td, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(td.innerHTML).toBe('<blockquote><br></blockquote>');
+  });
+
+  it('keeps the text that follows the marker', () => {
+    const { td } = cell('-hello');
+    const text = td.firstChild!;
+    const r = document.createRange();
+    r.setStart(text, 1); // caret right after the "-"
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+    dispatchBeforeInput(td, 'insertText', ' ');
+    expect(td.innerHTML).toBe('<ul><li>hello</li></ul>');
+  });
+
+  it('a plain space in a bare cell does not wrap the content in a <p>', () => {
+    const { td } = cell('a');
+    caretAtEnd(td);
+    const evt = dispatchBeforeInput(td, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(false);
+    expect(td.innerHTML).toBe('a');
+  });
+});
+
 describe('setupEditor: Enter inside list with nested children', () => {
   it('inserts an empty <li> at the start of the nested list', () => {
     const root = makeRoot(

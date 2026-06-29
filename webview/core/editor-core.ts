@@ -4,8 +4,8 @@
 // notifications so callers can serialize and push edits back.
 
 import { BLOCK_TAGS, CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR, INLINE_FORMAT_TAGS } from '../shared/constants';
-import { findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
-import { toggleList } from '../commands/block-format';
+import { blockOrBareCell, findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
+import { ensureBlockInCell, toggleList } from '../commands/block-format';
 
 const DEBOUNCE_MS = 250;
 
@@ -1210,6 +1210,45 @@ function isPlainTextBlock(block: Element): boolean {
   return block.tagName === 'P' || block.tagName === 'DIV';
 }
 
+interface ShortcutTarget {
+  el: HTMLElement;
+  bareCell: boolean;
+}
+
+/**
+ * The container a markdown block shortcut may transform: the caret's nearest
+ * block (only when it is a plain <p>/<div>), or a bare table cell whose inline
+ * content will be wrapped on commit (see {@link materializeShortcutBlock}).
+ * Returns null when the caret is in a non-plain block (heading/list/pre/etc.) or
+ * outside any block/cell. Read-only — it never mutates, so a plain space that
+ * fails the per-shortcut marker test leaves the cell untouched.
+ */
+function shortcutTarget(range: Range, root: HTMLElement): ShortcutTarget | null {
+  const found = blockOrBareCell(range.startContainer, root);
+  if (!found) return null;
+  if (!found.bareCell && !isPlainTextBlock(found.el)) return null;
+  return found;
+}
+
+/**
+ * Materialize the block a shortcut will mutate. A bare cell is wrapped in a <p>
+ * now (only after the caller confirmed the marker), which re-anchors the
+ * selection — so the live range is re-read and returned alongside it. A real
+ * block is used as-is with the original range. Returns null when the wrap is
+ * declined (a cell already holding block-level children), so the caller bails.
+ */
+function materializeShortcutBlock(
+  found: ShortcutTarget,
+  range: Range,
+  root: HTMLElement,
+  selection: Selection,
+): { block: HTMLElement; range: Range } | null {
+  if (!found.bareCell) return { block: found.el, range };
+  const block = ensureBlockInCell(range.startContainer, root);
+  if (!block) return null;
+  return { block, range: selection.getRangeAt(0) };
+}
+
 /**
  * "# ", "## ", ..., "###### " typed at the start of a paragraph converts the
  * paragraph into the corresponding heading level. The leading "#" markers
@@ -1221,18 +1260,21 @@ function handleHeadingShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const block = findBlockAncestor(range.startContainer, root);
-  if (!block || !isPlainTextBlock(block)) return false;
+  const found = shortcutTarget(range, root);
+  if (!found) return false;
 
-  const beforeText = textBeforeCursor(range, block);
-  const match = /^(#{1,6})$/.exec(beforeText);
+  const match = /^(#{1,6})$/.exec(textBeforeCursor(range, found.el));
   if (!match) return false;
   const level = match[1].length;
+
+  const target = materializeShortcutBlock(found, range, root, selection);
+  if (!target) return false;
+  const { block, range: r } = target;
 
   // Remove the "#"s from the block, then convert to heading.
   const deleteRange = document.createRange();
   deleteRange.setStart(block, 0);
-  deleteRange.setEnd(range.startContainer, range.startOffset);
+  deleteRange.setEnd(r.startContainer, r.startOffset);
   deleteRange.deleteContents();
   // Drop any empty text node left by deleteContents so an emptied heading keeps
   // its <br> placeholder instead of an invisible empty text node.
@@ -1264,19 +1306,23 @@ function handleListShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const block = findBlockAncestor(range.startContainer, root);
-  if (!block || !isPlainTextBlock(block)) return false;
+  const found = shortcutTarget(range, root);
+  if (!found) return false;
 
-  const before = textBeforeCursor(range, block);
+  const before = textBeforeCursor(range, found.el);
   let type: 'ul' | 'ol' | null = null;
   if (before === '-' || before === '*') type = 'ul';
   else if (before === '1.') type = 'ol';
   if (!type) return false;
 
+  const target = materializeShortcutBlock(found, range, root, selection);
+  if (!target) return false;
+  const { block, range: r } = target;
+
   // Remove the marker, collapse the caret to the block start, then convert.
   const deleteRange = document.createRange();
   deleteRange.setStart(block, 0);
-  deleteRange.setEnd(range.startContainer, range.startOffset);
+  deleteRange.setEnd(r.startContainer, r.startOffset);
   deleteRange.deleteContents();
   // deleteContents can leave an empty text node behind. Drop it so an emptied
   // block reports zero children and toggleList inserts a <br> placeholder;
@@ -1303,14 +1349,18 @@ function handleBlockquoteShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const block = findBlockAncestor(range.startContainer, root);
-  if (!block || !isPlainTextBlock(block)) return false;
+  const found = shortcutTarget(range, root);
+  if (!found) return false;
 
-  if (textBeforeCursor(range, block) !== '>') return false;
+  if (textBeforeCursor(range, found.el) !== '>') return false;
+
+  const target = materializeShortcutBlock(found, range, root, selection);
+  if (!target) return false;
+  const { block, range: r } = target;
 
   const deleteRange = document.createRange();
   deleteRange.setStart(block, 0);
-  deleteRange.setEnd(range.startContainer, range.startOffset);
+  deleteRange.setEnd(r.startContainer, r.startOffset);
   deleteRange.deleteContents();
   // Drop any empty text node left by deleteContents so an emptied quote keeps
   // its <br> placeholder instead of an invisible empty text node.
@@ -1341,10 +1391,14 @@ function handleCodeBlockShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const block = findBlockAncestor(range.startContainer, root);
-  if (!block || !isPlainTextBlock(block)) return false;
+  const found = shortcutTarget(range, root);
+  if (!found) return false;
 
-  if ((block.textContent ?? '').trim() !== '```') return false;
+  if ((found.el.textContent ?? '').trim() !== '```') return false;
+
+  const target = materializeShortcutBlock(found, range, root, selection);
+  if (!target) return false;
+  const { block } = target;
 
   const pre = document.createElement('pre');
   pre.appendChild(document.createElement('br'));
@@ -1368,10 +1422,14 @@ function handleThematicBreakShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const block = findBlockAncestor(range.startContainer, root);
-  if (!block || !isPlainTextBlock(block)) return false;
+  const found = shortcutTarget(range, root);
+  if (!found) return false;
 
-  if ((block.textContent ?? '').trim() !== '---') return false;
+  if ((found.el.textContent ?? '').trim() !== '---') return false;
+
+  const target = materializeShortcutBlock(found, range, root, selection);
+  if (!target) return false;
+  const { block } = target;
 
   const hr = document.createElement('hr');
   const p = document.createElement('p');
