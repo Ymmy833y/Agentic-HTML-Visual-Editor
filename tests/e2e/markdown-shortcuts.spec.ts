@@ -122,4 +122,14 @@ test.describe('Markdown-style shortcuts', () => {
     await expect(page.locator('#ahve-root h1, #ahve-root h2, #ahve-root h3')).toHaveCount(0);
     expect(html.startsWith('<p>')).toBe(true);
   });
+
+  // A table cell has no block wrapper, so the shortcut must wrap the cell's
+  // inline content in a <p> on demand and create the list inside the cell.
+  test('typing "- " inside a table cell starts a list in the cell', async ({ page }) => {
+    await mountEditor(page, '<table><tbody><tr><td><br></td></tr></tbody></table>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root td');
+    await page.keyboard.type('- item');
+    expect(await page.locator('#ahve-root td').innerHTML()).toBe('<ul><li>item</li></ul>');
+  });
 });

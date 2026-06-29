@@ -59,6 +59,30 @@ export function findListContainer(node: Node, stopAt: Element): HTMLElement | nu
   return null;
 }
 
+/**
+ * Resolve the editable container of a caret for the block-level commands: the
+ * nearest {@link BLOCK_TAGS} ancestor, or — when a table cell (TD/TH) is reached
+ * before any block — the cell itself, flagged `bareCell`. Table cells hold bare
+ * inline content (no wrapping block), so a caret in a fresh cell has no block
+ * ancestor; the `bareCell` result tells callers they must wrap the content first
+ * (see {@link findBlockAncestor} returning null there). Returns null when neither
+ * a block nor a cell is found inside stopAt.
+ */
+export function blockOrBareCell(
+  node: Node,
+  stopAt: Element,
+): { el: HTMLElement; bareCell: boolean } | null {
+  let cur: Node | null = node;
+  while (cur && cur !== stopAt) {
+    if (cur instanceof HTMLElement) {
+      if (BLOCK_TAGS.has(cur.tagName)) return { el: cur, bareCell: false };
+      if (cur.tagName === 'TD' || cur.tagName === 'TH') return { el: cur, bareCell: true };
+    }
+    cur = cur.parentNode;
+  }
+  return null;
+}
+
 /** Replace an element with its children (move children up, then remove the element). */
 export function unwrap(el: Element): void {
   const parent = el.parentNode;
