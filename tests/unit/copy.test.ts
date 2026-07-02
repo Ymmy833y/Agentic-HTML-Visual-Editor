@@ -38,6 +38,41 @@ describe('prepareCopy', () => {
     expect(out).toBe('<p>target</p>');
   });
 
+  // Comment annotations are private to the editor and must not leak into
+  // copied HTML. The <comment> wrapper is unwrapped (keeping the commented-on
+  // text and its inline markup) and the body/reply children are dropped.
+  it('strips comment tags from a full-document html copy', () => {
+    const root = makeRoot(
+      '<p>x<comment id="c1" data-resolved=""><span>phrase</span>' +
+        '<comment-body>note</comment-body><comment-reply>reply</comment-reply></comment>y</p>',
+    );
+    window.getSelection()?.removeAllRanges();
+    expect(prepareCopy(root, 'html')).toBe('<p>x<span>phrase</span>y</p>');
+  });
+
+  it('merges a mid-word comment back into the surrounding text', () => {
+    const root = makeRoot(
+      '<h2>Hea<comment id="c2">di<comment-body>note</comment-body></comment>ng</h2>',
+    );
+    window.getSelection()?.removeAllRanges();
+    expect(prepareCopy(root, 'html')).toBe('<h2>Heading</h2>');
+  });
+
+  it('unwraps a comment split by a partial selection', () => {
+    const root = makeRoot(
+      '<p>before<comment id="c3">target<comment-body>note</comment-body></comment>after</p>',
+    );
+    const before = root.querySelector('p')!.firstChild!; // "before"
+    const target = root.querySelector('comment')!.firstChild!; // "target"
+    const sel = window.getSelection()!;
+    const range = document.createRange();
+    range.setStart(before, 3); // ...ore
+    range.setEnd(target, 3); // tar...
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(prepareCopy(root, 'html')).toBe('oretar');
+  });
+
   it('ignores a selection that lies outside the root', () => {
     const root = makeRoot('<p>inside</p>');
     const outside = document.createElement('p');
