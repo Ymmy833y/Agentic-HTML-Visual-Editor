@@ -3,6 +3,7 @@
 // write through vscode.env.clipboard.
 
 import { toConfluenceHtml } from './confluence';
+import { stripCommentsFromHtml } from './strip-comments';
 import type { CopyFormat } from '../../../src/shared/messages';
 
 // Inline wrappers that survive cloneContents. When a user selects text whose
@@ -16,7 +17,10 @@ const INLINE_PRESERVE_TAGS = new Set([
 
 export function prepareCopy(root: HTMLElement, format: CopyFormat): string {
   const html = currentHtml(root);
-  return format === 'confluence' ? toConfluenceHtml(html) : html;
+  // Comment annotations are private to this editor; strip them from copied
+  // HTML so only the commented-on text (with its inline markup) is exported.
+  if (format === 'confluence') return toConfluenceHtml(html);
+  return stripCommentsFromHtml(html);
 }
 
 function currentHtml(root: HTMLElement): string {

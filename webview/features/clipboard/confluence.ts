@@ -4,6 +4,8 @@
 // custom elements and may render bare <table>/<pre> oddly. We rewrite a few
 // constructs so the result renders predictably after paste.
 
+import { stripCommentTags } from './strip-comments';
+
 export function toConfluenceHtml(html: string): string {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
@@ -12,27 +14,9 @@ export function toConfluenceHtml(html: string): string {
 }
 
 function transform(root: ParentNode): void {
-  rewriteComments(root);
+  stripCommentTags(root);
   ensureTableBorders(root);
   ensurePreHasCode(root);
-}
-
-/**
- * Strip comment annotations from the exported HTML: drop the <comment-body>
- * and <comment-reply> children, then unwrap the <comment> element so only
- * the highlighted target text remains. Confluence sees clean source HTML
- * with no trace of the annotation layer.
- */
-function rewriteComments(root: ParentNode): void {
-  for (const child of Array.from(root.querySelectorAll('comment-body, comment-reply'))) {
-    child.remove();
-  }
-  for (const comment of Array.from(root.querySelectorAll('comment'))) {
-    const parent = comment.parentNode;
-    if (!parent) continue;
-    while (comment.firstChild) parent.insertBefore(comment.firstChild, comment);
-    comment.remove();
-  }
 }
 
 /** Older Confluence pastes ignore CSS borders; the legacy border attribute renders reliably. */
