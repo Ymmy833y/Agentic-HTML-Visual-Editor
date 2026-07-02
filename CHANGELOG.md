@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-07-02
+
+### Changed
+
+- Strip comment annotations (`<comment>`, `<comment-body>`, `<comment-reply>`) from copied HTML so only the commented-on text (with its inline markup) is exported; previously this stripping applied only to the Confluence copy format
+
+### Fixed
+
+- Apply block-level commands (headings, paragraph, blockquote, code block, horizontal rule, details) and markdown-style shortcuts inside table cells that hold bare inline content with no block wrapper
+- Scroll long comment threads inside the popup instead of letting them overflow the viewport
+
 ## [0.1.3] - 2026-06-26
 
 ### Added
