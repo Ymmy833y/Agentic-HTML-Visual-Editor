@@ -2,11 +2,66 @@
 // rules, and create/transform lists. Operate on the nearest block ancestor of
 // the caret.
 
-import { findAncestor, findBlockAncestor, findListContainer, isBlockEmpty } from '../shared/dom-utils';
+import { blockOrBareCell, findAncestor, findBlockAncestor, findListContainer, isBlockEmpty } from '../shared/dom-utils';
 import { BLOCK_TAGS } from '../shared/constants';
 import type { CommandContext } from '../shared/command-context';
 
 export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
+
+/**
+ * If the caret sits directly in a bare table cell (TD/TH holding inline content
+ * with no block wrapper), wrap that content in a <p> so the block-level commands
+ * below — which all resolve their target via findBlockAncestor — have a block to
+ * act on, and the resulting block lives INSIDE the cell. Returns the new <p>, or
+ * null when no wrap is needed: the caret is outside a cell, already inside a
+ * block, or the cell already holds block-level children (left to existing logic,
+ * since wrapping a loose inline run would risk nesting a block inside a <p>).
+ *
+ * The cell's existing child nodes are moved into the <p> (identity preserved) and
+ * the live selection is re-anchored into it, so a Range captured before this call
+ * must be re-read from the selection afterwards.
+ */
+export function ensureBlockInCell(node: Node, root: Element): HTMLElement | null {
+  const found = blockOrBareCell(node, root);
+  if (!found || !found.bareCell) return null;
+  const cell = found.el;
+  const hasBlockChild = Array.from(cell.children).some(
+    (c) => BLOCK_TAGS.has(c.tagName) || c.tagName === 'UL' || c.tagName === 'OL' || c.tagName === 'TABLE',
+  );
+  if (hasBlockChild) return null;
+
+  const sel = window.getSelection();
+  const saved = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+  const snap = saved
+    ? { sc: saved.startContainer, so: saved.startOffset, ec: saved.endContainer, eo: saved.endOffset }
+    : null;
+
+  const p = document.createElement('p');
+  while (cell.firstChild) p.appendChild(cell.firstChild);
+  if (p.childNodes.length === 0) p.appendChild(document.createElement('br'));
+  cell.appendChild(p);
+
+  // The cell's children moved into <p> 1:1, so a boundary that pointed at the
+  // cell now points at the same index inside <p>; text-node boundaries moved
+  // with their node and stay valid.
+  if (snap && sel) {
+    const remap = (c: Node): Node => (c === cell ? p : c);
+    try {
+      const r = document.createRange();
+      r.setStart(remap(snap.sc), snap.so);
+      r.setEnd(remap(snap.ec), snap.eo);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+  return p;
+}
 
 /**
  * Map a Ctrl/Cmd+Shift+<digit> keydown to a block tag: Digit1–Digit6 → h1–h6,
@@ -28,7 +83,8 @@ export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
 
-  const block = findBlockAncestor(range.startContainer, ctx.root);
+  const block = ensureBlockInCell(range.startContainer, ctx.root)
+    ?? findBlockAncestor(range.startContainer, ctx.root);
   if (!block) return;
   // <summary>/<details> are structural; never rewrite them into a paragraph or
   // heading just because the caret happens to sit inside one.
@@ -59,7 +115,8 @@ export function insertDetails(ctx: CommandContext): void {
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
 
-  const block = findBlockAncestor(range.startContainer, ctx.root);
+  const block = ensureBlockInCell(range.startContainer, ctx.root)
+    ?? findBlockAncestor(range.startContainer, ctx.root);
 
   const details = document.createElement('details');
   details.setAttribute('open', '');
@@ -90,7 +147,8 @@ export function insertHr(ctx: CommandContext): void {
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
 
-  const block = findBlockAncestor(range.startContainer, ctx.root);
+  const block = ensureBlockInCell(range.startContainer, ctx.root)
+    ?? findBlockAncestor(range.startContainer, ctx.root);
   const hr = document.createElement('hr');
   const p = document.createElement('p');
   p.appendChild(document.createElement('br'));
@@ -133,6 +191,9 @@ interface RangeSnapshot {
 export function toggleList(type: 'ul' | 'ol', ctx: CommandContext): void {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
+  // A bare table cell has no block to convert; wrap its content first so the
+  // list is created inside the cell. No-op (and selection untouched) elsewhere.
+  ensureBlockInCell(sel.getRangeAt(0).startContainer, ctx.root);
   const range = sel.getRangeAt(0);
 
   const list = findListContainer(range.startContainer, ctx.root);

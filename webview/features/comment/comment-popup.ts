@@ -57,6 +57,13 @@ export function mountCommentPopup(
   const repliesSection = document.createElement('div');
   repliesSection.className = 'ahve-cp-replies';
 
+  // The body + replies scroll together in this middle region so that, once the
+  // thread outgrows the viewport, the header and reply form stay pinned while
+  // only this area scrolls (see .ahve-cp-content in comment-popup.css).
+  const content = document.createElement('div');
+  content.className = 'ahve-cp-content';
+  content.append(bodySection, repliesSection);
+
   const replyForm = document.createElement('div');
   replyForm.className = 'ahve-cp-reply-form';
   const replyInput = document.createElement('textarea');
@@ -65,7 +72,7 @@ export function mountCommentPopup(
   replyInput.rows = 1;
   replyForm.appendChild(replyInput);
 
-  popup.append(header, bodySection, repliesSection, replyForm);
+  popup.append(header, content, replyForm);
   document.body.appendChild(popup);
 
   // Prevent the editor from losing selection when the popup is clicked.

@@ -739,6 +739,71 @@ test.describe('Comment inside/outside typing', () => {
   }
 });
 
+// A long comment thread must not overflow the viewport: once the popup reaches
+// the height cap it scrolls its middle (body + replies) while the header and the
+// reply input stay pinned, so the reply box is always reachable and new replies
+// can still be entered. Layout/overflow can only be proven in a real browser.
+test.describe('Comment popup scrolls when the thread is taller than the viewport', () => {
+  // Add `count` replies through the popup's reply input, one Enter each.
+  async function addReplies(page: Page, count: number): Promise<void> {
+    const input = page.locator('#ahve-comment-popup textarea.ahve-cp-reply-input');
+    for (let i = 0; i < count; i++) {
+      await input.fill(`reply number ${i + 1}`);
+      await input.press('Enter');
+    }
+    await expect(page.locator('#ahve-root comment > comment-reply')).toHaveCount(count);
+  }
+
+  test('a tall thread keeps the popup within the viewport and the reply input reachable', async ({ page }) => {
+    // A short viewport so a modest number of replies is enough to overflow.
+    await page.setViewportSize({ width: 800, height: 320 });
+    await mountEditor(page, '<p>hello world that is long enough</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+    await addReplies(page, 20);
+
+    const viewportH = 320;
+
+    // 1) The popup itself never grows past the viewport height.
+    const popupBox = await popup.boundingBox();
+    expect(popupBox).not.toBeNull();
+    expect(popupBox!.height).toBeLessThanOrEqual(viewportH);
+    expect(popupBox!.y).toBeGreaterThanOrEqual(0);
+    expect(popupBox!.y + popupBox!.height).toBeLessThanOrEqual(viewportH + 1);
+
+    // 2) The reply input stays visible and fully inside the viewport, and a new
+    //    reply can still be entered (the reported "cannot input" regression).
+    const replyInput = popup.locator('textarea.ahve-cp-reply-input');
+    await expect(replyInput).toBeVisible();
+    const inputBox = await replyInput.boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(inputBox!.y).toBeGreaterThanOrEqual(0);
+    expect(inputBox!.y + inputBox!.height).toBeLessThanOrEqual(viewportH + 1);
+
+    await replyInput.fill('added after scrolling');
+    await replyInput.press('Enter');
+    await expect(page.locator('#ahve-root comment > comment-reply')).toHaveCount(21);
+
+    // 3) The middle region actually scrolls, and the header stays pinned in view.
+    const content = popup.locator('.ahve-cp-content');
+    const scroll = await content.evaluate((el) => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }));
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+
+    const header = popup.locator('.ahve-cp-header');
+    const headerBox = await header.boundingBox();
+    expect(headerBox).not.toBeNull();
+    expect(headerBox!.y).toBeGreaterThanOrEqual(0);
+    expect(headerBox!.y + headerBox!.height).toBeLessThanOrEqual(viewportH + 1);
+  });
+});
+
 // Authoritative boundary matrix: drive REAL keyboard input and assert, for every
 // inside/outside × leading/trailing case, both WHERE the typed character lands in
 // the DOM and the CARET COLOUR. jsdom and programmatic boundary selections cannot

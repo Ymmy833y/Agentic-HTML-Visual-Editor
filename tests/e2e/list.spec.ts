@@ -91,4 +91,14 @@ test.describe('Lists', () => {
 
     expect(await getRootHtml(page)).toBe('<ul><li>a</li></ul><p><br></p>');
   });
+
+  test('the UL button creates a list inside a table cell', async ({ page }) => {
+    await mountEditor(page, '<table><tbody><tr><td>a</td></tr></tbody></table>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root td');
+
+    await page.locator('#ahve-tb-ul').click();
+
+    expect(await page.locator('#ahve-root td').innerHTML()).toBe('<ul><li>a</li></ul>');
+  });
 });
