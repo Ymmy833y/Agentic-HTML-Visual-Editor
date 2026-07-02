@@ -6,6 +6,13 @@
   z-index: 30;
   width: 320px;
   max-width: calc(100vw - 16px);
+  /* Cap the height so a long thread cannot run off-screen; the middle region
+     (.ahve-cp-content) scrolls instead. The 16px keeps the 8px viewport gap
+     that reposition() (VIEWPORT_PADDING/MARGIN) reserves at top and bottom.
+     border-box makes the cap include the popup's own padding and border. */
+  box-sizing: border-box;
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
   background: var(--ahve-bg);
   color: var(--ahve-fg);
   border: 1px solid var(--ahve-border);
@@ -25,6 +32,18 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  flex: 0 0 auto;
+}
+
+/* Middle scroll region: body + replies. Pinned header/reply-form sit outside it.
+   min-height:0 lets this flex child shrink below its content so overflow scrolls. */
+.ahve-cp-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .ahve-cp-spacer {
   flex: 1;
@@ -157,4 +176,5 @@
 .ahve-cp-reply-form {
   border-top: 1px solid var(--ahve-border);
   padding-top: 8px;
+  flex: 0 0 auto;
 }
