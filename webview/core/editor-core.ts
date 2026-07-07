@@ -23,7 +23,11 @@ export interface EditorHandle {
   notifyChanged(): void;
 }
 
-export function setupEditor(root: HTMLElement, onChange: () => void): EditorHandle {
+export function setupEditor(
+  root: HTMLElement,
+  onChange: () => void,
+  onDirty?: () => void,
+): EditorHandle {
   root.contentEditable = 'true';
   root.spellcheck = false;
   root.setAttribute('role', 'textbox');
@@ -53,6 +57,10 @@ export function setupEditor(root: HTMLElement, onChange: () => void): EditorHand
   const boundary: { pendingInside: Element | null } = { pendingInside: null };
 
   const scheduleChange = (): void => {
+    // Dirty state must flip synchronously: a document remount arriving inside
+    // the debounce window would otherwise wipe a change that has not been
+    // marked as unsaved yet.
+    onDirty?.();
     if (pending !== null) {
       window.clearTimeout(pending);
     }

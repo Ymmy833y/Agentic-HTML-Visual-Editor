@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
-  DEBOUNCE_MS,
   focusEditor,
-  getEditMessages,
   mountEditor,
+  saveAndGetHtml,
   selectTextInside,
 } from './helpers/page';
 
@@ -429,10 +428,7 @@ test.describe('Comment editing keeps comments intact', () => {
     await page.keyboard.press('Enter');
     await page.keyboard.type('a');
 
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    expect(edits.length).toBeGreaterThan(0);
-    const html = edits[edits.length - 1].html;
+    const html = await saveAndGetHtml(page);
     expect(html).toContain('id="c-gsb0lvjq"');
     expect(html).toContain('This is comment');
     expect(html).toContain('data-author="human"');
@@ -529,14 +525,9 @@ test.describe('Comment editing keeps comments intact', () => {
     expect(h2Html).not.toContain('font-size');
     expect(h2Html).toContain('gs');
 
-    // A subsequent edit still serializes a single, intact comment to the host
-    // (Enter+Backspace alone round-trips to the original, so it is deduped — type
-    // a character to force a fresh edit message).
+    // A subsequent edit still serializes a single, intact comment on save.
     await page.keyboard.type('x');
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    expect(edits.length).toBeGreaterThan(0);
-    const html = edits[edits.length - 1].html;
+    const html = await saveAndGetHtml(page);
     expect(html).toContain('id="c-z8tsbr26"');
     expect(html).toContain('ほげ');
     expect(html).not.toContain('font-size');
@@ -580,10 +571,8 @@ test.describe('Comment editing keeps comments intact', () => {
     expect(h2Text.target).toBe('di');
     expect(h2Text.after).toBe('g');
 
-    // The serialized edit keeps a single, intact comment with its body.
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    const html = edits[edits.length - 1].html;
+    // The serialized save keeps a single, intact comment with its body.
+    const html = await saveAndGetHtml(page);
     expect(html).toContain('id="c-5m4ikno2"');
     expect(html).toContain('Comment');
     expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
@@ -640,10 +629,8 @@ test.describe('Comment inside/outside typing', () => {
     expect(state.outsideText).toBe('abc'); // typed text is a sibling after </comment>
     expect(state.commentInsideP).toBe(true);
 
-    // The serialized edit places the text outside the comment.
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    const html = edits[edits.length - 1].html;
+    // The serialized save places the text outside the comment.
+    const html = await saveAndGetHtml(page);
     expect(html).toContain('</comment>abc</p>');
     expect(html.match(/<comment[\s>]/g)?.length).toBe(1);
   });
@@ -677,9 +664,7 @@ test.describe('Comment inside/outside typing', () => {
     // The marker is UI-only and must never reach the saved file.
     await page.keyboard.press('ArrowRight');
     await page.keyboard.type('z');
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    const html = edits[edits.length - 1].html;
+    const html = await saveAndGetHtml(page);
     expect(html).not.toContain('data-ahve-caret-outside');
     expect(html).toContain('</comment>z</p>');
   });
@@ -918,9 +903,7 @@ test.describe('Comment boundary typing — real keyboard, all four cases', () =>
     expect(s.after).toBe('be'); // typed outside, after the comment
 
     // Neither transient marker may reach the saved file.
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    const html = edits[edits.length - 1].html;
+    const html = await saveAndGetHtml(page);
     expect(html).not.toContain('data-ahve-caret-outside');
     expect(html).not.toContain('data-ahve-caret-inside');
   });

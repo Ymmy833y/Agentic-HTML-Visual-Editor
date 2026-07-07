@@ -6,12 +6,15 @@ const HOST_URL = pathToFileURL(
   path.resolve(__dirname, '../fixtures/webview-host.html'),
 ).href;
 
-// Mirror webview/main.ts: edit messages are debounced by 250ms.
+// Mirror webview/core/editor-core.ts: change notifications (state backup)
+// are debounced by 250ms.
 export const DEBOUNCE_MS = 250;
 
 declare global {
   interface Window {
     __vscodeMessages: { type: string; [key: string]: unknown }[];
+    /** Last value passed to the mocked vscode.setState (see webview-host.html). */
+    __lastState: unknown;
   }
 }
 
@@ -43,15 +46,73 @@ export async function getMessages(page: Page): Promise<{ type: string; [key: str
   return page.evaluate(() => window.__vscodeMessages.slice());
 }
 
-export async function getEditMessages(
-  page: Page,
-): Promise<{ type: 'edit'; html: string }[]> {
+export interface SaveMessage {
+  type: 'save';
+  html: string;
+  baseHtml: string;
+}
+
+export async function getSaveMessages(page: Page): Promise<SaveMessage[]> {
   return page.evaluate(
     () =>
       window.__vscodeMessages.filter(
-        (m): m is { type: 'edit'; html: string } => m.type === 'edit',
+        (m): m is { type: 'save'; html: string; baseHtml: string } => m.type === 'save',
       ),
   );
+}
+
+export interface BackupMessage {
+  type: 'backup';
+  html: string;
+  baseHtml: string;
+}
+
+/**
+ * Backup messages carry the unsaved view content to the extension host, which
+ * persists it (workspaceState) so a disposed/reopened view can restore it.
+ */
+export async function getBackupMessages(page: Page): Promise<BackupMessage[]> {
+  return page.evaluate(
+    () =>
+      window.__vscodeMessages.filter(
+        (m): m is { type: 'backup'; html: string; baseHtml: string } => m.type === 'backup',
+      ),
+  );
+}
+
+/**
+ * Trigger the editor's save action (the Ctrl+S handler) via a synthetic
+ * keydown, avoiding the browser's own Ctrl+S behavior in the test runner.
+ */
+export async function triggerSave(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 's',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+/**
+ * Trigger a save and return the html of the save message it posts. Edits are
+ * held in the webview until a save action, so this is how tests observe the
+ * serialized document.
+ */
+export async function saveAndGetHtml(page: Page): Promise<string> {
+  const before = await page.evaluate(
+    () => window.__vscodeMessages.filter((m) => m.type === 'save').length,
+  );
+  await triggerSave(page);
+  await page.waitForFunction(
+    (n) => window.__vscodeMessages.filter((m) => m.type === 'save').length > n,
+    before,
+  );
+  const saves = await getSaveMessages(page);
+  return saves[saves.length - 1].html;
 }
 
 export async function getRootHtml(page: Page): Promise<string> {

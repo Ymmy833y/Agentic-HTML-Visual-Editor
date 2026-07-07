@@ -1,12 +1,11 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import {
-  DEBOUNCE_MS,
   caretAtEnd,
   focusEditor,
-  getEditMessages,
   getRootHtml,
   mountEditor,
+  saveAndGetHtml,
   selectTextInside,
 } from './helpers/page';
 
@@ -88,21 +87,17 @@ test.describe('Toolbar editing', () => {
     expect(await getRootHtml(page)).toBe('<h1>title</h1>');
   });
 
-  test.skip('Edits dispatch a debounced edit message that preserves the body wrapper', async ({ page }) => {
+  test('Saving dispatches a save message that preserves the body wrapper', async ({ page }) => {
     const full = '<!DOCTYPE html><html><head></head><body><p>hello world</p></body></html>';
     await mountEditor(page, full);
+    await focusEditor(page);
     await selectTextInside(page, '#ahve-root p', 0, 5);
-    await page.locator('#ahve-tb-bold').click();
+    await page.keyboard.press('Control+b');
 
-    // The edit notification is debounced; wait one debounce window plus a
-    // small slack so the timer definitely fires.
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    expect(edits.length).toBeGreaterThanOrEqual(1);
-    const last = edits[edits.length - 1];
-    expect(last.html).toContain('<strong>hello</strong>');
-    expect(last.html).toContain('<body');
-    expect(last.html).toContain('</body>');
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain('<strong>hello</strong>');
+    expect(html).toContain('<body');
+    expect(html).toContain('</body>');
   });
 });
 

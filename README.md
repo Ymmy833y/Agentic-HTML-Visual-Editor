@@ -57,7 +57,7 @@ Coding agents and humans both need to read and write the same documents — desi
 
 | Area | What you get |
 | --- | --- |
-| ✍️ **WYSIWYG editing** | Inline editing of `.html` with edits reflected straight into the source |
+| ✍️ **WYSIWYG editing** | Inline editing of `.html`, synced into the source as a diff when you save |
 | 💬 **Comments** | HTML-native, review-style inline annotations with author, time & resolved state |
 | ✅ **Lists** | Create, nest and toggle `ul`/`ol` from the toolbar, keyboard or markdown triggers |
 | ⌨️ **Shortcuts** | Keyboard, toolbar, floating menu, and markdown-style auto-formatting |
@@ -73,7 +73,10 @@ Coding agents and humans both need to read and write the same documents — desi
 ### ✍️ WYSIWYG editing (inline)
 
 - Targets `.html` files.
-- Direct edits in the WYSIWYG view are immediately reflected in the underlying HTML source.
+- Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
+- The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first).
+- While the view has no unsaved changes, direct changes to the HTML source are reflected into the view immediately.
+- Unsaved changes survive closing the view (including switching the tab over to the text editor): they are backed up on the extension side and silently restored — merged with any direct HTML changes made in the meantime — the next time the view opens, still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
 

@@ -58,7 +58,23 @@ if (!root) {
 
 let prefix = '';
 let suffix = '';
-let lastSyncedHtml: string | null = null;
+
+// --- Sync state ---
+// The document text the current DOM was mounted from / last synced with. It is
+// the base of the three-way merge the extension performs on save, so it must
+// only advance when the view and the document are known to agree.
+let baseHtml: string | null = null;
+// Whether the view holds changes that have not been saved into the document.
+// Edits stay in the webview until the user's save action; nothing is pushed
+// to the document while typing. They are streamed to the extension host as
+// `backup` messages so they survive the webview being disposed (the tab
+// switched over to the text editor, a window reload, ...).
+let dirty = false;
+// Number of save requests in flight (posted, saveResult not yet received).
+let pendingSaves = 0;
+// The serialization sent with the most recent save request, used to detect
+// edits made while the save round-trip was in flight.
+let savedSnapshot: string | null = null;
 
 function mountFromSource(source: string): void {
   if (!root) return;
@@ -83,13 +99,35 @@ function serialize(): string | null {
   return prefix + formatForSerialize(root) + suffix;
 }
 
-const editor = setupEditor(root, () => {
+function setDirty(value: boolean): void {
+  dirty = value;
+  toolbar.setDirty(value);
+}
+
+// Debounced: back the unsaved content up to the extension host, which
+// persists it per document. The document itself is NOT touched here — sync
+// happens only on save.
+const editor = setupEditor(
+  root,
+  () => {
+    if (!dirty || baseHtml === null) return;
+    const html = serialize();
+    if (html === null) return;
+    vscode.postMessage({ type: 'backup', html, baseHtml });
+  },
+  () => setDirty(true),
+);
+
+// Serialize the view and ask the extension host to merge it into the document
+// (three-way, against baseHtml) and save the file. Runs even when the view is
+// clean so Ctrl+S still behaves as a plain file save.
+function requestSave(): void {
   const html = serialize();
-  if (html === null) return;
-  if (html === lastSyncedHtml) return;
-  lastSyncedHtml = html;
-  vscode.postMessage({ type: 'edit', html });
-});
+  if (html === null || baseHtml === null) return;
+  pendingSaves++;
+  savedSnapshot = html;
+  vscode.postMessage({ type: 'save', html, baseHtml });
+}
 
 const ctx: CommandContext = { root };
 
@@ -183,8 +221,9 @@ const toolbar = createToolbar(root, {
   onAddComment: handleAddComment,
   onCopy: (format) => doCopy(format),
   onInsertTable: (anchor) => tablePicker.open(anchor),
+  onSave: () => requestSave(),
 });
-document.body.insertBefore(toolbar, root);
+document.body.insertBefore(toolbar.element, root);
 
 mountTableMenu(root, {
   onCommand: () => {
@@ -433,6 +472,10 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
 // Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
 // it works whether focus is in the editor or already in the widget. The webview
 // has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
+// Ctrl/Cmd+S is the save action: it syncs the view into the document (via the
+// extension's three-way merge) and saves the file. Even if VSCode's webview
+// keyboard forwarding also triggers the workbench save, that save is a no-op —
+// the document is never dirty while edits are held in the view.
 document.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
@@ -440,6 +483,10 @@ document.addEventListener(
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       searchWidget.open();
+    }
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      requestSave();
     }
   },
   true,
@@ -452,24 +499,79 @@ root.addEventListener('input', () => {
   if (searchWidget.isOpen()) searchWidget.refresh();
 });
 
+/** Remount the view from `source`, preserving the caret and search state. */
+function remountPreservingSelection(source: string): void {
+  if (!root) return;
+  // A remount replaces the whole DOM, invalidating the live Selection.
+  // Capture the caret as a whitespace-stable path before the remount and
+  // restore it afterward so a sync does not bounce the cursor to the top.
+  const saved = captureSelection(root);
+  mountFromSource(source);
+  if (saved) restoreSelection(root, saved);
+  // The remount replaced every node, so any live search ranges are stale.
+  searchWidget.refresh();
+}
+
 window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessage>) => {
   const message = event.data;
   switch (message.type) {
-    case 'init':
-      lastSyncedHtml = message.html;
-      mountFromSource(message.html);
+    case 'init': {
+      baseHtml = message.html;
+      // `restored` carries unsaved changes a previous view session backed up,
+      // already three-way merged by the host against the current document.
+      // Mount them as unsaved content — the user's next save commits them.
+      if (typeof message.restored === 'string' && message.restored !== message.html) {
+        mountFromSource(message.restored);
+        setDirty(true);
+      } else {
+        mountFromSource(message.html);
+        setDirty(false);
+      }
       break;
+    }
     case 'documentChanged': {
-      if (message.html === lastSyncedHtml) return;
-      lastSyncedHtml = message.html;
-      // A save echo remounts the whole DOM, invalidating the live Selection.
-      // Capture the caret as a whitespace-stable path before the remount and
-      // restore it afterward so Ctrl+S does not bounce the cursor to the top.
-      const saved = captureSelection(root);
-      mountFromSource(message.html);
-      if (saved) restoreSelection(root, saved);
-      // The remount replaced every node, so any live search ranges are stale.
-      searchWidget.refresh();
+      // While the view holds unsaved changes (or a save is in flight), an
+      // external document change is NOT applied to the view — it would wipe
+      // those changes. It is picked up by the three-way merge on the next
+      // save instead. This also neutralizes stale save echoes, which used to
+      // remount the DOM and roll back edits made during the round-trip.
+      if (dirty || pendingSaves > 0) return;
+      if (message.html === baseHtml) return;
+      baseHtml = message.html;
+      remountPreservingSelection(message.html);
+      break;
+    }
+    case 'saveResult': {
+      pendingSaves = Math.max(0, pendingSaves - 1);
+      // Older result of overlapping saves; the newest one carries the final
+      // document state.
+      if (pendingSaves > 0) return;
+      if (message.ok === false) {
+        // The host could not apply the merge to the document. Keep the view
+        // (and its base) untouched so nothing is lost; the save can be
+        // retried.
+        savedSnapshot = null;
+        return;
+      }
+      const current = serialize();
+      if (current !== null && savedSnapshot !== null && current !== savedSnapshot) {
+        // The user kept editing while the save was in flight. Keep those
+        // edits (still marked dirty) and advance the merge base only to the
+        // snapshot that was saved — the next save merges the rest.
+        baseHtml = savedSnapshot;
+        savedSnapshot = null;
+        // Refresh the host-side backup so it is keyed to the new base.
+        vscode.postMessage({ type: 'backup', html: current, baseHtml });
+        return;
+      }
+      savedSnapshot = null;
+      baseHtml = message.html;
+      setDirty(false);
+      // Remount only when the saved document differs from the view (external
+      // changes merged in, or save-time normalization).
+      if (current !== message.html) {
+        remountPreservingSelection(message.html);
+      }
       break;
     }
     case 'copyToClipboard':
@@ -479,6 +581,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
 });
 
 window.addEventListener('beforeunload', () => {
+  // Flush the debounced backup so the freshest unsaved content reaches the
+  // extension host before the webview is torn down.
   editor.flush();
 });
 
