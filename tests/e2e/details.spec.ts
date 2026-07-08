@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
-  DEBOUNCE_MS,
   caretAtEnd,
   focusEditor,
-  getEditMessages,
   getRootHtml,
   mountEditor,
+  saveAndGetHtml,
 } from './helpers/page';
 
 test.describe('Details / summary', () => {
@@ -58,16 +57,13 @@ test.describe('Details / summary', () => {
     await expect(page.locator('#ahve-root details')).toHaveAttribute('open', '');
   });
 
-  test('Toggling persists as an edit message', async ({ page }) => {
+  test('Toggling persists into the saved document', async ({ page }) => {
     await mountEditor(page, '<details open=""><summary>title</summary><p>body</p></details>');
 
     await page.locator('#ahve-root summary').click({ position: { x: 4, y: 8 } });
 
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    expect(edits.length).toBeGreaterThanOrEqual(1);
-    const last = edits[edits.length - 1];
-    expect(last.html).toContain('<summary>title</summary>');
-    expect(last.html).not.toContain('<details open');
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain('<summary>title</summary>');
+    expect(html).not.toContain('<details open');
   });
 });

@@ -1,10 +1,19 @@
 import * as vscode from 'vscode';
 import { CUSTOM_EDITOR_VIEW_TYPE } from '../commands/openInVisualEditor';
+import { computeInitPayload, type UnsavedBackup } from './backup';
+import { mergeHtml } from './merge';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
 } from '../shared/messages';
+
+// workspaceState key holding the latest unsaved view content per document.
+const BACKUP_KEY_PREFIX = 'ahve.unsavedBackup:';
+
+function backupKey(uri: vscode.Uri): string {
+  return BACKUP_KEY_PREFIX + uri.toString();
+}
 
 export class AhveEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = CUSTOM_EDITOR_VIEW_TYPE;
@@ -54,19 +63,76 @@ export class AhveEditorProvider implements vscode.CustomTextEditorProvider {
 
     let suppressEcho = false;
 
+    // Saves are serialized through a promise chain: the message handler can
+    // interleave at its awaits, and two overlapping saves would otherwise both
+    // read a stale document.getText() as their merge input.
+    let saveChain: Promise<void> = Promise.resolve();
+
+    const handleSave = async (html: string, baseHtml: string): Promise<void> => {
+      // Apply the WYSIWYG changes as a diff against the base the view last
+      // synced from, so edits made directly to the document in the meantime
+      // are preserved (conflicting regions keep both versions).
+      const merged = mergeHtml(baseHtml, html, document.getText());
+      let applied = false;
+      suppressEcho = true;
+      try {
+        applied = await applyEdit(document, merged);
+      } finally {
+        suppressEcho = false;
+      }
+      if (!applied) {
+        // Saving anyway would write the document WITHOUT the view's changes
+        // and the view would sync to it, silently dropping them. Keep the
+        // view dirty (and its host-side backup) instead.
+        vscode.window.showErrorMessage(
+          'Could not apply the WYSIWYG changes to the document; the file was not saved.',
+        );
+        post({ type: 'saveResult', html: document.getText(), ok: false });
+        return;
+      }
+      try {
+        await document.save();
+        // The unsaved changes are now in the file; drop their backup.
+        await this.context.workspaceState.update(backupKey(document.uri), undefined);
+      } finally {
+        // Echo the authoritative post-save text (save hooks such as
+        // formatting or final-newline insertion may have adjusted it) so the
+        // webview can update its sync base.
+        post({ type: 'saveResult', html: document.getText(), ok: true });
+      }
+    };
+
     const messageSubscription = webviewPanel.webview.onDidReceiveMessage(
       async (message: WebviewToExtensionMessage) => {
         switch (message.type) {
-          case 'ready':
-            post({ type: 'init', html: document.getText() });
-            break;
-          case 'edit':
-            suppressEcho = true;
-            try {
-              await applyEdit(document, message.html);
-            } finally {
-              suppressEcho = false;
+          case 'ready': {
+            // Restore unsaved changes a previous view session backed up (the
+            // webview is disposed whenever the tab is switched over to the
+            // text editor). If the document changed in the meantime, the
+            // restored content is its three-way merge with those changes.
+            const key = backupKey(document.uri);
+            const backup = this.context.workspaceState.get<UnsavedBackup>(key);
+            const payload = computeInitPayload(document.getText(), backup);
+            if (backup && payload.restored === undefined) {
+              // Stale or already-saved backup: consume it.
+              await this.context.workspaceState.update(key, undefined);
             }
+            post({ type: 'init', html: payload.html, restored: payload.restored });
+            break;
+          }
+          case 'save': {
+            const { html, baseHtml } = message;
+            const run = saveChain.then(() => handleSave(html, baseHtml));
+            // Keep the chain alive after a failed save so later saves still run.
+            saveChain = run.catch(() => undefined);
+            await run;
+            break;
+          }
+          case 'backup':
+            await this.context.workspaceState.update(backupKey(document.uri), {
+              baseHtml: message.baseHtml,
+              html: message.html,
+            } satisfies UnsavedBackup);
             break;
           case 'clipboardWrite':
             await writeClipboard(message.text, message.format);
@@ -141,15 +207,15 @@ export class AhveEditorProvider implements vscode.CustomTextEditorProvider {
   }
 }
 
-async function applyEdit(document: vscode.TextDocument, newText: string): Promise<void> {
-  if (newText === document.getText()) return;
+async function applyEdit(document: vscode.TextDocument, newText: string): Promise<boolean> {
+  if (newText === document.getText()) return true;
   const edit = new vscode.WorkspaceEdit();
   const fullRange = new vscode.Range(
     document.positionAt(0),
     document.positionAt(document.getText().length),
   );
   edit.replace(document.uri, fullRange, newText);
-  await vscode.workspace.applyEdit(edit);
+  return vscode.workspace.applyEdit(edit);
 }
 
 async function writeClipboard(text: string, format: CopyFormat): Promise<void> {

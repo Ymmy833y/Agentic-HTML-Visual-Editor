@@ -71,6 +71,22 @@
   align-items: center;
   justify-content: center;
 }
+/* Unsaved-changes indicator: a dot pinned to the save button's corner. The
+   document stays unmodified until the user saves, so the tab never shows
+   VS Code's dirty dot — this stands in for it. */
+#ahve-tb-save {
+  position: relative;
+}
+#ahve-tb-save.ahve-tb-unsaved::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--vscode-charts-orange, #f59e0b);
+}
 .ahve-tb-bold { font-weight: 700; }
 .ahve-tb-italic { font-style: italic; }
 .ahve-tb-code {

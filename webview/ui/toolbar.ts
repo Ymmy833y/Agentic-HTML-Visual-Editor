@@ -17,6 +17,9 @@ const ICON_CODEBLOCK = `<svg viewBox="0 0 16 16" width="16" height="16" fill="no
 
 const ICON_CLIPBOARD = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`;
 
+// Floppy disk — the universal "save" glyph.
+const ICON_SAVE = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 1.5H3.5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V5L11 1.5Z"/><path d="M5 1.5V5h5V1.5"/><path d="M4.5 14.5V9.5h7v5"/></svg>`;
+
 // Tilted eraser pressed against a baseline, with a divider marking where
 // the worn tip meets the body — universally read as "erase / clear".
 const ICON_CLEAR_FORMAT = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5L14 6.5L7.5 13H4L2 11L10 2.5Z"/><path d="M7 5.5L11 9.5"/><path d="M2.5 14h11"/></svg>`;
@@ -62,9 +65,17 @@ export interface ToolbarOptions {
   onCopy: (format: CopyFormat) => void;
   /** Open the table picker, anchored to the clicked toolbar button. */
   onInsertTable: (anchor: HTMLElement) => void;
+  /** Sync the view into the document and save the file. */
+  onSave: () => void;
 }
 
-export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElement {
+export interface ToolbarHandle {
+  element: HTMLElement;
+  /** Show/hide the unsaved-changes indicator on the save button. */
+  setDirty(dirty: boolean): void;
+}
+
+export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarHandle {
   const bar = document.createElement('div');
   bar.id = 'ahve-toolbar';
   bar.setAttribute('role', 'toolbar');
@@ -127,7 +138,13 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
     ctx, opts, root, () => savedRange,
   );
 
+  // --- Save button with unsaved-changes indicator ---
+  // The document itself stays unmodified until the user saves, so the editor
+  // tab never shows VS Code's dirty dot; this indicator stands in for it.
+  const saveBtn = iconBtn(ICON_SAVE, 'Save (Ctrl+S)', () => opts.onSave(), 'ahve-tb-save');
+
   // --- Assemble groups ---
+  group(bar, [saveBtn]);
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
   group(bar, [linkBtn(opts.onLink)]);
@@ -188,7 +205,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): HTMLElem
       ?.classList.toggle('ahve-tb-active', !!findInlineAncestor(node, 'A', root));
   });
 
-  return bar;
+  return {
+    element: bar,
+    setDirty(dirty: boolean): void {
+      saveBtn.classList.toggle('ahve-tb-unsaved', dirty);
+    },
+  };
 }
 
 // --- Custom block-type dropdown ---
