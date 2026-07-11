@@ -25,6 +25,7 @@ import * as cdom from './features/comment/comment-dom';
 import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
 import { mountDetails } from './features/details/details';
+import { mountDetailsSelection } from './features/details/details-selection';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -275,6 +276,10 @@ root.addEventListener('click', (e: MouseEvent) => {
 mountDetails(root, {
   onChange: () => editor.notifyChanged(),
 });
+
+// Drive multi-block text selection inside a <details> body, which the browser
+// otherwise clamps at the first block (see mountDetailsSelection).
+mountDetailsSelection(root);
 
 // Selection-driven floating menu.
 mountFloatingMenu(root, {

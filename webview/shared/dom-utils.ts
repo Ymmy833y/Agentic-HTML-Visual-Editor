@@ -130,6 +130,33 @@ export function surroundSimple(range: Range, wrapper: Element): void {
   }
 }
 
+/**
+ * Resolve the caret position (node + offset) under a viewport point, bridging the
+ * two browser APIs: the standard `caretPositionFromPoint` (Firefox / modern
+ * Chromium) and the legacy `caretRangeFromPoint` (WebKit / older Chromium).
+ * Over content slotted into a UA shadow tree (e.g. `<details>` body) both APIs
+ * report the light-DOM text node, which is what Selection ranges operate on.
+ * Returns null when no caret resolves at that point.
+ */
+export function caretPositionFromPoint(x: number, y: number): { node: Node; offset: number } | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (
+      x: number,
+      y: number,
+    ) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  if (typeof doc.caretPositionFromPoint === 'function') {
+    const pos = doc.caretPositionFromPoint(x, y);
+    if (pos) return { node: pos.offsetNode, offset: pos.offset };
+  }
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    const range = doc.caretRangeFromPoint(x, y);
+    if (range) return { node: range.startContainer, offset: range.startOffset };
+  }
+  return null;
+}
+
 /** Collapse the selection onto the full contents of el. */
 export function selectContents(sel: Selection, el: Node): void {
   const r = document.createRange();
