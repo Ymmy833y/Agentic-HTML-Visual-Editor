@@ -139,8 +139,8 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
   );
 
   // --- Save button with unsaved-changes indicator ---
-  // The document itself stays unmodified until the user saves, so the editor
-  // tab never shows VS Code's dirty dot; this indicator stands in for it.
+  // Mirrors the editor tab's native dirty dot inside the view, next to the
+  // action that clears it.
   const saveBtn = iconBtn(ICON_SAVE, 'Save (Ctrl+S)', () => opts.onSave(), 'ahve-tb-save');
 
   // --- Assemble groups ---

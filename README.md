@@ -74,9 +74,10 @@ Coding agents and humans both need to read and write the same documents — desi
 
 - Targets `.html` files.
 - Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
+- The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
 - The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first).
 - While the view has no unsaved changes, direct changes to the HTML source are reflected into the view immediately.
-- Unsaved changes survive closing the view (including switching the tab over to the text editor): they are backed up on the extension side and silently restored — merged with any direct HTML changes made in the meantime — the next time the view opens, still unsaved until you save.
+- The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab (or switching it over to the text editor) prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes — merged with any direct HTML changes made in the meantime — still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
 

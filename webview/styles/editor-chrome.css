@@ -71,9 +71,8 @@
   align-items: center;
   justify-content: center;
 }
-/* Unsaved-changes indicator: a dot pinned to the save button's corner. The
-   document stays unmodified until the user saves, so the tab never shows
-   VS Code's dirty dot — this stands in for it. */
+/* Unsaved-changes indicator: a dot pinned to the save button's corner,
+   mirroring the editor tab's native dirty dot inside the view. */
 #ahve-tb-save {
   position: relative;
 }
