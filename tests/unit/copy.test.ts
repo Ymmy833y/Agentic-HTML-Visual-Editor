@@ -29,6 +29,22 @@ describe('prepareCopy', () => {
     expect(out).toBe('world');
   });
 
+  it('drops an empty heading cloned only because the selection ends at its leading edge', () => {
+    const root = makeRoot(
+      '<p>This is sample text.</p>\n<h3>Level 3 heading</h3>',
+    );
+    const paragraph = root.querySelector('p')!;
+    const heading = root.querySelector('h3')!;
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild!, 0);
+    range.setEnd(heading.firstChild!, 0);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    expect(prepareCopy(root, 'html')).toBe('<p>This is sample text.</p>');
+  });
+
   it('applies the Confluence transform when format=confluence', () => {
     const root = makeRoot(
       '<p><comment id="c1">target<comment-body>note</comment-body></comment></p>',

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { caretAtEnd, focusEditor, getRootHtml, mountEditor } from './helpers/page';
+import { caretAtEnd, focusEditor, getRootHtml, mountEditor, saveAndGetHtml } from './helpers/page';
 
 async function pasteHtml(page: Page, html: string): Promise<void> {
   await page.evaluate((payload) => {
@@ -99,6 +99,115 @@ test.describe('Paste sanitization', () => {
 });
 
 test.describe('Copy / paste round-trip', () => {
+  test('pasting twice over a backward paragraph selection does not leave a trailing empty shell', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(
+      page,
+      '  <h2>Heading2</h2>\n  <p>This is sample text.</p>\n',
+    );
+    await focusEditor(page);
+
+    await page.evaluate(() => {
+      const root = document.querySelector('#ahve-root')!;
+      const paragraph = root.querySelector('p')!;
+      const paragraphText = paragraph.firstChild!;
+      const paragraphIndex = Array.from(root.childNodes).indexOf(paragraph);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.setBaseAndExtent(
+        paragraphText,
+        paragraphText.textContent!.length,
+        root,
+        paragraphIndex,
+      );
+    });
+
+    await page.keyboard.press('Control+C');
+    await page.keyboard.press('Control+V');
+    await page.keyboard.press('Control+V');
+
+    expect(await saveAndGetHtml(page)).toBe(
+      '  <h2>Heading2</h2>\n  <p>This is sample text.</p>\n  <p>This is sample text.</p>\n',
+    );
+  });
+
+  test('pasting twice over the original paragraph selection does not leave its empty shell', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(
+      page,
+      '  <h2>Heading</h2>\n  <p>This is sample text.</p>\n',
+    );
+    await focusEditor(page);
+
+    await page.evaluate(() => {
+      const paragraph = document.querySelector('#ahve-root p')!;
+      const range = document.createRange();
+      range.setStart(paragraph.firstChild!, 0);
+      range.setEndAfter(paragraph);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    await page.keyboard.press('Control+C');
+    await page.keyboard.press('Control+V');
+    await page.keyboard.press('Control+V');
+
+    expect(await saveAndGetHtml(page)).toBe(
+      '  <h2>Heading</h2>\n  <p>This is sample text.</p>\n  <p>This is sample text.</p>\n',
+    );
+  });
+
+  test('copying a paragraph and pasting it twice before a heading does not create empty blocks on save', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(
+      page,
+      '  <h2>Heading</h2>\n  <p>This is sample text.</p>\n' +
+        '  <p><span style="font-size: 1.25em; font-weight: 600;">Level 3 heading</span></p>\n',
+    );
+    await focusEditor(page);
+
+    await page.evaluate(() => {
+      const paragraph = document.querySelector('#ahve-root p')!;
+      const heading = document.querySelector('#ahve-root p:nth-of-type(2) span')!;
+      const range = document.createRange();
+      // A visual drag that starts at the first character and ends just after
+      // the line can put the Range boundary at offset zero in the next heading
+      // even though only the paragraph text is visibly highlighted (the
+      // interaction in the GIF).
+      range.setStart(paragraph.firstChild!, 0);
+      range.setEnd(heading.firstChild!, 0);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    await page.keyboard.press('Control+C');
+    await page.evaluate(() => {
+      const heading = document.querySelector('#ahve-root p:nth-of-type(2) span')!;
+      const range = document.createRange();
+      range.setStart(heading.firstChild!, 0);
+      range.collapse(true);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.keyboard.press('Control+V');
+    await page.keyboard.press('Control+V');
+
+    expect(await saveAndGetHtml(page)).toBe(
+      '  <h2>Heading</h2>\n  <p>This is sample text.</p>\n  <p>This is sample text.</p>\n' +
+        '  <p>This is sample text.</p>\n' +
+        '  <p><span style="font-size: 1.25em; font-weight: 600;">Level 3 heading</span></p>\n',
+    );
+  });
+
   test('copying then pasting within the editor produces clean HTML', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
