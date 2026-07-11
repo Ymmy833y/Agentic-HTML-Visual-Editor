@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Persist unsaved WYSIWYG changes on the extension side so they survive the webview being disposed — switching the same tab between the WYSIWYG view and the text editor silently discarded them; on reopen they are restored as unsaved content, three-way merged with any changes made directly to the HTML in the meantime. Unsaved content now uses VSCode's native custom-editor backup so hot exit restores it (a backup persisted by a previous version is migrated on first open)
 - Compare lines with normalized line endings during the save-time merge (and re-join with the document's dominant EOL), so editing a CRLF document no longer degrades concurrent-edit merges into a whole-body duplicated conflict
 - Keep the view content and its unsaved state when the merged save cannot be applied to the document, instead of silently syncing the view to the unsaved document text
+- Render images referenced by relative paths (e.g. `./images/foo.png`) in the WYSIWYG view by resolving them against the document's directory; relative resource loading is scoped to the document's folder and its workspace folder (absolute/`file://` paths remain unresolved by design)
 
 ## [0.1.4] - 2026-07-02
 
