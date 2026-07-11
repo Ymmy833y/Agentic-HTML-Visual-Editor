@@ -21,6 +21,7 @@ import { mountSearchWidget } from './ui/search-widget';
 import { openLinkDialog } from './ui/link-dialog';
 import { prepareCopy } from './features/clipboard/copy';
 import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
+import { insertFragmentAtCursor } from './features/clipboard/insert';
 import * as cdom from './features/comment/comment-dom';
 import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
@@ -341,7 +342,7 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
     if (text) {
       const fragment = document.createDocumentFragment();
       fragment.appendChild(document.createTextNode(text));
-      insertFragmentAtCursor(fragment);
+      insertFragmentAtCursor(root, fragment);
       editor.notifyChanged();
     }
     return;
@@ -357,25 +358,9 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
   tpl.innerHTML = html;
   sanitizeFragment(tpl.content);
   cleanupPastedFragment(tpl.content);
-  insertFragmentAtCursor(tpl.content);
+  insertFragmentAtCursor(root, tpl.content);
   editor.notifyChanged();
 });
-
-function insertFragmentAtCursor(fragment: DocumentFragment): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  const lastNode = fragment.lastChild;
-  range.insertNode(fragment);
-  if (lastNode) {
-    const r = document.createRange();
-    r.setStartAfter(lastNode);
-    r.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  }
-}
 
 // <form> elements may be present for layout, but should never submit. The
 // CSP `form-action 'none'` blocks navigation, but we also stop the event
