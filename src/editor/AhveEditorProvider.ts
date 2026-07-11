@@ -120,7 +120,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
 
     webviewPanel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist')],
+      localResourceRoots: buildLocalResourceRoots(this.context.extensionUri, document.uri),
     };
 
     const fileName = document.uri.path.split('/').at(-1) ?? '';
@@ -129,7 +129,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       light: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'ahve-light.svg'),
       dark: vscode.Uri.joinPath(this.context.extensionUri, 'icons', 'ahve-dark.svg'),
     };
-    webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
+    webviewPanel.webview.html = this.getHtml(webviewPanel.webview, document.uri);
 
     AhveEditorProvider.activePanel = webviewPanel;
 
@@ -396,7 +396,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     };
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview, documentUri: vscode.Uri): string {
     const nonce = makeNonce();
     const cspSource = webview.cspSource;
     const scriptUri = webview.asWebviewUri(
@@ -405,6 +405,21 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview.css'),
     );
+
+    // Resolve relative resource paths (e.g. `<img src="./images/foo.png">`) in
+    // the rendered content against the document's own directory. The webview
+    // runs at a `vscode-webview://` origin, so without a <base> every relative
+    // URL resolves against that origin and local images never load. Only file
+    // documents have a meaningful on-disk directory; other schemes (untitled,
+    // etc.) get no <base> and keep the previous behaviour. The browser uses the
+    // base only to resolve URLs at fetch time — the literal `src` attribute
+    // string is untouched, so serialization/round-trip is unaffected.
+    const baseTag =
+      documentUri.scheme === 'file'
+        ? `\n    <base href="${webview
+            .asWebviewUri(vscode.Uri.joinPath(documentUri, '..'))
+            .toString()}/" />`
+        : '';
 
     // CSP defaults to 'none' for every directive and we opt back in only for
     // the bundle's own script, the stylesheet, and rendered <img>/font assets.
@@ -425,7 +440,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8" />${baseTag}
     <meta http-equiv="Content-Security-Policy" content="${csp}" />
     <link rel="stylesheet" href="${styleUri.toString()}" />
     <title>Agentic HTML Visual Editor</title>
@@ -436,6 +451,26 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
   </body>
 </html>`;
   }
+}
+
+// Resource roots the webview may load local files (images, fonts) from. Always
+// includes the extension's `dist` bundle. For file documents we also allow the
+// document's own directory (so `./…` image paths load) and the enclosing
+// workspace folder (so `../…` paths that stay inside the workspace load too).
+// Absolute/out-of-workspace paths are intentionally left unreachable.
+function buildLocalResourceRoots(
+  extensionUri: vscode.Uri,
+  documentUri: vscode.Uri,
+): vscode.Uri[] {
+  const roots = [vscode.Uri.joinPath(extensionUri, 'dist')];
+  if (documentUri.scheme === 'file') {
+    roots.push(vscode.Uri.joinPath(documentUri, '..'));
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
+    if (workspaceFolder) {
+      roots.push(workspaceFolder.uri);
+    }
+  }
+  return roots;
 }
 
 /** Whether the WYSIWYG tab for `uri` currently shows the dirty indicator. */
