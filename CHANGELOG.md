@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replace the active HTML text tab with the WYSIWYG view in the same editor group, honoring VSCode's standard Save / Don't Save / Cancel close flow before switching and leaving unrelated or already-open editor views intact
+- Switch the active tab in either direction between the HTML text editor and WYSIWYG view in the same editor group, honoring VSCode's standard Save / Don't Save / Cancel close flow and leaving unrelated or already-open editor views intact
 - Sync the WYSIWYG view into the HTML source only on an explicit save action (`Ctrl+S` / `Cmd+S` or the new toolbar save button) instead of pushing every edit immediately; unsaved changes are held in the view
 - Apply the save as a three-way diff (git-style) against the document text the view last synced from, so changes made directly to the HTML while editing in the view are preserved; when both sides changed the same lines, both versions are kept (document side first) rather than using conflict markers
 - Keep reflecting direct HTML changes into the view immediately while the view has no unsaved changes

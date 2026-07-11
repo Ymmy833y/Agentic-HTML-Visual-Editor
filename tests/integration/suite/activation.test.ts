@@ -11,6 +11,7 @@ suite('Activation', () => {
     const commands = await vscode.commands.getCommands(true);
     for (const id of [
       'ahve.openInVisualEditor',
+      'ahve.openInTextEditor',
       'ahve.copyAsHtml',
       'ahve.copyAsConfluenceHtml',
     ]) {

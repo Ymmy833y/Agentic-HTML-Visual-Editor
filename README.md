@@ -49,7 +49,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Give humans a modern, readable view** they can edit intuitively, no HTML knowledge required.
 - **Use HTML as one portable, common format** for both AI and humans, always kept in sync with the source file.
 
-> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Click the **Open in WYSIWYG** title-bar button (`ahve.openInVisualEditor`) to replace the active HTML text tab with the visual view. If the HTML has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
+> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Use the title-bar buttons to switch the active tab between **Open in WYSIWYG** (`ahve.openInVisualEditor`) and **Open in HTML** (`ahve.openInTextEditor`). If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
 
 ---
 
@@ -74,7 +74,7 @@ Coding agents and humans both need to read and write the same documents — desi
 
 - Targets `.html` files.
 - Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
-- Switching from the active HTML text tab closes that tab first and opens the WYSIWYG view in the same editor group. Canceling VS Code's close prompt leaves the HTML tab open and does not open the view.
+- Switching between the active HTML text tab and the WYSIWYG view closes the current tab first and opens its replacement in the same editor group. Canceling VS Code's close prompt leaves the current tab open and does not switch views. If the replacement is already open, it is revealed without closing the current tab.
 - The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
 - The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first).
 - While the view has no unsaved changes, direct changes to the HTML source are reflected into the view immediately.

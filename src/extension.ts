@@ -1,5 +1,6 @@
 import type * as vscode from 'vscode';
 import { registerOpenInVisualEditorCommand } from './commands/openInVisualEditor';
+import { registerOpenInTextEditorCommand } from './commands/openInTextEditor';
 import { registerCopyCommands } from './commands/copy';
 import { AhveEditorProvider } from './editor/AhveEditorProvider';
 
@@ -18,6 +19,7 @@ export interface AhveTestApi {
 
 export function activate(context: vscode.ExtensionContext): AhveTestApi {
   registerOpenInVisualEditorCommand(context);
+  registerOpenInTextEditorCommand(context);
   registerCopyCommands(context);
   const { registration, provider } = AhveEditorProvider.register(context);
   context.subscriptions.push(registration);

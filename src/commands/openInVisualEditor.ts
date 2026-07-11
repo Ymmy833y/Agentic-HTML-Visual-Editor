@@ -27,9 +27,9 @@ export function registerOpenInVisualEditorCommand(context: vscode.ExtensionConte
 
     const sourceColumn = activeGroup.viewColumn;
     await replaceEditor({
-      closeSource: () => vscode.window.tabGroups.close(sourceTab),
-      openVisual: () => openVisualEditor(target, sourceColumn),
-      restoreSource: async () => {
+      closeCurrent: () => vscode.window.tabGroups.close(sourceTab),
+      openReplacement: () => openVisualEditor(target, sourceColumn),
+      restoreCurrent: async () => {
         const document = await vscode.workspace.openTextDocument(target);
         await vscode.window.showTextDocument(document, {
           viewColumn: sourceColumn,
