@@ -6,16 +6,19 @@ import {
   caretAtEnd,
   focusEditor,
   getBackupMessages,
+  getDirtyChangedCount,
   getRootHtml,
-  getSaveMessages,
   mountEditor,
-  triggerSave,
+  openHost,
+  requestFileData,
+  saveAndGetFileData,
 } from './helpers/page';
 
 // Save-action-based synchronization: WYSIWYG edits are held in the webview and
-// only sync into the document when the user saves; external document changes
-// are applied immediately while the view is clean, and held (to be three-way
-// merged by the host at save time) while it is dirty.
+// only sync into the document when the host's save flow requests them
+// (`getFileData` -> `fileData`); external document changes are applied
+// immediately while the view is clean, and held (to be three-way merged by the
+// host at save time) while it is dirty.
 
 async function dispatchMessage(page: Page, data: unknown): Promise<void> {
   await page.evaluate((data) => {
@@ -38,9 +41,8 @@ test.describe('Save-time sync — stale echo regression', () => {
     await mountEditor(page, '<p>hello world</p>');
     await typeAtEnd(page, 'A');
 
-    // Save #1 posts the serialization containing "A".
-    await triggerSave(page);
-    const [firstSave] = await getSaveMessages(page);
+    // Save #1: the snapshot handshake yields the serialization containing "A".
+    const firstSave = await saveAndGetFileData(page);
     expect(firstSave.html).toContain('hello worldA');
 
     // The user keeps editing while the save round-trip is in flight.
@@ -58,11 +60,9 @@ test.describe('Save-time sync — stale echo regression', () => {
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
 
     // Save #2 carries "B" on top of save #1's result as its merge base.
-    await triggerSave(page);
-    const saves = await getSaveMessages(page);
-    expect(saves).toHaveLength(2);
-    expect(saves[1].html).toContain('hello worldAB');
-    expect(saves[1].baseHtml).toBe(firstSave.html);
+    const secondSave = await saveAndGetFileData(page);
+    expect(secondSave.html).toContain('hello worldAB');
+    expect(secondSave.baseHtml).toBe(firstSave.html);
   });
 });
 
@@ -79,10 +79,9 @@ test.describe('Save-time sync — external document changes', () => {
     expect(await getRootHtml(page)).toContain('alpha!');
     expect(await getRootHtml(page)).not.toContain('external');
 
-    // The save still reports the original base, so the host's three-way merge
-    // sees the external change as the document-side diff.
-    await triggerSave(page);
-    const [save] = await getSaveMessages(page);
+    // The snapshot still reports the original base, so the host's three-way
+    // merge sees the external change as the document-side diff.
+    const save = await saveAndGetFileData(page);
     expect(save.baseHtml).toBe('<p>alpha</p>');
     expect(save.html).toContain('alpha!');
   });
@@ -102,8 +101,7 @@ test.describe('Save-time sync — save result handling', () => {
     await typeAtEnd(page, 'X');
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
 
-    await triggerSave(page);
-    const [save] = await getSaveMessages(page);
+    const save = await saveAndGetFileData(page);
 
     // The host merged an externally-added paragraph into the saved document.
     const merged = `${save.html}\n<p>from document</p>`;
@@ -114,12 +112,11 @@ test.describe('Save-time sync — save result handling', () => {
     await expect(page.locator(dirtyIndicator)).toHaveCount(0);
   });
 
-  test('saving a clean view posts a save message against the current base', async ({ page }) => {
+  test('saving a clean view answers the snapshot against the current base', async ({ page }) => {
     const full =
       '<!DOCTYPE html><html><head></head><body><p>hello world</p></body></html>';
     await mountEditor(page, full);
-    await triggerSave(page);
-    const [save] = await getSaveMessages(page);
+    const save = await saveAndGetFileData(page);
     expect(save.baseHtml).toBe(full);
     expect(save.html).toContain('<p>hello world</p>');
   });
@@ -147,9 +144,8 @@ test.describe('Save-time sync — reported scenario (insertions around the same 
     expect(await getRootHtml(page)).toContain('This is a apple.');
     expect(await getRootHtml(page)).not.toContain('banana');
 
-    // Save from the view: the message carries the view content and the base.
-    await triggerSave(page);
-    const [save] = await getSaveMessages(page);
+    // Save from the view: the snapshot carries the view content and the base.
+    const save = await saveAndGetFileData(page);
     expect(save.baseHtml).toBe(PEN);
     expect(save.html).toContain('This is a pen.');
     expect(save.html).toContain('This is a apple.');
@@ -196,9 +192,7 @@ test.describe('Save-time sync — reported scenario (insertions around the same 
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
 
     // Saving now keeps all three paragraphs, diffed against the new base.
-    await triggerSave(page);
-    const saves = await getSaveMessages(page);
-    const lastSave = saves[saves.length - 1];
+    const lastSave = await saveAndGetFileData(page);
     expect(lastSave.baseHtml).toBe(DOC_WITH_BANANA);
     expect(lastSave.html).toContain('This is a banana.');
     expect(lastSave.html).toContain('This is a apple.');
@@ -232,8 +226,7 @@ test.describe('Save-time sync — unsaved-changes backup', () => {
     await mountEditor(page, '<p>hello world</p>');
     await typeAtEnd(page, 'Q');
 
-    await triggerSave(page);
-    const [save] = await getSaveMessages(page);
+    const save = await saveAndGetFileData(page);
     expect(save.html).toContain('hello worldQ');
 
     // The host reports it could not apply the edit; the document still holds
@@ -243,9 +236,73 @@ test.describe('Save-time sync — unsaved-changes backup', () => {
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
 
     // Retrying the save still carries the change against the original base.
-    await triggerSave(page);
-    const saves = await getSaveMessages(page);
-    expect(saves[saves.length - 1].html).toContain('hello worldQ');
-    expect(saves[saves.length - 1].baseHtml).toBe('<p>hello world</p>');
+    const retry = await saveAndGetFileData(page);
+    expect(retry.html).toContain('hello worldQ');
+    expect(retry.baseHtml).toBe('<p>hello world</p>');
+  });
+});
+
+test.describe('Native dirty indicator plumbing', () => {
+  test('dirtyChanged is posted once per clean->dirty transition', async ({ page }) => {
+    await mountEditor(page, '<p>hello</p>');
+    expect(await getDirtyChangedCount(page)).toBe(0);
+
+    // First edit: exactly one dirtyChanged.
+    await typeAtEnd(page, 'X');
+    expect(await getDirtyChangedCount(page)).toBe(1);
+
+    // Further edits while dirty do not re-post.
+    await page.keyboard.type('Y');
+    expect(await getDirtyChangedCount(page)).toBe(1);
+
+    // A successful save cleans the view; the next edit posts again.
+    const save = await saveAndGetFileData(page);
+    await dispatchMessage(page, { type: 'saveResult', html: save.html, ok: true });
+    await expect(page.locator(dirtyIndicator)).toHaveCount(0);
+    await typeAtEnd(page, 'Z');
+    expect(await getDirtyChangedCount(page)).toBe(2);
+  });
+
+  test('init with restored content marks the view dirty and posts dirtyChanged', async ({
+    page,
+  }) => {
+    await mountEditor(page, '<p>base</p>');
+    await dispatchMessage(page, {
+      type: 'init',
+      html: '<p>base</p>',
+      restored: '<p>base edited</p>',
+    });
+    await expect(page.locator(dirtyIndicator)).toHaveCount(1);
+    expect(await getDirtyChangedCount(page)).toBe(1);
+  });
+
+  test('revert discards the view edits, remounts the sent content, and clears dirty', async ({
+    page,
+  }) => {
+    await mountEditor(page, '<p>hello</p>');
+    await typeAtEnd(page, 'X');
+    await expect(page.locator(dirtyIndicator)).toHaveCount(1);
+
+    await dispatchMessage(page, { type: 'revert', html: '<p>hello</p>' });
+    expect(await getRootHtml(page)).not.toContain('helloX');
+    expect(await getRootHtml(page)).toContain('hello');
+    await expect(page.locator(dirtyIndicator)).toHaveCount(0);
+
+    // A fresh edit after the revert re-posts dirtyChanged.
+    await typeAtEnd(page, 'W');
+    expect(await getDirtyChangedCount(page)).toBe(2);
+  });
+
+  test('a snapshot request before init answers with nulls', async ({ page }) => {
+    await openHost(page);
+    const answer = await requestFileData(page);
+    expect(answer.html).toBeNull();
+    expect(answer.baseHtml).toBeNull();
+  });
+
+  test('a saveResult before init is ignored', async ({ page }) => {
+    await openHost(page);
+    await dispatchMessage(page, { type: 'saveResult', html: '<p>doc</p>', ok: true });
+    expect(await getRootHtml(page)).toBe('');
   });
 });

@@ -65,14 +65,15 @@ let suffix = '';
 // only advance when the view and the document are known to agree.
 let baseHtml: string | null = null;
 // Whether the view holds changes that have not been saved into the document.
-// Edits stay in the webview until the user's save action; nothing is pushed
-// to the document while typing. They are streamed to the extension host as
-// `backup` messages so they survive the webview being disposed (the tab
-// switched over to the text editor, a window reload, ...).
+// Edits stay in the webview until the save flow asks for them; nothing is
+// pushed to the document while typing. They are streamed to the extension
+// host as `backup` messages so hot-exit backups and saves with an unreachable
+// webview have a fresh copy.
 let dirty = false;
-// Number of save requests in flight (posted, saveResult not yet received).
+// Number of save snapshots in flight (a `getFileData` request was answered,
+// its saveResult not yet received).
 let pendingSaves = 0;
-// The serialization sent with the most recent save request, used to detect
+// The serialization sent with the most recent save snapshot, used to detect
 // edits made while the save round-trip was in flight.
 let savedSnapshot: string | null = null;
 
@@ -100,13 +101,20 @@ function serialize(): string | null {
 }
 
 function setDirty(value: boolean): void {
+  const wasDirty = dirty;
   dirty = value;
   toolbar.setDirty(value);
+  // The clean -> dirty transition drives the native dirty indicator (●) of
+  // the WYSIWYG tab: the host fires onDidChangeCustomDocument for it. VSCode
+  // clears the indicator itself when a save or revert completes.
+  if (value && !wasDirty) {
+    vscode.postMessage({ type: 'dirtyChanged' });
+  }
 }
 
-// Debounced: back the unsaved content up to the extension host, which
-// persists it per document. The document itself is NOT touched here — sync
-// happens only on save.
+// Debounced: stream the unsaved content to the extension host, which keeps
+// the freshest copy per document for hot-exit backups and save fallbacks.
+// The document itself is NOT touched here — sync happens only on save.
 const editor = setupEditor(
   root,
   () => {
@@ -118,15 +126,12 @@ const editor = setupEditor(
   () => setDirty(true),
 );
 
-// Serialize the view and ask the extension host to merge it into the document
-// (three-way, against baseHtml) and save the file. Runs even when the view is
-// clean so Ctrl+S still behaves as a plain file save.
+// Ask the extension host to run VSCode's save flow for this document. The
+// host then requests the view content with `getFileData`, three-way merges it
+// into the text buffer, and saves the file. Runs even when the view is clean
+// so Ctrl+S still behaves as a plain file save.
 function requestSave(): void {
-  const html = serialize();
-  if (html === null || baseHtml === null) return;
-  pendingSaves++;
-  savedSnapshot = html;
-  vscode.postMessage({ type: 'save', html, baseHtml });
+  vscode.postMessage({ type: 'requestSave' });
 }
 
 const ctx: CommandContext = { root };
@@ -472,10 +477,10 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
 // Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
 // it works whether focus is in the editor or already in the widget. The webview
 // has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
-// Ctrl/Cmd+S is the save action: it syncs the view into the document (via the
-// extension's three-way merge) and saves the file. Even if VSCode's webview
-// keyboard forwarding also triggers the workbench save, that save is a no-op —
-// the document is never dirty while edits are held in the view.
+// Ctrl/Cmd+S posts an explicit save request to the host, which runs VSCode's
+// save flow for this document. VSCode's webview keyboard forwarding may
+// trigger the workbench save as well; overlapping saves are serialized on the
+// host and the second one is a no-op merge.
 document.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
@@ -541,7 +546,40 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       remountPreservingSelection(message.html);
       break;
     }
+    case 'getFileData': {
+      // Snapshot request from the host's save flow. Answer with nulls until
+      // `init` has arrived — there is nothing to merge yet. Otherwise record
+      // the snapshot as an in-flight save so the matching `saveResult` can
+      // reconcile edits made during the round-trip.
+      const html = serialize();
+      if (html === null || baseHtml === null) {
+        vscode.postMessage({
+          type: 'fileData',
+          requestId: message.requestId,
+          html: null,
+          baseHtml: null,
+        });
+        break;
+      }
+      pendingSaves++;
+      savedSnapshot = html;
+      vscode.postMessage({ type: 'fileData', requestId: message.requestId, html, baseHtml });
+      break;
+    }
+    case 'revert': {
+      // Revert File: discard the view's unsaved changes and sync to the text
+      // buffer content the host sent.
+      pendingSaves = 0;
+      savedSnapshot = null;
+      baseHtml = message.html;
+      remountPreservingSelection(message.html);
+      setDirty(false);
+      break;
+    }
     case 'saveResult': {
+      // A saveResult can only follow an `init` (saves before that answer the
+      // snapshot request with nulls and settle host-side).
+      if (baseHtml === null) return;
       pendingSaves = Math.max(0, pendingSaves - 1);
       // Older result of overlapping saves; the newest one carries the final
       // document state.

@@ -12,15 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sync the WYSIWYG view into the HTML source only on an explicit save action (`Ctrl+S` / `Cmd+S` or the new toolbar save button) instead of pushing every edit immediately; unsaved changes are held in the view
 - Apply the save as a three-way diff (git-style) against the document text the view last synced from, so changes made directly to the HTML while editing in the view are preserved; when both sides changed the same lines, both versions are kept (document side first) rather than using conflict markers
 - Keep reflecting direct HTML changes into the view immediately while the view has no unsaved changes
+- Migrate the WYSIWYG editor from `CustomTextEditorProvider` to a full `CustomEditorProvider` so its tab carries its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both
+- Route WYSIWYG saves through VSCode's standard save lifecycle, so the editor now participates in Save/Don't Save prompts on close, auto-save (`files.autoSave`), Revert File, and hot-exit restore
 
 ### Added
 
 - Toolbar save button with an unsaved-changes indicator dot
+- Native dirty indicator (●) on the WYSIWYG tab, and support for Revert File and auto-save on the WYSIWYG editor
 
 ### Fixed
 
 - Fix a race where saving twice in quick succession rolled back the second change: a stale document echo arriving after a save could remount the view with older content, discarding edits made during the round-trip
-- Persist unsaved WYSIWYG changes on the extension side (`workspaceState`) so they survive the webview being disposed — switching the same tab between the WYSIWYG view and the text editor silently discarded them; on reopen they are restored as unsaved content, three-way merged with any changes made directly to the HTML in the meantime
+- Persist unsaved WYSIWYG changes on the extension side so they survive the webview being disposed — switching the same tab between the WYSIWYG view and the text editor silently discarded them; on reopen they are restored as unsaved content, three-way merged with any changes made directly to the HTML in the meantime. Unsaved content now uses VSCode's native custom-editor backup so hot exit restores it (a backup persisted by a previous version is migrated on first open)
 - Compare lines with normalized line endings during the save-time merge (and re-join with the document's dominant EOL), so editing a CRLF document no longer degrades concurrent-edit merges into a whole-body duplicated conflict
 - Keep the view content and its unsaved state when the merged save cannot be applied to the document, instead of silently syncing the view to the unsaved document text
 
