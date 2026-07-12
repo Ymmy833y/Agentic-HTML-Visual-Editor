@@ -13,12 +13,35 @@ export interface CommentPopupOptions {
 }
 
 export interface CommentPopupHandle {
-  open(comment: Element): void;
+  /** Show the popup for a comment; `editBody` opens the body editor focused. */
+  open(comment: Element, options?: { editBody?: boolean }): void;
   close(): void;
   /** Re-render in place if the currently open comment is the given one (after external edits). */
   refreshIfOpen(comment: Element): void;
+  /**
+   * Commit any in-progress body/reply edit and pending reply-input text into
+   * the DOM. Save flows call this before serializing so text still open in a
+   * textarea reaches the file.
+   */
+  flushPending(): void;
+  /**
+   * Re-bind the popup after the editor DOM was remounted (save echo, undo/
+   * redo, revert, external change): point at the same comment id in the
+   * fresh DOM, or close when the comment is gone.
+   */
+  resyncAfterRemount(): void;
   /** Returns the popup root element so the page can ignore clicks targeting it. */
   element(): HTMLElement;
+}
+
+/**
+ * Handle for the body/reply textarea currently being edited. Both methods are
+ * exactly-once: the first commit/cancel wins and later calls (e.g. a stray
+ * blur after a manual commit) are no-ops.
+ */
+interface ActiveInlineEdit {
+  commit(): void;
+  cancel(): void;
 }
 
 const MARGIN = 8;
@@ -29,6 +52,7 @@ export function mountCommentPopup(
   opts: CommentPopupOptions,
 ): CommentPopupHandle {
   let current: Element | null = null;
+  let activeEdit: ActiveInlineEdit | null = null;
 
   const popup = document.createElement('div');
   popup.id = 'ahve-comment-popup';
@@ -96,7 +120,9 @@ export function mountCommentPopup(
     if (e.key === 'Escape') {
       const target = e.target as Element | null;
       if (target && popup.contains(target) && target instanceof HTMLTextAreaElement) {
-        // Let Escape blur the textarea first.
+        // Let Escape blur the textarea first. Escape means "cancel this
+        // field", so pending reply-input text is discarded, not submitted.
+        if (target === replyInput) replyInput.value = '';
         target.blur();
         return;
       }
@@ -120,27 +146,38 @@ export function mountCommentPopup(
   window.addEventListener('scroll', () => reposition(), { passive: true });
   window.addEventListener('resize', () => reposition());
 
-  function open(comment: Element): void {
+  function open(comment: Element, options?: { editBody?: boolean }): void {
+    // Leaving the previously shown comment (navigate / switch): persist its
+    // pending edits before `current` is reassigned.
+    commitPending();
     current = comment;
     render();
     popup.hidden = false;
+    // Anchor the popup to the comment BEFORE focusing the body editor: until
+    // the first reposition() the popup has no top/left and lays out at the
+    // end of <body>, so focusing it first scrolls the page to the bottom.
     reposition();
+    if (options?.editBody) void editBody();
   }
 
   function close(): void {
+    // Commit while `current` is still set and the popup is still visible, so
+    // the settle re-render detaches the textarea before the popup hides.
+    commitPending();
     current = null;
     popup.hidden = true;
   }
 
   function refreshIfOpen(comment: Element): void {
-    if (current === comment) render();
+    if (current !== comment) return;
+    activeEdit?.commit();
+    render();
   }
 
   function render(): void {
     if (!current) return;
     renderBody();
     renderReplies();
-    replyInput.value = '';
     updateNavButtons();
     updateResolveButton();
   }
@@ -182,36 +219,56 @@ export function mountCommentPopup(
 
   async function editBody(): Promise<void> {
     if (!current) return;
-    const body = bodyEl(current);
+    const target = current;
+    const body = bodyEl(target);
     if (body && cdom.isCounterpart(body) && !(await confirmCounterpartEdit('edit'))) return;
-    if (!current) return;
+    if (current !== target) return;
+    const original = cdom.getBody(target);
     const ta = document.createElement('textarea');
     ta.className = 'ahve-cp-body-input';
-    ta.value = cdom.getBody(current);
+    ta.value = original;
     ta.rows = Math.max(2, ta.value.split('\n').length);
     bodySection.replaceChildren(ta);
-    ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
 
-    const commit = (): void => {
-      if (!current) return;
-      cdom.setBody(current, ta.value);
-      opts.onChange();
-      renderBody();
+    // Settle exactly once: commit writes into the comment captured at edit
+    // start (not the live `current`, which close() nulls before blur fires),
+    // and an unchanged value is a no-op so passing through the auto-opened
+    // editor does not record history or backups.
+    let settled = false;
+    const settle = (commitIt: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (activeEdit === edit) activeEdit = null;
+      if (commitIt && ta.value !== original) {
+        cdom.setBody(target, ta.value);
+        opts.onChange();
+      }
+      if (current === target) renderBody();
     };
-    const cancel = (): void => {
-      renderBody();
+    const edit: ActiveInlineEdit = {
+      commit: () => settle(true),
+      cancel: () => settle(false),
     };
+    activeEdit = edit;
+
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        commit();
+        settle(true);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        cancel();
+        settle(false);
       }
     });
-    ta.addEventListener('blur', commit, { once: true });
+    ta.addEventListener('blur', () => settle(true));
+
+    // preventScroll: reposition() keeps the popup inside the viewport, so
+    // focus must never scroll the document to wherever the popup happens to
+    // be laid out at this instant.
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    // The textarea is taller than the display div; keep the popup on-screen.
+    reposition();
   }
 
   function renderReplies(): void {
@@ -260,30 +317,48 @@ export function mountCommentPopup(
   }
 
   async function editReply(reply: Element, row: HTMLElement): Promise<void> {
+    const owner = current;
     if (cdom.isCounterpart(reply) && !(await confirmCounterpartEdit('edit'))) return;
+    if (current !== owner) return;
+    const original = reply.textContent ?? '';
     const ta = document.createElement('textarea');
     ta.className = 'ahve-cp-reply-input';
-    ta.value = reply.textContent ?? '';
+    ta.value = original;
     ta.rows = Math.max(1, ta.value.split('\n').length);
     row.replaceChildren(ta);
-    ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
 
-    const commit = (): void => {
-      cdom.updateReply(reply, ta.value);
-      opts.onChange();
-      renderReplies();
+    // Same exactly-once settle contract as editBody (see the comment there).
+    let settled = false;
+    const settle = (commitIt: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (activeEdit === edit) activeEdit = null;
+      if (commitIt && ta.value !== original) {
+        cdom.updateReply(reply, ta.value);
+        opts.onChange();
+      }
+      if (current === owner) renderReplies();
     };
+    const edit: ActiveInlineEdit = {
+      commit: () => settle(true),
+      cancel: () => settle(false),
+    };
+    activeEdit = edit;
+
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        commit();
+        settle(true);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        renderReplies();
+        settle(false);
       }
     });
-    ta.addEventListener('blur', commit, { once: true });
+    ta.addEventListener('blur', () => settle(true));
+
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    reposition();
   }
 
   function submitReply(): void {
@@ -296,10 +371,50 @@ export function mountCommentPopup(
     renderReplies();
   }
 
+  /**
+   * Commit-on-leave: when focus leaves the comment (popup closes, or it
+   * switches to another comment), persist the textarea being edited and
+   * submit any pending reply-input text instead of dropping them.
+   */
+  function commitPending(): void {
+    activeEdit?.commit();
+    if (current) submitReply();
+    replyInput.value = '';
+  }
+
+  /** Drop pending edits without committing (the comment is being deleted). */
+  function discardPending(): void {
+    activeEdit?.cancel();
+    replyInput.value = '';
+  }
+
+  function resyncAfterRemount(): void {
+    if (popup.hidden || !current) return;
+    // An edit still active here targets the detached pre-remount DOM; save
+    // flows flush pending edits before the remount, so cancelling drops
+    // nothing that was meant to be kept.
+    activeEdit?.cancel();
+    const id = current.getAttribute('id');
+    const replacement =
+      id !== null ? root.querySelector(`comment[id="${CSS.escape(id)}"]`) : null;
+    if (!replacement) {
+      // Do not go through close(): its commitPending would submit pending
+      // reply text into the detached element. The comment is gone; drop it.
+      current = null;
+      popup.hidden = true;
+      replyInput.value = '';
+      return;
+    }
+    current = replacement;
+    render();
+    reposition();
+  }
+
   async function deleteCurrent(): Promise<void> {
     if (!current) return;
     const target = current;
     if (cdom.hasCounterpartEntry(target) && !(await confirmCounterpartEdit('delete'))) return;
+    discardPending();
     close();
     removeComment({ root }, target);
     opts.onChange();
@@ -380,6 +495,8 @@ export function mountCommentPopup(
     open,
     close,
     refreshIfOpen,
+    flushPending: commitPending,
+    resyncAfterRemount,
     element: () => popup,
   };
 }

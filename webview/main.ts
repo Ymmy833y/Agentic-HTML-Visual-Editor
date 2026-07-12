@@ -100,6 +100,9 @@ function mountFromSource(source: string): void {
   // Mark <comment-body>/<comment-reply> in the freshly mounted DOM as
   // non-editable so contenteditable does not let the user type inside them.
   for (const c of cdom.commentsInDocumentOrder(root)) cdom.lockChildren(c);
+  // The remount detached every node the popup pointed at; re-bind it to the
+  // fresh DOM (or close it when its comment is gone).
+  commentPopup.resyncAfterRemount();
 }
 
 function serialize(): string | null {
@@ -143,6 +146,7 @@ const editor = setupEditor(
 // into the text buffer, and saves the file. Runs even when the view is clean
 // so Ctrl+S still behaves as a plain file save.
 function requestSave(): void {
+  commentPopup.flushPending();
   history.flush();
   editor.flush();
   vscode.postMessage({ type: 'requestSave' });
@@ -198,7 +202,9 @@ function handleAddComment(): void {
   const comment = addComment(ctx);
   if (!comment) return;
   editor.notifyChanged();
-  commentPopup.open(comment);
+  // Open straight in body-edit mode so the user can type the comment text
+  // without first clicking the "Add a comment" placeholder.
+  commentPopup.open(comment, { editBody: true });
 }
 
 // Open the popup when an existing comment highlight is clicked.
@@ -561,6 +567,10 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       // `init` has arrived — there is nothing to merge yet. Otherwise record
       // the snapshot as an in-flight save so the matching `saveResult` can
       // reconcile edits made during the round-trip.
+      // Text still open in a comment popup textarea belongs in the snapshot:
+      // commit it first, or the file is saved with an empty body and the save
+      // echo remount detaches the element the popup would commit into later.
+      commentPopup.flushPending();
       history.flush();
       editor.flush();
       const html = serialize();
@@ -605,6 +615,7 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       break;
     }
     case 'flushHistory': {
+      commentPopup.flushPending();
       history.flush();
       editor.flush();
       vscode.postMessage({ type: 'historyFlushed', requestId: message.requestId });
@@ -665,7 +676,9 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
 
 window.addEventListener('beforeunload', () => {
   // Flush the debounced backup so the freshest unsaved content reaches the
-  // extension host before the webview is torn down.
+  // extension host before the webview is torn down. Pending comment-popup
+  // edits are committed first so the backup carries them too.
+  commentPopup.flushPending();
   history.flush();
   editor.flush();
 });
