@@ -137,6 +137,19 @@ suite('Dirty indicator matrix', () => {
       'text tab must stay clean while only the WYSIWYG view is edited',
     );
 
+    // CustomDocumentEditEvent connects the standard VS Code history to the
+    // independent WYSIWYG dirty marker.
+    await vscode.commands.executeCommand('ahve.undo');
+    await waitFor(
+      () => findCustomTab(uri)?.isDirty === false,
+      'undo should return the WYSIWYG tab to its saved state',
+    );
+    await vscode.commands.executeCommand('ahve.redo');
+    await waitFor(
+      () => findCustomTab(uri)?.isDirty === true,
+      'redo should make the WYSIWYG tab dirty again',
+    );
+
     // Both edited -> both ●.
     const secondTextEdit = new vscode.WorkspaceEdit();
     secondTextEdit.insert(uri, new vscode.Position(0, 0), '<!-- second text edit -->\n');

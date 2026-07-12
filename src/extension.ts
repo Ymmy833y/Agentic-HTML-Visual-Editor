@@ -15,6 +15,9 @@ export interface AhveTestApi {
    * webview would. Returns false when no WYSIWYG editor holds that uri.
    */
   fireWysiwygEdit(uri: vscode.Uri): boolean;
+  setWysiwygTestHtml(uri: vscode.Uri, html: string): boolean;
+  getWysiwygTestHtml(uri: vscode.Uri): Promise<string | null>;
+  requestWysiwygTestSave(uri: vscode.Uri): boolean;
 }
 
 export function activate(context: vscode.ExtensionContext): AhveTestApi {
@@ -23,8 +26,12 @@ export function activate(context: vscode.ExtensionContext): AhveTestApi {
   registerCopyCommands(context);
   const { registration, provider } = AhveEditorProvider.register(context);
   context.subscriptions.push(registration);
+  provider.registerHistoryCommands();
   return {
     fireWysiwygEdit: (uri) => provider.fireTestEdit(uri),
+    setWysiwygTestHtml: (uri, html) => provider.setTestViewHtml(uri, html),
+    getWysiwygTestHtml: (uri) => provider.getTestViewHtml(uri),
+    requestWysiwygTestSave: (uri) => provider.requestTestViewSave(uri),
   };
 }
 

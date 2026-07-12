@@ -20,13 +20,15 @@ export interface EditorHandle {
   setEditable(enabled: boolean): void;
   flush(): void;
   /** Schedule a debounced change notification (for programmatic edits). */
-  notifyChanged(): void;
+  notifyChanged(label?: string): void;
 }
 
 export function setupEditor(
   root: HTMLElement,
   onChange: () => void,
   onDirty?: () => void,
+  onNativeEdit?: (inputType: string) => void,
+  onCommandEdit?: (label: string) => void,
 ): EditorHandle {
   root.contentEditable = 'true';
   root.spellcheck = false;
@@ -70,7 +72,19 @@ export function setupEditor(
     }, DEBOUNCE_MS);
   };
 
+  const recordHandledEdit = (label: string): void => {
+    scheduleChange();
+    onCommandEdit?.(label);
+  };
+
   root.addEventListener('beforeinput', (e: InputEvent) => {
+    // VS Code owns undo/redo through CustomDocumentEditEvent. Chromium must
+    // never traverse its separate contenteditable stack if a shortcut event
+    // is forwarded into the webview.
+    if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+      e.preventDefault();
+      return;
+    }
     // Any input other than typing a character cancels a pending leading-edge
     // "type inside" intent (it is meaningful only for the immediate next char).
     if (e.inputType !== 'insertText') boundary.pendingInside = null;
@@ -79,19 +93,19 @@ export function setupEditor(
       // caret into the details body instead.
       if (handleSummaryEnter(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert paragraph');
         return;
       }
       // Enter in an empty list item exits the list as a fresh paragraph instead
       // of inserting another empty item.
       if (handleEmptyListItemEnter(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert paragraph');
         return;
       }
       if (handleEnter(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert paragraph');
         return;
       }
       // Keep an inline <comment> whole: split the block at the boundary just
@@ -99,44 +113,44 @@ export function setupEditor(
       // corrupts the contenteditable=false body and duplicates the id).
       if (keepCommentWholeOnEnter(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert paragraph');
         return;
       }
       // Continue inline formatting onto the new line when the caret sits at the
       // end of a formatted block (e.g. Enter after fully-bold text stays bold).
       if (handleFormattedEnter(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert paragraph');
         return;
       }
       // Even if we don't handle Enter here, fold "--- + Enter" into <hr>.
       if (handleThematicBreakShortcut(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert horizontal rule');
         return;
       }
       // "``` + Enter" opens a code block.
       if (handleCodeBlockShortcut(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Insert code block');
         return;
       }
     }
     if (e.inputType === 'insertText' && e.data === ' ') {
       if (handleHeadingShortcut(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Format block');
         return;
       }
       // "- " / "* " / "1. " start a list; "> " starts a blockquote.
       if (handleListShortcut(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Format list');
         return;
       }
       if (handleBlockquoteShortcut(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Format blockquote');
         return;
       }
     }
@@ -152,7 +166,7 @@ export function setupEditor(
     ) {
       if (handleBoundaryInsert(root, boundary, e.data)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Type text');
         return;
       }
     }
@@ -162,7 +176,7 @@ export function setupEditor(
       // contenteditable=false body). Shrink the comment's target text instead.
       if (handleCommentBackspace(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Delete content');
         return;
       }
       // Backspace at the very start of a block merges it into the previous
@@ -171,7 +185,7 @@ export function setupEditor(
       // the comment stays whole and no style wrapper is injected.
       if (handleBlockMergeBackspace(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Delete content');
         return;
       }
     }
@@ -181,14 +195,14 @@ export function setupEditor(
       // mistakes the metadata for the next deletable node and wipes the body.
       if (handleCommentDelete(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Delete content');
         return;
       }
       // Delete at the very end of a block pulls the next block into it — the
       // mirror of the Backspace merge, with the same comment/style hazards.
       if (handleBlockMergeForward(root)) {
         e.preventDefault();
-        scheduleChange();
+        recordHandledEdit('Delete content');
         return;
       }
     }
@@ -235,9 +249,11 @@ export function setupEditor(
     scheduleChange();
   });
 
-  root.addEventListener('input', () => {
+  root.addEventListener('input', (event: Event) => {
+    const e = event as InputEvent;
     if (!composing) normalizePresentationalTags(root);
     scheduleChange();
+    onNativeEdit?.(e.inputType);
   });
 
   return {
@@ -251,8 +267,9 @@ export function setupEditor(
         onChange();
       }
     },
-    notifyChanged(): void {
+    notifyChanged(label = 'Edit WYSIWYG content'): void {
       scheduleChange();
+      onCommandEdit?.(label);
     },
   };
 }

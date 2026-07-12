@@ -9,10 +9,48 @@
       // outbound message stream without involving the real VSCode webview API.
       window.__vscodeMessages = [];
       window.__lastState = undefined;
+      window.__editStack = [];
+      window.__editIndex = 0;
+      window.__historyRequestId = 100000;
+      function applyHistoryDirection(direction) {
+        let edit;
+        let state;
+        if (direction === 'undo' && window.__editIndex > 0) {
+          edit = window.__editStack[--window.__editIndex];
+          state = edit.before;
+        } else if (direction === 'redo' && window.__editIndex < window.__editStack.length) {
+          edit = window.__editStack[window.__editIndex++];
+          state = edit.after;
+        } else {
+          return;
+        }
+        window.dispatchEvent(new MessageEvent('message', { data: {
+          type: 'applyHistoryState',
+          requestId: window.__historyRequestId++,
+          html: state.html,
+          selection: state.selection,
+        }}));
+      }
+      // VS Code resolves standard undo/redo keybindings before forwarding the
+      // keyboard event into the webview. Mirror that host behavior here.
+      document.addEventListener('keydown', function (event) {
+        const mod = event.ctrlKey || event.metaKey;
+        if (!mod || event.altKey) return;
+        const key = event.key.toLowerCase();
+        if (key === 'z' && !event.shiftKey) applyHistoryDirection('undo');
+        if ((key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)) {
+          applyHistoryDirection('redo');
+        }
+      }, true);
       window.acquireVsCodeApi = function () {
         return {
           postMessage: function (message) {
             window.__vscodeMessages.push(message);
+            if (message.type === 'editCommitted') {
+              window.__editStack.splice(window.__editIndex);
+              window.__editStack.push(message);
+              window.__editIndex = window.__editStack.length;
+            }
           },
           setState: function (state) {
             window.__lastState = state;

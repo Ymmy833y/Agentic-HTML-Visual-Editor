@@ -100,7 +100,32 @@
           "when": "activeCustomEditorId == ahve.editor"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "ahve.save",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.redo",
+        "key": "ctrl+y",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.redo",
+        "key": "ctrl+shift+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.config.js",

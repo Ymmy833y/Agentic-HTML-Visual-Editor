@@ -9,6 +9,7 @@ import { formatForSerialize } from './core/serialize';
 import { injectEmptyBlockPlaceholders } from './core/placeholder';
 import { captureSelection, restoreSelection } from './core/selection';
 import { setupEditor } from './core/editor-core';
+import { HistoryCoordinator, type HistorySnapshot } from './core/history';
 import { clearFormatting, toggleInline } from './commands/inline-format';
 import { dedentListItem, headingShortcutTag, indentListItem, setBlockTag } from './commands/block-format';
 import { insertLink } from './commands/link';
@@ -78,6 +79,10 @@ let pendingSaves = 0;
 // The serialization sent with the most recent save snapshot, used to detect
 // edits made while the save round-trip was in flight.
 let savedSnapshot: string | null = null;
+// Most recent source known to be saved. This mirrors VS Code's save point for
+// the in-view save indicator; the native tab dirty state is owned by the
+// CustomDocumentEditEvent stack in the extension host.
+let cleanHtml: string | null = null;
 
 function mountFromSource(source: string): void {
   if (!root) return;
@@ -103,16 +108,19 @@ function serialize(): string | null {
 }
 
 function setDirty(value: boolean): void {
-  const wasDirty = dirty;
   dirty = value;
   toolbar.setDirty(value);
-  // The clean -> dirty transition drives the native dirty indicator (●) of
-  // the WYSIWYG tab: the host fires onDidChangeCustomDocument for it. VSCode
-  // clears the indicator itself when a save or revert completes.
-  if (value && !wasDirty) {
-    vscode.postMessage({ type: 'dirtyChanged' });
-  }
 }
+
+function captureHistorySnapshot(): HistorySnapshot | null {
+  const html = serialize();
+  if (html === null) return null;
+  return { html, selection: captureSelection(root!) };
+}
+
+const history = new HistoryCoordinator(captureHistorySnapshot, (edit) => {
+  vscode.postMessage({ type: 'editCommitted', ...edit });
+});
 
 // Debounced: stream the unsaved content to the extension host, which keeps
 // the freshest copy per document for hot-exit backups and save fallbacks.
@@ -126,6 +134,8 @@ const editor = setupEditor(
     vscode.postMessage({ type: 'backup', html, baseHtml });
   },
   () => setDirty(true),
+  (inputType) => history.recordNative(inputType),
+  (label) => history.recordCommand(label),
 );
 
 // Ask the extension host to run VSCode's save flow for this document. The
@@ -133,6 +143,8 @@ const editor = setupEditor(
 // into the text buffer, and saves the file. Runs even when the view is clean
 // so Ctrl+S still behaves as a plain file save.
 function requestSave(): void {
+  history.flush();
+  editor.flush();
   vscode.postMessage({ type: 'requestSave' });
 }
 
@@ -373,6 +385,12 @@ root.addEventListener('submit', (e: Event) => {
 root.addEventListener('keydown', (e: KeyboardEvent) => {
   const mod = e.ctrlKey || e.metaKey;
 
+  // Navigation ends a native typing/deletion group. Modified horizontal
+  // arrows are included because they can move by words or change selection.
+  if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' || e.key === 'PageUp' || e.key === 'PageDown') {
+    history.flush();
+  }
+
   // Tab / Shift+Tab navigation inside table cells.
   if (e.key === 'Tab' && !mod && !e.altKey) {
     const sel = window.getSelection();
@@ -464,13 +482,13 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 });
 
+root.addEventListener('focusout', () => history.flush());
+
 // Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
 // it works whether focus is in the editor or already in the widget. The webview
 // has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
-// Ctrl/Cmd+S posts an explicit save request to the host, which runs VSCode's
-// save flow for this document. VSCode's webview keyboard forwarding may
-// trigger the workbench save as well; overlapping saves are serialized on the
-// host and the second one is a no-op merge.
+// Save is intentionally not handled here: the `ahve.save` workbench keybinding
+// owns Ctrl/Cmd+S so a single keyboard action cannot start two save flows.
 document.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
@@ -478,10 +496,6 @@ document.addEventListener(
     if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       searchWidget.open();
-    }
-    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
-      e.preventDefault();
-      requestSave();
     }
   },
   true,
@@ -512,15 +526,19 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
   switch (message.type) {
     case 'init': {
       baseHtml = message.html;
+      cleanHtml = message.html;
       // `restored` carries unsaved changes a previous view session backed up,
       // already three-way merged by the host against the current document.
       // Mount them as unsaved content — the user's next save commits them.
       if (typeof message.restored === 'string' && message.restored !== message.html) {
+        history.reset({ html: message.html, selection: null });
         mountFromSource(message.restored);
         setDirty(true);
+        history.recordCommand('Restore unsaved changes');
       } else {
         mountFromSource(message.html);
         setDirty(false);
+        history.reset();
       }
       break;
     }
@@ -534,6 +552,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       if (message.html === baseHtml) return;
       baseHtml = message.html;
       remountPreservingSelection(message.html);
+      cleanHtml = message.html;
+      history.reset();
       break;
     }
     case 'getFileData': {
@@ -541,6 +561,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       // `init` has arrived — there is nothing to merge yet. Otherwise record
       // the snapshot as an in-flight save so the matching `saveResult` can
       // reconcile edits made during the round-trip.
+      history.flush();
+      editor.flush();
       const html = serialize();
       if (html === null || baseHtml === null) {
         vscode.postMessage({
@@ -551,8 +573,10 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
         });
         break;
       }
-      pendingSaves++;
-      savedSnapshot = html;
+      if (!message.forHistory) {
+        pendingSaves++;
+        savedSnapshot = html;
+      }
       vscode.postMessage({ type: 'fileData', requestId: message.requestId, html, baseHtml });
       break;
     }
@@ -562,10 +586,38 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       pendingSaves = 0;
       savedSnapshot = null;
       baseHtml = message.html;
+      cleanHtml = message.html;
       remountPreservingSelection(message.html);
       setDirty(false);
+      history.reset();
       break;
     }
+    case 'applyHistoryState': {
+      mountFromSource(message.html);
+      if (message.selection) restoreSelection(root, message.selection);
+      history.reset();
+      setDirty(cleanHtml === null || message.html !== cleanHtml);
+      if (dirty && baseHtml !== null) {
+        vscode.postMessage({ type: 'backup', html: message.html, baseHtml });
+      }
+      vscode.postMessage({ type: 'historyStateApplied', requestId: message.requestId });
+      searchWidget.refresh();
+      break;
+    }
+    case 'flushHistory': {
+      history.flush();
+      editor.flush();
+      vscode.postMessage({ type: 'historyFlushed', requestId: message.requestId });
+      break;
+    }
+    case 'testSetHtml': {
+      mountFromSource(message.html);
+      editor.notifyChanged('Test WYSIWYG edit');
+      break;
+    }
+    case 'testRequestSave':
+      requestSave();
+      break;
     case 'saveResult': {
       // A saveResult can only follow an `init` (saves before that answer the
       // snapshot request with nulls and settle host-side).
@@ -587,6 +639,7 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
         // edits (still marked dirty) and advance the merge base only to the
         // snapshot that was saved — the next save merges the rest.
         baseHtml = savedSnapshot;
+        cleanHtml = savedSnapshot;
         savedSnapshot = null;
         // Refresh the host-side backup so it is keyed to the new base.
         vscode.postMessage({ type: 'backup', html: current, baseHtml });
@@ -594,12 +647,14 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       }
       savedSnapshot = null;
       baseHtml = message.html;
+      cleanHtml = message.html;
       setDirty(false);
       // Remount only when the saved document differs from the view (external
       // changes merged in, or save-time normalization).
       if (current !== message.html) {
         remountPreservingSelection(message.html);
       }
+      history.reset();
       break;
     }
     case 'copyToClipboard':
@@ -611,6 +666,7 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
 window.addEventListener('beforeunload', () => {
   // Flush the debounced backup so the freshest unsaved content reaches the
   // extension host before the webview is torn down.
+  history.flush();
   editor.flush();
 });
 
