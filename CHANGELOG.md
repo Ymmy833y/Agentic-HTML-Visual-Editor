@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-12
+
 ### Changed
 
 - Switch the active tab in either direction between the HTML text editor and WYSIWYG view in the same editor group, honoring VSCode's standard Save / Don't Save / Cancel close flow and leaving unrelated or already-open editor views intact
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Toolbar save button with an unsaved-changes indicator dot
 - Native dirty indicator (●) on the WYSIWYG tab, and support for Revert File and auto-save on the WYSIWYG editor
+- VS Code-native undo/redo for WYSIWYG edits (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`), preserving the visual edit history across saves and merging undo/redo transitions with direct HTML edits
 
 ### Fixed
 
@@ -28,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compare lines with normalized line endings during the save-time merge (and re-join with the document's dominant EOL), so editing a CRLF document no longer degrades concurrent-edit merges into a whole-body duplicated conflict
 - Keep the view content and its unsaved state when the merged save cannot be applied to the document, instead of silently syncing the view to the unsaved document text
 - Render images referenced by relative paths (e.g. `./images/foo.png`) in the WYSIWYG view by resolving them against the document's directory; relative resource loading is scoped to the document's folder and its workspace folder (absolute/`file://` paths remain unresolved by design)
+- Commit in-progress comment body/reply edits before save, close, outside click, and comment navigation so typed text is not lost; newly created comments now open directly in body-edit mode without scrolling the document
+- Keep the comment popup bound to the same comment across save echoes and undo/redo remounts, or close it cleanly when the comment no longer exists
+- Insert block-level pasted HTML beside the current paragraph/heading instead of producing invalid nested blocks or empty shells on save
+- Trim empty boundary blocks from copied selections when the browser's range includes the edge of a following block that was not visibly selected
+- Allow mouse and keyboard selection to extend across multiple paragraphs inside an open `<details>` body
 
 ## [0.1.4] - 2026-07-02
 
