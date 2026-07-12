@@ -39,7 +39,10 @@ test.describe('Comment', () => {
 
     const popup = page.locator('#ahve-comment-popup');
     await expect(popup).toBeVisible();
-    await expect(popup.locator('.ahve-cp-body-display')).toHaveText('Add a comment');
+    // A new comment opens straight in body-edit mode with the editor focused.
+    const bodyInput = popup.locator('textarea.ahve-cp-body-input');
+    await expect(bodyInput).toBeVisible();
+    await expect(bodyInput).toBeFocused();
   });
 
   test('typing a body and pressing Enter saves it under <comment-body>', async ({ page }) => {
@@ -49,9 +52,10 @@ test.describe('Comment', () => {
     await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
 
     const popup = page.locator('#ahve-comment-popup');
-    await popup.locator('.ahve-cp-body-display').click();
-    await popup.locator('textarea.ahve-cp-body-input').fill('great point');
-    await popup.locator('textarea.ahve-cp-body-input').press('Enter');
+    // The body editor is already focused on creation — type with no click.
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toBeFocused();
+    await page.keyboard.type('great point');
+    await page.keyboard.press('Enter');
 
     const body = page.locator('#ahve-root comment > comment-body');
     await expect(body).toHaveText('great point');
@@ -219,9 +223,9 @@ test.describe('Comment', () => {
     await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
 
     const popup = page.locator('#ahve-comment-popup');
-    await popup.locator('.ahve-cp-body-display').click();
-    await popup.locator('textarea.ahve-cp-body-input').fill('great point');
-    await popup.locator('textarea.ahve-cp-body-input').press('Enter');
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toBeFocused();
+    await page.keyboard.type('great point');
+    await page.keyboard.press('Enter');
 
     const body = page.locator('#ahve-root comment > comment-body');
     await expect(body).toHaveAttribute('data-author', 'human');
