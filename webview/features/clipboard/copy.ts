@@ -4,6 +4,7 @@
 
 import { toConfluenceHtml } from './confluence';
 import { stripCommentsFromHtml } from './strip-comments';
+import { isBlockEffectivelyEmpty } from '../../core/serialize';
 import type { CopyFormat } from '../../../src/shared/messages';
 
 // Inline wrappers that survive cloneContents. When a user selects text whose
@@ -13,6 +14,11 @@ import type { CopyFormat } from '../../../src/shared/messages';
 // bare text and lose the bold on paste.
 const INLINE_PRESERVE_TAGS = new Set([
   'STRONG', 'EM', 'CODE', 'S', 'DEL', 'U', 'MARK', 'SUB', 'SUP', 'A', 'B', 'I', 'SPAN',
+]);
+
+const BLOCK_TAGS = new Set([
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'BLOCKQUOTE', 'DIV', 'LI', 'SUMMARY',
 ]);
 
 export function prepareCopy(root: HTMLElement, format: CopyFormat): string {
@@ -34,11 +40,49 @@ function currentHtml(root: HTMLElement): string {
     const range = sel.getRangeAt(0).cloneRange();
     expandToInlineWrappers(range, root);
     const fragment = range.cloneContents();
+    trimEmptyBoundaryBlocks(fragment);
     const tpl = document.createElement('template');
     tpl.content.appendChild(fragment);
     return tpl.innerHTML;
   }
   return root.innerHTML;
+}
+
+// A drag that visually ends after a paragraph can put the Range endpoint at
+// offset zero inside the following heading. cloneContents then includes an
+// empty heading wrapper that was never visibly selected. Drop empty blocks at
+// either outer boundary, together with whitespace outside them, while keeping
+// empty blocks that genuinely sit between selected content.
+function trimEmptyBoundaryBlocks(fragment: DocumentFragment): void {
+  trimBoundary(fragment, 'start');
+  trimBoundary(fragment, 'end');
+}
+
+function trimBoundary(fragment: DocumentFragment, side: 'start' | 'end'): void {
+  let removedBlock = false;
+  while (true) {
+    const edge = side === 'start' ? fragment.firstChild : fragment.lastChild;
+    if (!edge) return;
+    if (isWhitespaceText(edge)) {
+      const next = side === 'start' ? edge.nextSibling : edge.previousSibling;
+      if (removedBlock || isEmptyBlock(next)) {
+        edge.remove();
+        continue;
+      }
+      return;
+    }
+    if (!isEmptyBlock(edge)) return;
+    edge.remove();
+    removedBlock = true;
+  }
+}
+
+function isWhitespaceText(node: Node | null): boolean {
+  return node?.nodeType === Node.TEXT_NODE && /^\s*$/.test((node as Text).data);
+}
+
+function isEmptyBlock(node: Node | null): node is Element {
+  return node instanceof Element && BLOCK_TAGS.has(node.tagName) && isBlockEffectivelyEmpty(node);
 }
 
 /**

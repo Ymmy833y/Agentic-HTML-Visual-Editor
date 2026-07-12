@@ -6,16 +6,20 @@ const HOST_URL = pathToFileURL(
   path.resolve(__dirname, '../fixtures/webview-host.html'),
 ).href;
 
-// Mirror webview/main.ts: edit messages are debounced by 250ms.
+// Mirror webview/core/editor-core.ts: change notifications (state backup)
+// are debounced by 250ms.
 export const DEBOUNCE_MS = 250;
 
 declare global {
   interface Window {
     __vscodeMessages: { type: string; [key: string]: unknown }[];
+    /** Last value passed to the mocked vscode.setState (see webview-host.html). */
+    __lastState: unknown;
   }
 }
 
-export async function mountEditor(page: Page, initialHtml: string): Promise<void> {
+/** Load the webview bundle and wait for its 'ready' message, without `init`. */
+export async function openHost(page: Page): Promise<void> {
   await page.goto(HOST_URL);
 
   // Wait for the bundle to finish booting and emit its 'ready' message.
@@ -28,6 +32,10 @@ export async function mountEditor(page: Page, initialHtml: string): Promise<void
   await page.evaluate(() => {
     window.__vscodeMessages = [];
   });
+}
+
+export async function mountEditor(page: Page, initialHtml: string): Promise<void> {
+  await openHost(page);
 
   // Push initial HTML, mirroring the extension host's first message.
   await page.evaluate((html) => {
@@ -43,15 +51,114 @@ export async function getMessages(page: Page): Promise<{ type: string; [key: str
   return page.evaluate(() => window.__vscodeMessages.slice());
 }
 
-export async function getEditMessages(
-  page: Page,
-): Promise<{ type: 'edit'; html: string }[]> {
+/** The view's answer to a host `getFileData` snapshot request. */
+export interface FileDataMessage {
+  type: 'fileData';
+  requestId: number;
+  html: string | null;
+  baseHtml: string | null;
+}
+
+/** A snapshot from an initialized view (what the host's save flow merges). */
+export interface SaveSnapshot {
+  html: string;
+  baseHtml: string;
+}
+
+let nextRequestId = 1;
+
+/**
+ * Emulate the host side of a save: dispatch a `getFileData` snapshot request
+ * and return the `fileData` answer the view posts. The host would then merge
+ * `html` against `baseHtml` into the document and reply with a `saveResult`.
+ */
+export async function requestFileData(page: Page): Promise<FileDataMessage> {
+  const requestId = nextRequestId++;
+  await page.evaluate((requestId) => {
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'getFileData', requestId } }),
+    );
+  }, requestId);
+  await page.waitForFunction(
+    (id) =>
+      window.__vscodeMessages.some((m) => m.type === 'fileData' && m.requestId === id),
+    requestId,
+  );
+  const messages = await getMessages(page);
+  return messages.find(
+    (m) => m.type === 'fileData' && m.requestId === requestId,
+  ) as FileDataMessage;
+}
+
+/** Count of committed WYSIWYG transactions posted to the custom-editor host. */
+export async function getEditCommittedCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => window.__vscodeMessages.filter((m) => m.type === 'editCommitted').length,
+  );
+}
+
+export interface BackupMessage {
+  type: 'backup';
+  html: string;
+  baseHtml: string;
+}
+
+/**
+ * Backup messages carry the unsaved view content to the extension host, which
+ * persists it (workspaceState) so a disposed/reopened view can restore it.
+ */
+export async function getBackupMessages(page: Page): Promise<BackupMessage[]> {
   return page.evaluate(
     () =>
       window.__vscodeMessages.filter(
-        (m): m is { type: 'edit'; html: string } => m.type === 'edit',
+        (m): m is { type: 'backup'; html: string; baseHtml: string } => m.type === 'backup',
       ),
   );
+}
+
+/**
+ * Trigger the editor's save action through the integration-test message. In
+ * VS Code, Ctrl/Cmd+S is owned by the `ahve.save` workbench keybinding and does
+ * not enter the webview DOM; this message exercises the toolbar-equivalent
+ * request path in the standalone browser host.
+ */
+export async function triggerSave(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'testRequestSave' } }),
+    );
+  });
+}
+
+/**
+ * Run the user save flow end to end against an initialized view: trigger the
+ * save action, wait for its `requestSave` message, then perform the host's
+ * snapshot handshake. Returns what the host's save would merge.
+ */
+export async function saveAndGetFileData(page: Page): Promise<SaveSnapshot> {
+  const before = await page.evaluate(
+    () => window.__vscodeMessages.filter((m) => m.type === 'requestSave').length,
+  );
+  await triggerSave(page);
+  await page.waitForFunction(
+    (n) => window.__vscodeMessages.filter((m) => m.type === 'requestSave').length > n,
+    before,
+  );
+  const data = await requestFileData(page);
+  if (data.html === null || data.baseHtml === null) {
+    throw new Error('The view answered the save snapshot request before it was initialized.');
+  }
+  return { html: data.html, baseHtml: data.baseHtml };
+}
+
+/**
+ * Trigger a save and return the html of the snapshot it produces. Edits are
+ * held in the webview until a save action, so this is how tests observe the
+ * serialized document.
+ */
+export async function saveAndGetHtml(page: Page): Promise<string> {
+  const snapshot = await saveAndGetFileData(page);
+  return snapshot.html;
 }
 
 export async function getRootHtml(page: Page): Promise<string> {

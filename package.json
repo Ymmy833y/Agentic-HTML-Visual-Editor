@@ -2,7 +2,7 @@
   "name": "agentic-html-visual-editor",
   "displayName": "Agentic HTML Visual Editor",
   "description": "A WYSIWYG editor for facilitating interactions between AI and humans through HTML",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "keywords": [
     "wysiwyg",
     "html",
@@ -41,6 +41,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "ahve.openInTextEditor",
+        "title": "Open in HTML",
+        "category": "Agentic HTML Visual Editor",
+        "icon": "$(code)"
+      },
+      {
         "command": "ahve.copyAsHtml",
         "title": "Copy as HTML",
         "category": "Agentic HTML Visual Editor"
@@ -69,12 +75,21 @@
           "command": "ahve.openInVisualEditor",
           "when": "resourceExtname == .html && activeCustomEditorId != ahve.editor",
           "group": "navigation"
+        },
+        {
+          "command": "ahve.openInTextEditor",
+          "when": "activeCustomEditorId == ahve.editor",
+          "group": "navigation"
         }
       ],
       "commandPalette": [
         {
           "command": "ahve.openInVisualEditor",
           "when": "resourceExtname == .html"
+        },
+        {
+          "command": "ahve.openInTextEditor",
+          "when": "activeCustomEditorId == ahve.editor"
         },
         {
           "command": "ahve.copyAsHtml",
@@ -85,7 +100,32 @@
           "when": "activeCustomEditorId == ahve.editor"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "ahve.save",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.redo",
+        "key": "ctrl+y",
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      },
+      {
+        "command": "ahve.redo",
+        "key": "ctrl+shift+z",
+        "when": "activeCustomEditorId == ahve.editor"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.config.js",
@@ -126,5 +166,8 @@
     "serialize-javascript": "7.0.5",
     "diff": "8.0.3",
     "undici": "7.28.0"
+  },
+  "dependencies": {
+    "node-diff3": "^3.2.1"
   }
 }

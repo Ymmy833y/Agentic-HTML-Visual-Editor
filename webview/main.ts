@@ -9,6 +9,7 @@ import { formatForSerialize } from './core/serialize';
 import { injectEmptyBlockPlaceholders } from './core/placeholder';
 import { captureSelection, restoreSelection } from './core/selection';
 import { setupEditor } from './core/editor-core';
+import { HistoryCoordinator, type HistorySnapshot } from './core/history';
 import { clearFormatting, toggleInline } from './commands/inline-format';
 import { dedentListItem, headingShortcutTag, indentListItem, setBlockTag } from './commands/block-format';
 import { insertLink } from './commands/link';
@@ -21,10 +22,12 @@ import { mountSearchWidget } from './ui/search-widget';
 import { openLinkDialog } from './ui/link-dialog';
 import { prepareCopy } from './features/clipboard/copy';
 import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
+import { insertFragmentAtCursor } from './features/clipboard/insert';
 import * as cdom from './features/comment/comment-dom';
 import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
 import { mountDetails } from './features/details/details';
+import { mountDetailsSelection } from './features/details/details-selection';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -58,7 +61,28 @@ if (!root) {
 
 let prefix = '';
 let suffix = '';
-let lastSyncedHtml: string | null = null;
+
+// --- Sync state ---
+// The document text the current DOM was mounted from / last synced with. It is
+// the base of the three-way merge the extension performs on save, so it must
+// only advance when the view and the document are known to agree.
+let baseHtml: string | null = null;
+// Whether the view holds changes that have not been saved into the document.
+// Edits stay in the webview until the save flow asks for them; nothing is
+// pushed to the document while typing. They are streamed to the extension
+// host as `backup` messages so hot-exit backups and saves with an unreachable
+// webview have a fresh copy.
+let dirty = false;
+// Number of save snapshots in flight (a `getFileData` request was answered,
+// its saveResult not yet received).
+let pendingSaves = 0;
+// The serialization sent with the most recent save snapshot, used to detect
+// edits made while the save round-trip was in flight.
+let savedSnapshot: string | null = null;
+// Most recent source known to be saved. This mirrors VS Code's save point for
+// the in-view save indicator; the native tab dirty state is owned by the
+// CustomDocumentEditEvent stack in the extension host.
+let cleanHtml: string | null = null;
 
 function mountFromSource(source: string): void {
   if (!root) return;
@@ -76,6 +100,9 @@ function mountFromSource(source: string): void {
   // Mark <comment-body>/<comment-reply> in the freshly mounted DOM as
   // non-editable so contenteditable does not let the user type inside them.
   for (const c of cdom.commentsInDocumentOrder(root)) cdom.lockChildren(c);
+  // The remount detached every node the popup pointed at; re-bind it to the
+  // fresh DOM (or close it when its comment is gone).
+  commentPopup.resyncAfterRemount();
 }
 
 function serialize(): string | null {
@@ -83,13 +110,47 @@ function serialize(): string | null {
   return prefix + formatForSerialize(root) + suffix;
 }
 
-const editor = setupEditor(root, () => {
+function setDirty(value: boolean): void {
+  dirty = value;
+  toolbar.setDirty(value);
+}
+
+function captureHistorySnapshot(): HistorySnapshot | null {
   const html = serialize();
-  if (html === null) return;
-  if (html === lastSyncedHtml) return;
-  lastSyncedHtml = html;
-  vscode.postMessage({ type: 'edit', html });
+  if (html === null) return null;
+  return { html, selection: captureSelection(root!) };
+}
+
+const history = new HistoryCoordinator(captureHistorySnapshot, (edit) => {
+  vscode.postMessage({ type: 'editCommitted', ...edit });
 });
+
+// Debounced: stream the unsaved content to the extension host, which keeps
+// the freshest copy per document for hot-exit backups and save fallbacks.
+// The document itself is NOT touched here — sync happens only on save.
+const editor = setupEditor(
+  root,
+  () => {
+    if (!dirty || baseHtml === null) return;
+    const html = serialize();
+    if (html === null) return;
+    vscode.postMessage({ type: 'backup', html, baseHtml });
+  },
+  () => setDirty(true),
+  (inputType) => history.recordNative(inputType),
+  (label) => history.recordCommand(label),
+);
+
+// Ask the extension host to run VSCode's save flow for this document. The
+// host then requests the view content with `getFileData`, three-way merges it
+// into the text buffer, and saves the file. Runs even when the view is clean
+// so Ctrl+S still behaves as a plain file save.
+function requestSave(): void {
+  commentPopup.flushPending();
+  history.flush();
+  editor.flush();
+  vscode.postMessage({ type: 'requestSave' });
+}
 
 const ctx: CommandContext = { root };
 
@@ -141,7 +202,9 @@ function handleAddComment(): void {
   const comment = addComment(ctx);
   if (!comment) return;
   editor.notifyChanged();
-  commentPopup.open(comment);
+  // Open straight in body-edit mode so the user can type the comment text
+  // without first clicking the "Add a comment" placeholder.
+  commentPopup.open(comment, { editBody: true });
 }
 
 // Open the popup when an existing comment highlight is clicked.
@@ -183,8 +246,9 @@ const toolbar = createToolbar(root, {
   onAddComment: handleAddComment,
   onCopy: (format) => doCopy(format),
   onInsertTable: (anchor) => tablePicker.open(anchor),
+  onSave: () => requestSave(),
 });
-document.body.insertBefore(toolbar, root);
+document.body.insertBefore(toolbar.element, root);
 
 mountTableMenu(root, {
   onCommand: () => {
@@ -231,6 +295,10 @@ root.addEventListener('click', (e: MouseEvent) => {
 mountDetails(root, {
   onChange: () => editor.notifyChanged(),
 });
+
+// Drive multi-block text selection inside a <details> body, which the browser
+// otherwise clamps at the first block (see mountDetailsSelection).
+mountDetailsSelection(root);
 
 // Selection-driven floating menu.
 mountFloatingMenu(root, {
@@ -292,7 +360,7 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
     if (text) {
       const fragment = document.createDocumentFragment();
       fragment.appendChild(document.createTextNode(text));
-      insertFragmentAtCursor(fragment);
+      insertFragmentAtCursor(root, fragment);
       editor.notifyChanged();
     }
     return;
@@ -308,25 +376,9 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
   tpl.innerHTML = html;
   sanitizeFragment(tpl.content);
   cleanupPastedFragment(tpl.content);
-  insertFragmentAtCursor(tpl.content);
+  insertFragmentAtCursor(root, tpl.content);
   editor.notifyChanged();
 });
-
-function insertFragmentAtCursor(fragment: DocumentFragment): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-  range.deleteContents();
-  const lastNode = fragment.lastChild;
-  range.insertNode(fragment);
-  if (lastNode) {
-    const r = document.createRange();
-    r.setStartAfter(lastNode);
-    r.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  }
-}
 
 // <form> elements may be present for layout, but should never submit. The
 // CSP `form-action 'none'` blocks navigation, but we also stop the event
@@ -338,6 +390,12 @@ root.addEventListener('submit', (e: Event) => {
 // Keyboard shortcuts for the main inline / block commands.
 root.addEventListener('keydown', (e: KeyboardEvent) => {
   const mod = e.ctrlKey || e.metaKey;
+
+  // Navigation ends a native typing/deletion group. Modified horizontal
+  // arrows are included because they can move by words or change selection.
+  if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' || e.key === 'PageUp' || e.key === 'PageDown') {
+    history.flush();
+  }
 
   // Tab / Shift+Tab navigation inside table cells.
   if (e.key === 'Tab' && !mod && !e.altKey) {
@@ -430,9 +488,13 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 });
 
+root.addEventListener('focusout', () => history.flush());
+
 // Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
 // it works whether focus is in the editor or already in the widget. The webview
 // has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
+// Save is intentionally not handled here: the `ahve.save` workbench keybinding
+// owns Ctrl/Cmd+S so a single keyboard action cannot start two save flows.
 document.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
@@ -452,24 +514,158 @@ root.addEventListener('input', () => {
   if (searchWidget.isOpen()) searchWidget.refresh();
 });
 
+/** Remount the view from `source`, preserving the caret and search state. */
+function remountPreservingSelection(source: string): void {
+  if (!root) return;
+  // A remount replaces the whole DOM, invalidating the live Selection.
+  // Capture the caret as a whitespace-stable path before the remount and
+  // restore it afterward so a sync does not bounce the cursor to the top.
+  const saved = captureSelection(root);
+  mountFromSource(source);
+  if (saved) restoreSelection(root, saved);
+  // The remount replaced every node, so any live search ranges are stale.
+  searchWidget.refresh();
+}
+
 window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessage>) => {
   const message = event.data;
   switch (message.type) {
-    case 'init':
-      lastSyncedHtml = message.html;
-      mountFromSource(message.html);
+    case 'init': {
+      baseHtml = message.html;
+      cleanHtml = message.html;
+      // `restored` carries unsaved changes a previous view session backed up,
+      // already three-way merged by the host against the current document.
+      // Mount them as unsaved content — the user's next save commits them.
+      if (typeof message.restored === 'string' && message.restored !== message.html) {
+        history.reset({ html: message.html, selection: null });
+        mountFromSource(message.restored);
+        setDirty(true);
+        history.recordCommand('Restore unsaved changes');
+      } else {
+        mountFromSource(message.html);
+        setDirty(false);
+        history.reset();
+      }
       break;
+    }
     case 'documentChanged': {
-      if (message.html === lastSyncedHtml) return;
-      lastSyncedHtml = message.html;
-      // A save echo remounts the whole DOM, invalidating the live Selection.
-      // Capture the caret as a whitespace-stable path before the remount and
-      // restore it afterward so Ctrl+S does not bounce the cursor to the top.
-      const saved = captureSelection(root);
+      // While the view holds unsaved changes (or a save is in flight), an
+      // external document change is NOT applied to the view — it would wipe
+      // those changes. It is picked up by the three-way merge on the next
+      // save instead. This also neutralizes stale save echoes, which used to
+      // remount the DOM and roll back edits made during the round-trip.
+      if (dirty || pendingSaves > 0) return;
+      if (message.html === baseHtml) return;
+      baseHtml = message.html;
+      remountPreservingSelection(message.html);
+      cleanHtml = message.html;
+      history.reset();
+      break;
+    }
+    case 'getFileData': {
+      // Snapshot request from the host's save flow. Answer with nulls until
+      // `init` has arrived — there is nothing to merge yet. Otherwise record
+      // the snapshot as an in-flight save so the matching `saveResult` can
+      // reconcile edits made during the round-trip.
+      // Text still open in a comment popup textarea belongs in the snapshot:
+      // commit it first, or the file is saved with an empty body and the save
+      // echo remount detaches the element the popup would commit into later.
+      commentPopup.flushPending();
+      history.flush();
+      editor.flush();
+      const html = serialize();
+      if (html === null || baseHtml === null) {
+        vscode.postMessage({
+          type: 'fileData',
+          requestId: message.requestId,
+          html: null,
+          baseHtml: null,
+        });
+        break;
+      }
+      if (!message.forHistory) {
+        pendingSaves++;
+        savedSnapshot = html;
+      }
+      vscode.postMessage({ type: 'fileData', requestId: message.requestId, html, baseHtml });
+      break;
+    }
+    case 'revert': {
+      // Revert File: discard the view's unsaved changes and sync to the text
+      // buffer content the host sent.
+      pendingSaves = 0;
+      savedSnapshot = null;
+      baseHtml = message.html;
+      cleanHtml = message.html;
+      remountPreservingSelection(message.html);
+      setDirty(false);
+      history.reset();
+      break;
+    }
+    case 'applyHistoryState': {
       mountFromSource(message.html);
-      if (saved) restoreSelection(root, saved);
-      // The remount replaced every node, so any live search ranges are stale.
+      if (message.selection) restoreSelection(root, message.selection);
+      history.reset();
+      setDirty(cleanHtml === null || message.html !== cleanHtml);
+      if (dirty && baseHtml !== null) {
+        vscode.postMessage({ type: 'backup', html: message.html, baseHtml });
+      }
+      vscode.postMessage({ type: 'historyStateApplied', requestId: message.requestId });
       searchWidget.refresh();
+      break;
+    }
+    case 'flushHistory': {
+      commentPopup.flushPending();
+      history.flush();
+      editor.flush();
+      vscode.postMessage({ type: 'historyFlushed', requestId: message.requestId });
+      break;
+    }
+    case 'testSetHtml': {
+      mountFromSource(message.html);
+      editor.notifyChanged('Test WYSIWYG edit');
+      break;
+    }
+    case 'testRequestSave':
+      requestSave();
+      break;
+    case 'saveResult': {
+      // A saveResult can only follow an `init` (saves before that answer the
+      // snapshot request with nulls and settle host-side).
+      if (baseHtml === null) return;
+      pendingSaves = Math.max(0, pendingSaves - 1);
+      // Older result of overlapping saves; the newest one carries the final
+      // document state.
+      if (pendingSaves > 0) return;
+      if (message.ok === false) {
+        // The host could not apply the merge to the document. Keep the view
+        // (and its base) untouched so nothing is lost; the save can be
+        // retried.
+        savedSnapshot = null;
+        return;
+      }
+      const current = serialize();
+      if (current !== null && savedSnapshot !== null && current !== savedSnapshot) {
+        // The user kept editing while the save was in flight. Keep those
+        // edits (still marked dirty) and advance the merge base only to the
+        // snapshot that was saved — the next save merges the rest.
+        baseHtml = savedSnapshot;
+        cleanHtml = savedSnapshot;
+        savedSnapshot = null;
+        // Refresh the host-side backup so it is keyed to the new base.
+        vscode.postMessage({ type: 'backup', html: current, baseHtml });
+        return;
+      }
+      savedSnapshot = null;
+      baseHtml = message.html;
+      cleanHtml = message.html;
+      setDirty(false);
+      // Remount only when the saved document differs from the view (external
+      // changes merged in, or save-time normalization).
+      if (current !== message.html) {
+        remountPreservingSelection(message.html);
+      }
+      history.reset();
       break;
     }
     case 'copyToClipboard':
@@ -479,6 +675,11 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
 });
 
 window.addEventListener('beforeunload', () => {
+  // Flush the debounced backup so the freshest unsaved content reaches the
+  // extension host before the webview is torn down. Pending comment-popup
+  // edits are committed first so the backup carries them too.
+  commentPopup.flushPending();
+  history.flush();
   editor.flush();
 });
 

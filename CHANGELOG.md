@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.1.5] - 2026-07-12
+
+### Changed
+
+- Switch the active tab in either direction between the HTML text editor and WYSIWYG view in the same editor group, honoring VSCode's standard Save / Don't Save / Cancel close flow and leaving unrelated or already-open editor views intact
+- Sync the WYSIWYG view into the HTML source only on an explicit save action (`Ctrl+S` / `Cmd+S` or the new toolbar save button) instead of pushing every edit immediately; unsaved changes are held in the view
+- Apply the save as a three-way diff (git-style) against the document text the view last synced from, so changes made directly to the HTML while editing in the view are preserved; when both sides changed the same lines, both versions are kept (document side first) rather than using conflict markers
+- Keep reflecting direct HTML changes into the view immediately while the view has no unsaved changes
+- Migrate the WYSIWYG editor from `CustomTextEditorProvider` to a full `CustomEditorProvider` so its tab carries its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both
+- Route WYSIWYG saves through VSCode's standard save lifecycle, so the editor now participates in Save/Don't Save prompts on close, auto-save (`files.autoSave`), Revert File, and hot-exit restore
+
+### Added
+
+- Toolbar save button with an unsaved-changes indicator dot
+- Native dirty indicator (●) on the WYSIWYG tab, and support for Revert File and auto-save on the WYSIWYG editor
+- VS Code-native undo/redo for WYSIWYG edits (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`), preserving the visual edit history across saves and merging undo/redo transitions with direct HTML edits
+
+### Fixed
+
+- Fix a race where saving twice in quick succession rolled back the second change: a stale document echo arriving after a save could remount the view with older content, discarding edits made during the round-trip
+- Persist unsaved WYSIWYG changes on the extension side so they survive the webview being disposed — switching the same tab between the WYSIWYG view and the text editor silently discarded them; on reopen they are restored as unsaved content, three-way merged with any changes made directly to the HTML in the meantime. Unsaved content now uses VSCode's native custom-editor backup so hot exit restores it (a backup persisted by a previous version is migrated on first open)
+- Compare lines with normalized line endings during the save-time merge (and re-join with the document's dominant EOL), so editing a CRLF document no longer degrades concurrent-edit merges into a whole-body duplicated conflict
+- Keep the view content and its unsaved state when the merged save cannot be applied to the document, instead of silently syncing the view to the unsaved document text
+- Render images referenced by relative paths (e.g. `./images/foo.png`) in the WYSIWYG view by resolving them against the document's directory; relative resource loading is scoped to the document's folder and its workspace folder (absolute/`file://` paths remain unresolved by design)
+- Commit in-progress comment body/reply edits before save, close, outside click, and comment navigation so typed text is not lost; newly created comments now open directly in body-edit mode without scrolling the document
+- Keep the comment popup bound to the same comment across save echoes and undo/redo remounts, or close it cleanly when the comment no longer exists
+- Insert block-level pasted HTML beside the current paragraph/heading instead of producing invalid nested blocks or empty shells on save
+- Trim empty boundary blocks from copied selections when the browser's range includes the edge of a following block that was not visibly selected
+- Allow mouse and keyboard selection to extend across multiple paragraphs inside an open `<details>` body
+
 ## [0.1.4] - 2026-07-02
 
 ### Changed

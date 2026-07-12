@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
-  DEBOUNCE_MS,
   caretAtEnd,
   focusEditor,
-  getEditMessages,
   getRootHtml,
   mountEditor,
+  saveAndGetHtml,
 } from './helpers/page';
 
 test.describe('Details / summary', () => {
@@ -58,16 +57,85 @@ test.describe('Details / summary', () => {
     await expect(page.locator('#ahve-root details')).toHaveAttribute('open', '');
   });
 
-  test('Toggling persists as an edit message', async ({ page }) => {
+  test('Toggling persists into the saved document', async ({ page }) => {
     await mountEditor(page, '<details open=""><summary>title</summary><p>body</p></details>');
 
     await page.locator('#ahve-root summary').click({ position: { x: 4, y: 8 } });
 
-    await page.waitForTimeout(DEBOUNCE_MS + 100);
-    const edits = await getEditMessages(page);
-    expect(edits.length).toBeGreaterThanOrEqual(1);
-    const last = edits[edits.length - 1];
-    expect(last.html).toContain('<summary>title</summary>');
-    expect(last.html).not.toContain('<details open');
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain('<summary>title</summary>');
+    expect(html).not.toContain('<details open');
+  });
+
+  test('Mouse drag selects across the details body paragraphs', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<details open=""><summary>Details</summary>' +
+        '<h3>internl header</h3>' +
+        '<p>Internal text1.</p>' +
+        '<p>Internal text2.</p></details>',
+    );
+
+    const p1 = page.locator('#ahve-root p').nth(0);
+    const p2 = page.locator('#ahve-root p').nth(1);
+    const box1 = await p1.boundingBox();
+    const box2 = await p2.boundingBox();
+    if (!box1 || !box2) throw new Error('paragraph has no bounding box');
+
+    // Drag from the start of "Internal text1." to the end of "Internal text2.".
+    await page.mouse.move(box1.x, box1.y + box1.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box2.x + box2.width - 2, box2.y + box2.height / 2, { steps: 12 });
+    await page.mouse.up();
+
+    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(selected).toContain('Internal text1.');
+    expect(selected).toContain('Internal text2.');
+  });
+
+  test('Shift+ArrowDown extends the selection into the next details paragraph', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<details open=""><summary>Details</summary>' +
+        '<p>Internal text1.</p>' +
+        '<p>Internal text2.</p></details>',
+    );
+    await focusEditor(page);
+    // Collapsed caret at the start of "Internal text1.".
+    await page.evaluate(() => {
+      const p1 = document.querySelectorAll('#ahve-root p')[0];
+      const r = document.createRange();
+      r.setStart(p1.firstChild!, 0);
+      r.collapse(true);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Shift+End');
+    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(selected).toContain('Internal text1.');
+    expect(selected).toContain('Internal text2.');
+  });
+
+  test('Shift+ArrowDown from a full first-line selection reaches the same column below', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<details open=""><summary>Details</summary>' +
+        '<p>Internal text1.</p>' +
+        '<p>Internal text2.</p></details>',
+    );
+    await focusEditor(page);
+    // Select all of "Internal text1." with the focus at its end.
+    await page.evaluate(() => {
+      const t1 = document.querySelectorAll('#ahve-root p')[0].firstChild as Text;
+      window.getSelection()!.setBaseAndExtent(t1, 0, t1, t1.data.length);
+    });
+    // A single Shift+ArrowDown extends into the next paragraph at the same
+    // column (its end), so both lines end up fully selected.
+    await page.keyboard.press('Shift+ArrowDown');
+    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(selected).toContain('Internal text1.');
+    expect(selected).toContain('Internal text2.');
   });
 });

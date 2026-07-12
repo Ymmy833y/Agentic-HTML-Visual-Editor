@@ -11,8 +11,12 @@ suite('Activation', () => {
     const commands = await vscode.commands.getCommands(true);
     for (const id of [
       'ahve.openInVisualEditor',
+      'ahve.openInTextEditor',
       'ahve.copyAsHtml',
       'ahve.copyAsConfluenceHtml',
+      'ahve.save',
+      'ahve.undo',
+      'ahve.redo',
     ]) {
       assert.ok(commands.includes(id), `command ${id} should be registered`);
     }

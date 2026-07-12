@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.4-F59E0B?style=for-the-badge" alt="Version 0.1.4" />
+  <img src="https://img.shields.io/badge/version-0.1.5-F59E0B?style=for-the-badge" alt="Version 0.1.5" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -34,7 +34,7 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
   - [🔍 In-document search](#-in-document-search)
   - [▸ Collapsible sections](#-collapsible-sections)
   - [▦ Table editing](#-table-editing)
-  - [📋 Clipboard copy](#-clipboard-copy)
+  - [📋 Clipboard copy/paste](#-clipboard-copypaste)
 - [🤖 For AI agents — the bundled Skill](#-for-ai-agents--the-bundled-skill)
 - [🚫 Unsupported / out of scope](#-unsupported--out-of-scope)
 - [🎯 Intended use case](#-intended-use-case)
@@ -49,7 +49,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Give humans a modern, readable view** they can edit intuitively, no HTML knowledge required.
 - **Use HTML as one portable, common format** for both AI and humans, always kept in sync with the source file.
 
-> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Click the **Open in WYSIWYG** title-bar button (`ahve.openInVisualEditor`) to switch to the visual view whenever you want it.
+> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Use the title-bar buttons to switch the active tab between **Open in WYSIWYG** (`ahve.openInVisualEditor`) and **Open in HTML** (`ahve.openInTextEditor`). If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
 
 ---
 
@@ -57,14 +57,14 @@ Coding agents and humans both need to read and write the same documents — desi
 
 | Area | What you get |
 | --- | --- |
-| ✍️ **WYSIWYG editing** | Inline editing of `.html` with edits reflected straight into the source |
+| ✍️ **WYSIWYG editing** | Inline editing of `.html`, synced into the source as a diff when you save, with native undo/redo |
 | 💬 **Comments** | HTML-native, review-style inline annotations with author, time & resolved state |
 | ✅ **Lists** | Create, nest and toggle `ul`/`ol` from the toolbar, keyboard or markdown triggers |
 | ⌨️ **Shortcuts** | Keyboard, toolbar, floating menu, and markdown-style auto-formatting |
 | 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
 | ▦ **Tables** | Insert, edit, merge/split, header toggle, and drag-resize columns |
-| 📋 **Copy** | Copy clean HTML (selection or whole body) to the clipboard |
+| 📋 **Clipboard** | Copy clean HTML (selection or whole body) and paste sanitized rich HTML or plain text |
 
 ---
 
@@ -73,7 +73,14 @@ Coding agents and humans both need to read and write the same documents — desi
 ### ✍️ WYSIWYG editing (inline)
 
 - Targets `.html` files.
-- Direct edits in the WYSIWYG view are immediately reflected in the underlying HTML source.
+- Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
+- Switching between the active HTML text tab and the WYSIWYG view closes the current tab first and opens its replacement in the same editor group. Canceling VS Code's close prompt leaves the current tab open and does not switch views. If the replacement is already open, it is revealed without closing the current tab.
+- The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
+- Undo/redo uses VS Code's standard history (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for WYSIWYG edits. History entries remain available after saving, and undo/redo is merged with any direct HTML changes made in the meantime.
+- The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first).
+- While the view has no unsaved changes, direct changes to the HTML source are reflected into the view immediately.
+- The switch does not snapshot or rewrite the HTML itself. Changes written by an AI agent while the close prompt is open or while the view starts are read through VS Code's current document state, then continue through the same live-update and three-way-merge flow.
+- The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab (or switching it over to the text editor) prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes — merged with any direct HTML changes made in the meantime — still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
 
@@ -84,7 +91,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Collapsible:** `details`, `summary`
 - **Lists:** `ul`, `ol`, `li` (created and nested from within the editor — see *List editing*)
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
-- **Media:** `img` (existing images are rendered and preserved; there is currently no built-in image-insertion UI)
+- **Media:** `img` (existing images are rendered and preserved; relative paths such as `./images/foo.png` are resolved from the HTML file's directory; there is currently no built-in image-insertion UI)
 - **Custom tags:** `<comment>`, `<comment-body>`, `<comment-reply>` (below)
 
 ### 💬 Inline comment annotations
@@ -127,6 +134,8 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `Ctrl+Shift+1`–`6` / `Ctrl+Alt+1`–`6` | Set heading H1–H6 |
 | `Ctrl+Shift+0` / `Ctrl+Alt+0` | Convert to paragraph |
 | `Ctrl+Shift+V` | Paste as plain text |
+| `Ctrl+Z` | Undo WYSIWYG edit |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo WYSIWYG edit |
 | `Tab` / `Shift+Tab` | Indent/outdent list items, or move between table cells |
 | `Ctrl+F` | In-document search |
 
@@ -142,7 +151,7 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `---` + Enter | Horizontal rule |
 
 - **Floating menu:** shows relevant actions based on the current selection.
-- **Toolbar:** one-click access to major tags (block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, lists, horizontal rule, details, table, comment, copy).
+- **Toolbar:** one-click access to major tags and actions (save, block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, lists, horizontal rule, details, table, comment, copy).
 
 ### 🔍 In-document search
 
@@ -161,9 +170,11 @@ Insert a `<details>` / `<summary>` block from the toolbar (the **Details** butto
 
 Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units.
 
-### 📋 Clipboard copy
+### 📋 Clipboard copy/paste
 
 **Copy as HTML** copies clean HTML to the clipboard: the current selection, or — when nothing is selected — the whole document body. (Copy/cut from within the editor also writes this same clean HTML rather than the browser's style-laden contenteditable markup.) Comment annotations are private to the editor, so they are stripped from the copied HTML — only the commented-on text, with its inline markup, is exported.
+
+Pasted HTML is sanitized before insertion. Block-level fragments pasted into a paragraph or heading are inserted beside the current block instead of creating invalid nested blocks, and visually unselected empty boundary blocks are trimmed from copied selections.
 
 ---
 
