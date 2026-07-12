@@ -6,7 +6,7 @@ import {
   caretAtEnd,
   focusEditor,
   getBackupMessages,
-  getDirtyChangedCount,
+  getEditCommittedCount,
   getRootHtml,
   mountEditor,
   openHost,
@@ -242,28 +242,61 @@ test.describe('Save-time sync — unsaved-changes backup', () => {
   });
 });
 
-test.describe('Native dirty indicator plumbing', () => {
-  test('dirtyChanged is posted once per clean->dirty transition', async ({ page }) => {
+test.describe('Native custom-editor edit plumbing', () => {
+  test('Ctrl+S is left to the VS Code host instead of starting a second webview save', async ({
+    page,
+  }) => {
     await mountEditor(page, '<p>hello</p>');
-    expect(await getDirtyChangedCount(page)).toBe(0);
+    await page.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 's',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const messages = await page.evaluate(() => window.__vscodeMessages.slice());
+    expect(messages.some((message) => message.type === 'requestSave')).toBe(false);
+  });
 
-    // First edit: exactly one dirtyChanged.
-    await typeAtEnd(page, 'X');
-    expect(await getDirtyChangedCount(page)).toBe(1);
+  test('contiguous typing is committed as one edit transaction', async ({ page }) => {
+    await mountEditor(page, '<p>hello</p>');
+    expect(await getEditCommittedCount(page)).toBe(0);
 
-    // Further edits while dirty do not re-post.
-    await page.keyboard.type('Y');
-    expect(await getDirtyChangedCount(page)).toBe(1);
+    await typeAtEnd(page, 'XYZ');
+    await page.waitForTimeout(1100);
+    expect(await getEditCommittedCount(page)).toBe(1);
 
-    // A successful save cleans the view; the next edit posts again.
+    // Saving keeps the edit stack; a later typing group is a new transaction.
     const save = await saveAndGetFileData(page);
     await dispatchMessage(page, { type: 'saveResult', html: save.html, ok: true });
     await expect(page.locator(dirtyIndicator)).toHaveCount(0);
     await typeAtEnd(page, 'Z');
-    expect(await getDirtyChangedCount(page)).toBe(2);
+    await page.waitForTimeout(1100);
+    expect(await getEditCommittedCount(page)).toBe(2);
   });
 
-  test('init with restored content marks the view dirty and posts dirtyChanged', async ({
+  test('undo history survives save and redo returns to the saved state', async ({ page }) => {
+    await mountEditor(page, '<p>hello</p>');
+    await typeAtEnd(page, ' world');
+    await page.waitForTimeout(1100);
+
+    const save = await saveAndGetFileData(page);
+    await dispatchMessage(page, { type: 'saveResult', html: save.html, ok: true });
+    await expect(page.locator(dirtyIndicator)).toHaveCount(0);
+
+    await page.keyboard.press('Control+Z');
+    expect(await getRootHtml(page)).toContain('<p>hello</p>');
+    await expect(page.locator(dirtyIndicator)).toHaveCount(1);
+
+    await page.keyboard.press('Control+Shift+Z');
+    expect(await getRootHtml(page)).toContain('hello world');
+    await expect(page.locator(dirtyIndicator)).toHaveCount(0);
+  });
+
+  test('init with restored content marks the view dirty and posts one edit', async ({
     page,
   }) => {
     await mountEditor(page, '<p>base</p>');
@@ -273,7 +306,7 @@ test.describe('Native dirty indicator plumbing', () => {
       restored: '<p>base edited</p>',
     });
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
-    expect(await getDirtyChangedCount(page)).toBe(1);
+    expect(await getEditCommittedCount(page)).toBe(1);
   });
 
   test('revert discards the view edits, remounts the sent content, and clears dirty', async ({
@@ -281,6 +314,7 @@ test.describe('Native dirty indicator plumbing', () => {
   }) => {
     await mountEditor(page, '<p>hello</p>');
     await typeAtEnd(page, 'X');
+    await page.waitForTimeout(1100);
     await expect(page.locator(dirtyIndicator)).toHaveCount(1);
 
     await dispatchMessage(page, { type: 'revert', html: '<p>hello</p>' });
@@ -290,7 +324,8 @@ test.describe('Native dirty indicator plumbing', () => {
 
     // A fresh edit after the revert re-posts dirtyChanged.
     await typeAtEnd(page, 'W');
-    expect(await getDirtyChangedCount(page)).toBe(2);
+    await page.waitForTimeout(1100);
+    expect(await getEditCommittedCount(page)).toBe(2);
   });
 
   test('a snapshot request before init answers with nulls', async ({ page }) => {

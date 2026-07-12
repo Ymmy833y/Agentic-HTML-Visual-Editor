@@ -90,10 +90,10 @@ export async function requestFileData(page: Page): Promise<FileDataMessage> {
   ) as FileDataMessage;
 }
 
-/** Count of `dirtyChanged` messages posted so far (clean -> dirty transitions). */
-export async function getDirtyChangedCount(page: Page): Promise<number> {
+/** Count of committed WYSIWYG transactions posted to the custom-editor host. */
+export async function getEditCommittedCount(page: Page): Promise<number> {
   return page.evaluate(
-    () => window.__vscodeMessages.filter((m) => m.type === 'dirtyChanged').length,
+    () => window.__vscodeMessages.filter((m) => m.type === 'editCommitted').length,
   );
 }
 
@@ -117,20 +117,15 @@ export async function getBackupMessages(page: Page): Promise<BackupMessage[]> {
 }
 
 /**
- * Trigger the editor's save action (the Ctrl+S handler) via a synthetic
- * keydown, avoiding the browser's own Ctrl+S behavior in the test runner.
- * The view posts a `requestSave` message; the host then runs VSCode's save
- * flow, which fetches the view content with a `getFileData` request.
+ * Trigger the editor's save action through the integration-test message. In
+ * VS Code, Ctrl/Cmd+S is owned by the `ahve.save` workbench keybinding and does
+ * not enter the webview DOM; this message exercises the toolbar-equivalent
+ * request path in the standalone browser host.
  */
 export async function triggerSave(page: Page): Promise<void> {
   await page.evaluate(() => {
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 's',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
+    window.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'testRequestSave' } }),
     );
   });
 }

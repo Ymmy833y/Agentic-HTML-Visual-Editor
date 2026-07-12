@@ -14,6 +14,9 @@ suite('Activation', () => {
       'ahve.openInTextEditor',
       'ahve.copyAsHtml',
       'ahve.copyAsConfluenceHtml',
+      'ahve.save',
+      'ahve.undo',
+      'ahve.redo',
     ]) {
       assert.ok(commands.includes(id), `command ${id} should be registered`);
     }

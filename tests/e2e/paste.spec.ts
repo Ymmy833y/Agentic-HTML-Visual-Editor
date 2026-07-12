@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { caretAtEnd, focusEditor, getRootHtml, mountEditor, saveAndGetHtml } from './helpers/page';
+import {
+  caretAtEnd,
+  focusEditor,
+  getMessages,
+  getRootHtml,
+  mountEditor,
+  saveAndGetFileData,
+  saveAndGetHtml,
+} from './helpers/page';
 
 async function pasteHtml(page: Page, html: string): Promise<void> {
   await page.evaluate((payload) => {
@@ -99,6 +107,77 @@ test.describe('Paste sanitization', () => {
 });
 
 test.describe('Copy / paste round-trip', () => {
+  test('undo and redo treat three rich-text pastes as separate edits before and after save', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(
+      page,
+      '  <h2>Level 2 heading</h2>\n  <p>This sample text.</p>\n',
+    );
+    await focusEditor(page);
+    await page.evaluate(() => {
+      const paragraph = document.querySelector('#ahve-root p')!;
+      const range = document.createRange();
+      range.selectNode(paragraph);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.keyboard.press('Control+C');
+    await page.evaluate(() => {
+      const paragraph = document.querySelector('#ahve-root p')!;
+      const range = document.createRange();
+      range.setStartAfter(paragraph);
+      range.collapse(true);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    await page.keyboard.press('Control+V');
+    await page.keyboard.press('Control+V');
+    await page.keyboard.press('Control+V');
+    await expect(page.locator('#ahve-root p')).toHaveCount(4);
+
+    await page.keyboard.press('Control+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(3);
+    await page.keyboard.press('Control+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(2);
+    await page.keyboard.press('Control+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(1);
+
+    await page.keyboard.press('Control+Shift+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(2);
+    await page.keyboard.press('Control+Y');
+    await expect(page.locator('#ahve-root p')).toHaveCount(3);
+    await page.keyboard.press('Control+Y');
+    await expect(page.locator('#ahve-root p')).toHaveCount(4);
+
+    const save = await saveAndGetFileData(page);
+    expect(save.html).toBe(
+      '  <h2>Level 2 heading</h2>\n  <p>This sample text.</p>\n' +
+        '  <p>This sample text.</p>\n  <p>This sample text.</p>\n' +
+        '  <p>This sample text.</p>\n',
+    );
+    await page.evaluate((html) => {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'saveResult', html, ok: true },
+      }));
+    }, save.html);
+
+    // Saving retains the custom-editor stack. The first undo must reverse
+    // only the last paste, not the full-document WorkspaceEdit used by save.
+    await page.keyboard.press('Control+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(3);
+    await page.keyboard.press('Control+Shift+Z');
+    await expect(page.locator('#ahve-root p')).toHaveCount(4);
+
+    const messages = await getMessages(page);
+    expect(messages.some((message) => message.type === 'requestUndo')).toBe(false);
+    expect(messages.some((message) => message.type === 'requestRedo')).toBe(false);
+  });
+
   test('pasting twice over a backward paragraph selection does not leave a trailing empty shell', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);

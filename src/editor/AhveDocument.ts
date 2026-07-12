@@ -1,6 +1,6 @@
 import type * as vscode from 'vscode';
 import type { UnsavedBackup } from './backup';
-import type { ExtensionToWebviewMessage } from '../shared/messages';
+import type { ExtensionToWebviewMessage, SerializedSelection } from '../shared/messages';
 
 /** Snapshot of the view returned by a `getFileData` round-trip. */
 export interface ViewFileData {
@@ -49,6 +49,8 @@ export class AhveDocument implements vscode.CustomDocument {
   public panel: vscode.WebviewPanel | undefined;
 
   private readonly pendingRequests = new Map<number, (data: ViewFileData) => void>();
+  private readonly pendingHistoryApplies = new Map<number, () => void>();
+  private readonly pendingHistoryFlushes = new Map<number, () => void>();
   private nextRequestId = 1;
 
   constructor(
@@ -64,7 +66,7 @@ export class AhveDocument implements vscode.CustomDocument {
    * there is no live panel or the view does not answer within `timeoutMs`
    * (webview still booting, blocked, or already torn down).
    */
-  public requestFileData(timeoutMs = 2000): Promise<ViewFileData> {
+  public requestFileData(timeoutMs = 2000, forHistory = false): Promise<ViewFileData> {
     const panel = this.panel;
     if (!panel) return Promise.resolve({ html: null, baseHtml: null });
     const requestId = this.nextRequestId++;
@@ -81,6 +83,7 @@ export class AhveDocument implements vscode.CustomDocument {
       void panel.webview.postMessage({
         type: 'getFileData',
         requestId,
+        forHistory,
       } satisfies ExtensionToWebviewMessage);
     });
   }
@@ -90,11 +93,73 @@ export class AhveDocument implements vscode.CustomDocument {
     this.pendingRequests.get(requestId)?.(data);
   }
 
+  /** Apply an undo/redo result in the live view and wait until it is mounted. */
+  public applyHistoryState(
+    html: string,
+    selection: SerializedSelection | null,
+    timeoutMs = 2000,
+  ): Promise<void> {
+    const panel = this.panel;
+    if (!panel) return Promise.resolve();
+    const requestId = this.nextRequestId++;
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingHistoryApplies.delete(requestId);
+        resolve();
+      }, timeoutMs);
+      this.pendingHistoryApplies.set(requestId, () => {
+        clearTimeout(timer);
+        this.pendingHistoryApplies.delete(requestId);
+        resolve();
+      });
+      void panel.webview.postMessage({
+        type: 'applyHistoryState',
+        requestId,
+        html,
+        selection,
+      } satisfies ExtensionToWebviewMessage);
+    });
+  }
+
+  public resolveHistoryApply(requestId: number): void {
+    this.pendingHistoryApplies.get(requestId)?.();
+  }
+
+  /** Commit any grouped native input before VS Code traverses its edit stack. */
+  public flushHistory(timeoutMs = 2000): Promise<void> {
+    const panel = this.panel;
+    if (!panel) return Promise.resolve();
+    const requestId = this.nextRequestId++;
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingHistoryFlushes.delete(requestId);
+        resolve();
+      }, timeoutMs);
+      this.pendingHistoryFlushes.set(requestId, () => {
+        clearTimeout(timer);
+        this.pendingHistoryFlushes.delete(requestId);
+        resolve();
+      });
+      void panel.webview.postMessage({
+        type: 'flushHistory',
+        requestId,
+      } satisfies ExtensionToWebviewMessage);
+    });
+  }
+
+  public resolveHistoryFlush(requestId: number): void {
+    this.pendingHistoryFlushes.get(requestId)?.();
+  }
+
   public dispose(): void {
     for (const resolve of this.pendingRequests.values()) {
       resolve({ html: null, baseHtml: null });
     }
     this.pendingRequests.clear();
+    for (const resolve of this.pendingHistoryApplies.values()) resolve();
+    this.pendingHistoryApplies.clear();
+    for (const resolve of this.pendingHistoryFlushes.values()) resolve();
+    this.pendingHistoryFlushes.clear();
     this.panel = undefined;
     this.onDispose?.();
   }
