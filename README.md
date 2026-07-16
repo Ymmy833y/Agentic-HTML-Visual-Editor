@@ -91,7 +91,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Collapsible:** `details`, `summary`
 - **Lists:** `ul`, `ol`, `li` (created and nested from within the editor — see *List editing*)
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
-- **Media:** `img` (existing images are rendered and preserved; relative paths such as `./images/foo.png` are resolved from the HTML file's directory; there is currently no built-in image-insertion UI)
+- **Media:** `img` (insert from the toolbar using a relative path or HTTP/HTTPS URL, with optional alt text; relative paths such as `./images/foo.png` are resolved from the HTML file's directory)
 - **Custom tags:** `<comment>`, `<comment-body>`, `<comment-reply>` (below)
 
 ### 💬 Inline comment annotations
@@ -151,7 +151,7 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `---` + Enter | Horizontal rule |
 
 - **Floating menu:** shows relevant actions based on the current selection.
-- **Toolbar:** one-click access to major tags and actions (save, block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, lists, horizontal rule, details, table, comment, copy).
+- **Toolbar:** one-click access to major tags and actions (save, block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
 
 ### 🔍 In-document search
 
