@@ -28,6 +28,7 @@ import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
 import { mountDetails } from './features/details/details';
 import { mountDetailsSelection } from './features/details/details-selection';
+import { mountRelativeFileNavigation } from './features/link/link-navigation';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -196,6 +197,10 @@ function doCopy(format: CopyFormat): void {
 
 const commentPopup = mountCommentPopup(root, {
   onChange: () => editor.notifyChanged(),
+});
+
+mountRelativeFileNavigation(root, (href) => {
+  vscode.postMessage({ type: 'openRelativeFile', href });
 });
 
 function handleAddComment(): void {
@@ -628,6 +633,9 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
     }
     case 'testRequestSave':
       requestSave();
+      break;
+    case 'testOpenRelativeFile':
+      vscode.postMessage({ type: 'openRelativeFile', href: message.href });
       break;
     case 'saveResult': {
       // A saveResult can only follow an `init` (saves before that answer the
