@@ -70,6 +70,8 @@ export interface ToolbarOptions {
   onCommand: () => void;
   /** Open the link dialog and apply the result. */
   onLink: () => void;
+  /** Open the image dialog and insert the result. */
+  onImage: () => void;
   /** Add a comment to the current selection and open its popup. */
   onAddComment: () => void;
   /** Trigger a copy in the requested format. */
@@ -158,7 +160,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
   group(bar, [saveBtn]);
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
-  group(bar, [linkBtn(opts.onLink)]);
+  group(bar, [linkBtn(opts.onLink), imageBtn(opts.onImage)]);
   group(bar, [ulBtn, olBtn]);
   group(bar, [
     textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
@@ -490,6 +492,16 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
   setupTooltip(b, 'Link (Ctrl+K)');
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
+  return b;
+}
+
+function imageBtn(onImage: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ahve-tb-btn ahve-tb-image';
+  setupTooltip(b, 'Insert image');
+  b.textContent = 'Image';
+  b.addEventListener('click', onImage);
   return b;
 }
 
