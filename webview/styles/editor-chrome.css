@@ -134,6 +134,20 @@
   border-radius: 3px;
   margin: 0 2px;
 }
+.ahve-tb-blk-has-submenu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.ahve-tb-blk-submenu-arrow {
+  font-size: 1.15em;
+  line-height: 1;
+  opacity: 0.65;
+}
+.ahve-tb-alert-submenu {
+  min-width: 140px;
+}
 .ahve-tb-blk-opt:hover {
   background: var(--ahve-code-bg);
 }

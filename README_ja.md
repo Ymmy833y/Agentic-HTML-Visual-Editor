@@ -30,6 +30,7 @@
   - [✍️ WYSIWYG 編集（インライン編集型）](#️-wysiwyg-編集インライン編集型)
   - [💬 インラインコメント注釈](#-インラインコメント注釈)
   - [✅ リスト編集](#-リスト編集)
+  - [ℹ️ アラート引用](#️-アラート引用)
   - [⌨️ ショートカット](#️-ショートカット)
   - [🔍 ドキュメント内検索](#-ドキュメント内検索)
   - [▸ 折りたたみセクション](#-折りたたみセクション)
@@ -60,6 +61,7 @@
 | ✍️ **WYSIWYG 編集** | `.html` をインライン編集し、保存時に差分としてソースへ同期。ネイティブな undo/redo に対応 |
 | 💬 **コメント** | HTML ネイティブなレビュー風インライン注釈（作成者・日時・解決状態付き） |
 | ✅ **リスト** | ツールバー・キーボード・マークダウン風入力で `ul`/`ol` を作成・ネスト・切替 |
+| ℹ️ **アラート** | GitHub 風の Note、Tip、Important、Warning、Caution 引用 |
 | ⌨️ **ショートカット** | キーボード・ツールバー・フローティングメニュー・マークダウン風オートフォーマット |
 | 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル対応 |
 | ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
@@ -119,6 +121,20 @@ HTML だけでレビュー風の注釈を表現するインラインカスタム
 - **マークダウン風:** 段落の先頭で `- ` / `* `（箇条書き）または `1. `（番号付き）を入力するとリスト化する。
 - **ネスト:** Tab で現在の項目を直前の項目の下にネスト、Shift+Tab で 1 段戻す（最上位項目は段落へ昇格）。空の項目で Enter を押すとリストから抜ける。
 
+### ℹ️ アラート引用
+
+GitHub 風アラートは、通常の引用に小さな意味属性を付けた HTML として保存する。
+
+```html
+<blockquote data-alert="note">Useful information.</blockquote>
+```
+
+WYSIWYG 画面では固定の英語ラベル、アイコン、種類ごとのアクセント色を表示するが、表示用マークアップは保存 HTML へ追加しない。値は `note`、`tip`、`important`、`warning`、`caution` に対応する。未知の値は HTML に保持し、通常の引用として表示する。
+
+- **ツールバー:** ブロック種別メニューを開き、**Blockquote** にカーソルを合わせて右側のサブメニューを表示する。先頭の **Normal** を選ぶと通常の引用になり、その下から5種類のアラートを選択できる。
+- **マークダウン風:** ブロック先頭で `>note `、`>tip `、`>important `、`>warning `、`>caution ` を入力する。
+- 従来の `> ` は引き続き通常の引用を作成する。
+
 ### ⌨️ ショートカット
 
 よく使う表記をキーボード・ツールバー・マークダウン風トリガーから呼び出せる。
@@ -147,11 +163,12 @@ HTML だけでレビュー風の注釈を表現するインラインカスタム
 | `- ` / `* ` | 箇条書き |
 | `1. ` | 番号付き |
 | `> ` | 引用 |
+| `>note ` / `>tip ` / `>important ` / `>warning ` / `>caution ` | アラート引用 |
 | ` ``` ` + Enter | コードブロック |
 | `---` + Enter | 水平線 |
 
 - **フローティングメニュー:** 選択範囲に応じて関連操作を提示。
-- **ツールバー:** 主要タグと操作へのワンクリックアクセス（保存、ブロック種別、太字／斜体／取り消し線／インラインコード／コードブロック、書式クリア、リンク、画像、リスト、水平線、details、テーブル、コメント、コピー）。
+- **ツールバー:** 主要タグと操作へのワンクリックアクセス（保存、Blockquote／Alertスタイルを含むブロック種別、太字／斜体／取り消し線／インラインコード／コードブロック、書式クリア、リンク、画像、リスト、水平線、details、テーブル、コメント、コピー）。
 
 ### 🔍 ドキュメント内検索
 
@@ -234,6 +251,19 @@ Stay inside this set — anything else may be stripped or render unstyled:
 - **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
 
 For code blocks, wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
+
+## GitHub-style alert blockquotes
+
+Use a `blockquote` with `data-alert` when content needs an emphasized Note,
+Tip, Important, Warning, or Caution presentation:
+
+```html
+<blockquote data-alert="note">Useful information.</blockquote>
+```
+
+Allowed values are `note`, `tip`, `important`, `warning`, and `caution`. Keep
+the label and icon out of the HTML; the WYSIWYG stylesheet supplies them. A
+plain `<blockquote>` remains an ordinary quotation.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 

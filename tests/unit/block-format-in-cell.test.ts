@@ -3,6 +3,7 @@ import {
   ensureBlockInCell,
   insertDetails,
   insertHr,
+  setAlertType,
   setBlockTag,
   toggleList,
 } from '../../webview/commands/block-format';
@@ -93,6 +94,15 @@ describe('setBlockTag inside a table cell', () => {
     caretInText(cell);
     setBlockTag('pre', ctxOf(root));
     expect(cell.innerHTML).toBe('<pre>a</pre>');
+  });
+});
+
+describe('setAlertType inside a table cell', () => {
+  it('converts bare cell content to an alert inside the cell', () => {
+    const { root, cell } = cellRoot('a');
+    caretInText(cell);
+    setAlertType('warning', ctxOf(root));
+    expect(cell.innerHTML).toBe('<blockquote data-alert="warning">a</blockquote>');
   });
 });
 

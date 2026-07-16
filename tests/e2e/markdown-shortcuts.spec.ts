@@ -50,6 +50,91 @@ test.describe('Markdown-style shortcuts', () => {
     expect(await getRootHtml(page)).toBe('<blockquote><br></blockquote>');
   });
 
+  for (const type of ['note', 'tip', 'important', 'warning', 'caution'] as const) {
+    test(`">${type} " starts a ${type} alert`, async ({ page }) => {
+      await mountEditor(page, '<p><br></p>');
+      await focusEditor(page);
+      await page.keyboard.type(`>${type} `);
+      expect(await getRootHtml(page)).toBe(
+        `<blockquote data-alert="${type}"><br></blockquote>`,
+      );
+    });
+  }
+
+  test('">info " remains ordinary text', async ({ page }) => {
+    await mountEditor(page, '<p><br></p>');
+    await focusEditor(page);
+    await page.keyboard.type('>info ');
+    await expect(page.locator('#ahve-root blockquote')).toHaveCount(0);
+    await expect(page.locator('#ahve-root p')).toHaveText('>info ');
+  });
+
+  test('formal alert shortcut also works in bare root text', async ({ page }) => {
+    await mountEditor(page, '&gt;caution');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root');
+    await page.keyboard.press('Space');
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="caution"><br></blockquote>',
+    );
+  });
+
+  test('alert shortcut is one undoable edit and can be redone', async ({ page }) => {
+    await mountEditor(page, '<p><br></p>');
+    await focusEditor(page);
+    await page.keyboard.type('>warning ');
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="warning"><br></blockquote>',
+    );
+
+    await page.keyboard.press('Control+z');
+    expect(await getRootHtml(page)).toBe('<p>&gt;warning</p>');
+
+    await page.keyboard.press('Control+y');
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="warning"><br></blockquote>',
+    );
+  });
+
+  test('recognized alert types render labels, icons, and distinct accent colors', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<blockquote data-alert="note">N</blockquote>' +
+        '<blockquote data-alert="tip">T</blockquote>' +
+        '<blockquote data-alert="important">I</blockquote>' +
+        '<blockquote data-alert="warning">W</blockquote>' +
+        '<blockquote data-alert="caution">C</blockquote>' +
+        '<blockquote data-alert="future">F</blockquote>',
+    );
+
+    const rendered = await page.locator('#ahve-root blockquote').evaluateAll((quotes) =>
+      quotes.map((quote) => {
+        const style = getComputedStyle(quote);
+        const before = getComputedStyle(quote, '::before');
+        const after = getComputedStyle(quote, '::after');
+        return {
+          borderColor: style.borderLeftColor,
+          label: before.content,
+          icon: after.maskImage,
+        };
+      }),
+    );
+
+    expect(rendered.slice(0, 5).map((item) => item.label)).toEqual([
+      '"Note"',
+      '"Tip"',
+      '"Important"',
+      '"Warning"',
+      '"Caution"',
+    ]);
+    expect(new Set(rendered.slice(0, 5).map((item) => item.borderColor)).size).toBe(5);
+    for (const item of rendered.slice(0, 5)) {
+      expect(item.icon).toContain('data:image/svg+xml');
+    }
+    expect(rendered[5].label).toBe('none');
+    expect(rendered[5].icon).toBe('none');
+  });
+
   test('"```" + Enter opens a code block', async ({ page }) => {
     await mountEditor(page, '<p>```</p>');
     await focusEditor(page);

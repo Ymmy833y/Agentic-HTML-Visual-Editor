@@ -30,6 +30,7 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
   - [✍️ WYSIWYG editing (inline)](#️-wysiwyg-editing-inline)
   - [💬 Inline comment annotations](#-inline-comment-annotations)
   - [✅ List editing](#-list-editing)
+  - [ℹ️ Alert blockquotes](#️-alert-blockquotes)
   - [⌨️ Shortcuts](#️-shortcuts)
   - [🔍 In-document search](#-in-document-search)
   - [▸ Collapsible sections](#-collapsible-sections)
@@ -60,6 +61,7 @@ Coding agents and humans both need to read and write the same documents — desi
 | ✍️ **WYSIWYG editing** | Inline editing of `.html`, synced into the source as a diff when you save, with native undo/redo |
 | 💬 **Comments** | HTML-native, review-style inline annotations with author, time & resolved state |
 | ✅ **Lists** | Create, nest and toggle `ul`/`ol` from the toolbar, keyboard or markdown triggers |
+| ℹ️ **Alerts** | GitHub-style Note, Tip, Important, Warning, and Caution blockquotes |
 | ⌨️ **Shortcuts** | Keyboard, toolbar, floating menu, and markdown-style auto-formatting |
 | 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
@@ -119,6 +121,20 @@ Bulleted (`ul`) and numbered (`ol`) lists can be created and edited entirely wit
 - **Markdown-style:** typing `- ` / `* ` (bulleted) or `1. ` (numbered) at the start of a paragraph starts a list.
 - **Nesting:** Tab indents the current item under the previous one; Shift+Tab outdents it (and promotes a top-level item back to a paragraph). Enter on an empty item exits the list.
 
+### ℹ️ Alert blockquotes
+
+GitHub-style alerts are stored as ordinary blockquotes with a small semantic attribute:
+
+```html
+<blockquote data-alert="note">Useful information.</blockquote>
+```
+
+The WYSIWYG view adds the fixed English label, icon, and type-specific accent colour without adding presentation markup to the saved HTML. Supported values are `note`, `tip`, `important`, `warning`, and `caution`. An unrecognized value remains in the HTML and renders as an ordinary blockquote.
+
+- **Toolbar:** open the block-type menu and hover **Blockquote** to open its submenu. Choose **Normal** (shown first) for an ordinary quote, or choose one of the five alert types.
+- **Markdown-style:** type `>note `, `>tip `, `>important `, `>warning `, or `>caution ` at the start of a block.
+- The existing `> ` shortcut continues to create an ordinary blockquote.
+
 ### ⌨️ Shortcuts
 
 Common formatting can be invoked from the keyboard, the toolbar, and markdown-style triggers.
@@ -147,11 +163,12 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `- ` / `* ` | Bulleted list |
 | `1. ` | Numbered list |
 | `> ` | Blockquote |
+| `>note ` / `>tip ` / `>important ` / `>warning ` / `>caution ` | Alert blockquote |
 | ` ``` ` + Enter | Code block |
 | `---` + Enter | Horizontal rule |
 
 - **Floating menu:** shows relevant actions based on the current selection.
-- **Toolbar:** one-click access to major tags and actions (save, block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
+- **Toolbar:** one-click access to major tags and actions (save, block type with Blockquote/Alert styles, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
 
 ### 🔍 In-document search
 
@@ -232,6 +249,19 @@ Stay inside this set — anything else may be stripped or render unstyled:
 - **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
 
 For code blocks, wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
+
+## GitHub-style alert blockquotes
+
+Use a `blockquote` with `data-alert` when content needs an emphasized Note,
+Tip, Important, Warning, or Caution presentation:
+
+```html
+<blockquote data-alert="note">Useful information.</blockquote>
+```
+
+Allowed values are `note`, `tip`, `important`, `warning`, and `caution`. Keep
+the label and icon out of the HTML; the WYSIWYG stylesheet supplies them. A
+plain `<blockquote>` remains an ordinary quotation.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 

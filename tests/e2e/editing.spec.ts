@@ -87,6 +87,74 @@ test.describe('Toolbar editing', () => {
     expect(await getRootHtml(page)).toBe('<h1>title</h1>');
   });
 
+  test('Blockquote submenu creates, changes, and normalizes an alert', async ({ page }) => {
+    await mountEditor(page, '<p>Pay attention</p>');
+    await caretAtEnd(page, '#ahve-root p');
+
+    // Alerts have no standalone toolbar button; they live in the Blockquote
+    // option's submenu, marked by a submenu arrow on that option.
+    await expect(
+      page.locator('.ahve-tb-blk-opt[data-value="blockquote"] .ahve-tb-blk-submenu-arrow'),
+    ).toHaveCount(1);
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="blockquote"]').hover();
+    const submenuItems = page.locator('.ahve-tb-alert-submenu [data-alert-value]');
+    await expect(submenuItems.first()).toHaveText('Normal');
+    await page.locator('.ahve-tb-alert-submenu [data-alert-value="note"]').click();
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="note">Pay attention</blockquote>',
+    );
+
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="blockquote"]').hover();
+    await page.locator('.ahve-tb-alert-submenu [data-alert-value="warning"]').click();
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="warning">Pay attention</blockquote>',
+    );
+
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="blockquote"]').hover();
+    await page.locator('.ahve-tb-alert-submenu [data-alert-value=""]').click();
+    expect(await getRootHtml(page)).toBe('<blockquote>Pay attention</blockquote>');
+  });
+
+  test('Blockquote submenu applies Normal and alerts to plain and bare text', async ({ page }) => {
+    await mountEditor(page, '<p>Plain paragraph</p>');
+    await caretAtEnd(page, '#ahve-root p');
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="blockquote"]').hover();
+    await page.locator('.ahve-tb-alert-submenu [data-alert-value=""]').click();
+    expect(await getRootHtml(page)).toBe('<blockquote>Plain paragraph</blockquote>');
+
+    await mountEditor(page, 'Bare text');
+    await caretAtEnd(page, '#ahve-root');
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="blockquote"]').hover();
+    await page.locator('.ahve-tb-alert-submenu [data-alert-value="tip"]').click();
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="tip">Bare text</blockquote>',
+    );
+  });
+
+  test('Choosing another block type removes alert metadata', async ({ page }) => {
+    await mountEditor(page, '<blockquote data-alert="caution">Careful</blockquote>');
+    await caretAtEnd(page, '#ahve-root blockquote');
+    await page.locator('.ahve-tb-blk-btn').click();
+    await page.locator('.ahve-tb-blk-opt[data-value="p"]').click();
+    expect(await getRootHtml(page)).toBe('<p>Careful</p>');
+  });
+
+  test('Saving preserves alert metadata', async ({ page }) => {
+    const full =
+      '<!DOCTYPE html><html><head></head><body>' +
+      '<blockquote data-alert="important">Required</blockquote></body></html>';
+    await mountEditor(page, full);
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain(
+      '<blockquote data-alert="important">Required</blockquote>',
+    );
+  });
+
   test('Saving dispatches a save message that preserves the body wrapper', async ({ page }) => {
     const full = '<!DOCTYPE html><html><head></head><body><p>hello world</p></body></html>';
     await mountEditor(page, full);

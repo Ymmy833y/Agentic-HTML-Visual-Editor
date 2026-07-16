@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { clearFormatting, toggleInline } from '../../webview/commands/inline-format';
-import { headingShortcutTag, insertDetails, insertHr, setBlockTag } from '../../webview/commands/block-format';
+import { headingShortcutTag, insertDetails, insertHr, setAlertType, setBlockTag } from '../../webview/commands/block-format';
 import { insertLink } from '../../webview/commands/link';
-import { findInlineAncestor, getCurrentBlockTag } from '../../webview/commands/query';
+import { findInlineAncestor, getCurrentAlertType, getCurrentBlockTag } from '../../webview/commands/query';
 import { addComment, removeComment } from '../../webview/features/comment/comment-commands';
 import type { CommandContext } from '../../webview/shared/command-context';
 import { caretAtStart, clearDom, makeRoot, selectContents, selectTextRange } from './helpers/selection';
@@ -69,7 +69,14 @@ describe('setBlockTag', () => {
     expect(h2.textContent).toBe('title');
   });
 
-  it('does nothing when no block ancestor is found', () => {
+  it('removes alert metadata when converting an alert to another block type', () => {
+    const root = makeRoot('<blockquote data-alert="warning" id="keep">text</blockquote>');
+    caretAtStart(root.querySelector('blockquote')!);
+    setBlockTag('p', ctxOf(root));
+    expect(root.innerHTML).toBe('<p id="keep">text</p>');
+  });
+
+  it('wraps bare root text before applying a block type', () => {
     const root = makeRoot('plain text');
     const r = document.createRange();
     r.setStart(root.firstChild!, 0);
@@ -78,7 +85,7 @@ describe('setBlockTag', () => {
     sel.removeAllRanges();
     sel.addRange(r);
     setBlockTag('h1', ctxOf(root));
-    expect(root.innerHTML).toBe('plain text');
+    expect(root.innerHTML).toBe('<h1>plain text</h1>');
   });
 
   it('leaves a <summary> tag untouched (does not rewrite to a heading)', () => {
@@ -88,6 +95,64 @@ describe('setBlockTag', () => {
     expect(root.innerHTML).toBe(
       '<details open=""><summary>title</summary><p>body</p></details>',
     );
+  });
+
+  it('leaves a structural <li> untouched', () => {
+    const root = makeRoot('<ul><li>item</li></ul>');
+    caretAtStart(root.querySelector('li')!);
+    setBlockTag('h1', ctxOf(root));
+    expect(root.innerHTML).toBe('<ul><li>item</li></ul>');
+  });
+});
+
+describe('setAlertType', () => {
+  it('converts a paragraph to a normal blockquote', () => {
+    const root = makeRoot('<p>text</p>');
+    caretAtStart(root.querySelector('p')!);
+    setAlertType(null, ctxOf(root));
+    expect(root.innerHTML).toBe('<blockquote>text</blockquote>');
+  });
+
+  it('converts the current block to a typed blockquote', () => {
+    const root = makeRoot('<p>text</p>');
+    caretAtStart(root.querySelector('p')!);
+    setAlertType('note', ctxOf(root));
+    expect(root.innerHTML).toBe('<blockquote data-alert="note">text</blockquote>');
+  });
+
+  it('wraps bare root text before creating an alert', () => {
+    const root = makeRoot('bare text');
+    caretAtStart(root.firstChild!);
+    setAlertType('important', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="important">bare text</blockquote>',
+    );
+  });
+
+  it('changes an existing alert type and preserves unrelated attributes', () => {
+    const root = makeRoot(
+      '<blockquote data-alert="note" id="keep" style="text-align: center">text</blockquote>',
+    );
+    caretAtStart(root.querySelector('blockquote')!);
+    setAlertType('caution', ctxOf(root));
+    const quote = root.querySelector('blockquote')!;
+    expect(quote.getAttribute('data-alert')).toBe('caution');
+    expect(quote.getAttribute('id')).toBe('keep');
+    expect(quote.getAttribute('style')).toContain('text-align: center');
+  });
+
+  it('removes only alert metadata and leaves an ordinary blockquote', () => {
+    const root = makeRoot('<blockquote data-alert="tip" id="keep">text</blockquote>');
+    caretAtStart(root.querySelector('blockquote')!);
+    setAlertType(null, ctxOf(root));
+    expect(root.innerHTML).toBe('<blockquote id="keep">text</blockquote>');
+  });
+
+  it('does not replace a structural list item', () => {
+    const root = makeRoot('<ul><li>item</li></ul>');
+    caretAtStart(root.querySelector('li')!);
+    setAlertType('warning', ctxOf(root));
+    expect(root.innerHTML).toBe('<ul><li>item</li></ul>');
   });
 });
 
@@ -625,6 +690,23 @@ describe('getCurrentBlockTag', () => {
   it('returns "" when cursor is directly in the root with no block ancestor', () => {
     const root = makeRoot('plain text');
     expect(getCurrentBlockTag(root.firstChild!, root)).toBe('');
+  });
+});
+
+describe('getCurrentAlertType', () => {
+  it('returns a recognized alert type inside an alert blockquote', () => {
+    const root = makeRoot('<blockquote data-alert="important">text</blockquote>');
+    expect(getCurrentAlertType(root.querySelector('blockquote')!.firstChild!, root)).toBe(
+      'important',
+    );
+  });
+
+  it('returns null for an ordinary quote or an unknown value', () => {
+    const root = makeRoot(
+      '<blockquote>ordinary</blockquote><blockquote data-alert="future">future</blockquote>',
+    );
+    expect(getCurrentAlertType(root.children[0].firstChild!, root)).toBeNull();
+    expect(getCurrentAlertType(root.children[1].firstChild!, root)).toBeNull();
   });
 });
 
