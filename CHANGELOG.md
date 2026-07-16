@@ -5,8 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [0.1.6] - 2026-07-16
 
 ### Added
@@ -14,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub-style alert blockquotes stored as `<blockquote data-alert="...">` (`note`, `tip`, `important`, `warning`, `caution`), created from the block-type menu's Blockquote submenu or by typing `>note ` / `>tip ` / `>important ` / `>warning ` / `>caution ` at the start of a block; the WYSIWYG view supplies the label, icon, and accent colour without adding presentation markup to the saved HTML
 - Insert images from the WYSIWYG toolbar using a relative path or HTTP/HTTPS URL, with optional alt text
 - Open relative file links (e.g. `./notes.html`) from the WYSIWYG view in a VS Code tab instead of navigating the view away; the target is resolved safely within the document's workspace folder (or its own directory when outside a workspace)
+
+### Changed
+
+- Update the `html-result-output` Agent Skill to match this release
 
 ## [0.1.5] - 2026-07-12
 
