@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.5-F59E0B?style=for-the-badge" alt="Version 0.1.5" />
+  <img src="https://img.shields.io/badge/version-0.1.6-F59E0B?style=for-the-badge" alt="Version 0.1.6" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -25,19 +25,20 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
 
 - [📑 Table of Contents](#-table-of-contents)
 - [✨ Why this extension](#-why-this-extension)
+- [🚀 Getting started](#-getting-started)
+- [🤖 Using it with an AI agent](#-using-it-with-an-ai-agent)
 - [🚀 Features at a glance](#-features-at-a-glance)
 - [🧩 Features in detail](#-features-in-detail)
   - [✍️ WYSIWYG editing (inline)](#️-wysiwyg-editing-inline)
   - [💬 Inline comment annotations](#-inline-comment-annotations)
   - [✅ List editing](#-list-editing)
+  - [ℹ️ Alert blockquotes](#ℹ️-alert-blockquotes)
   - [⌨️ Shortcuts](#️-shortcuts)
   - [🔍 In-document search](#-in-document-search)
   - [▸ Collapsible sections](#-collapsible-sections)
   - [▦ Table editing](#-table-editing)
   - [📋 Clipboard copy/paste](#-clipboard-copypaste)
-- [🤖 For AI agents — the bundled Skill](#-for-ai-agents--the-bundled-skill)
 - [🚫 Unsupported / out of scope](#-unsupported--out-of-scope)
-- [🎯 Intended use case](#-intended-use-case)
 
 ---
 
@@ -49,7 +50,258 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Give humans a modern, readable view** they can edit intuitively, no HTML knowledge required.
 - **Use HTML as one portable, common format** for both AI and humans, always kept in sync with the source file.
 
+---
+
+## 🚀 Getting started
+
+1. **Install** — search **Agentic HTML Visual Editor** in the VS Code Extensions view and install it (or open the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor)).
+2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInVisualEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInTextEditor`) switches it back.
+3. **Edit it like a document** — type directly, or use the toolbar, the selection floating menu, and markdown-style shortcuts. Press `Ctrl+S` / `Cmd+S` to write your changes back into the `.html` source. See [Features in detail](#-features-in-detail) for everything you can do.
+
 > **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Use the title-bar buttons to switch the active tab between **Open in WYSIWYG** (`ahve.openInVisualEditor`) and **Open in HTML** (`ahve.openInTextEditor`). If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
+
+---
+
+## 🤖 Using it with an AI agent
+
+Coding agents generate design notes, research reports, and task lists as plain HTML; you read and edit them in the WYSIWYG view, and the HTML on disk stays in sync as the single source of truth for both of you. The loop:
+
+1. **Tell your AI agent how to write HTML for this view.** The repository ships an authoring guide — the `html-result-output` **Skill** at `.claude/skills/html-result-output/SKILL.md` — that pins down the supported tag set, the custom `<comment>` annotation tags, what the extension strips or forbids, and how to keep the markup small and semantic. It is **agent-neutral**: hand any AI these rules and its HTML renders correctly and minimally here. (Agents that auto-discover Skills pick it up from the folder automatically; for any other agent, just give it the contents of `SKILL.md`.) The full guide is reproduced below.
+2. **Have the agent write the deliverable as a `.html` file.**
+3. **Open it in WYSIWYG, read it, and edit it — leaving inline comments as you go.** Click a comment to open its thread, reply, or mark it resolved; human- and AI-authored comments are colour-coded so you can tell them apart.
+4. **Ask the agent to revise.** Your edits and comments live in the HTML itself, so the agent reads the whole review thread straight from the markup and responds — appending new notes and replies without touching the existing ones.
+
+<details>
+<summary>📄 <strong>View the full skill (SKILL.md)</strong></summary>
+
+<br />
+
+> The content below is the bundled `.claude/skills/html-result-output/SKILL.md`, reproduced here for reference.
+
+````md
+---
+name: html-result-output
+description: Use when writing an HTML result/deliverable file (design notes, research reports, task lists, summaries) that the user will open in the Agentic HTML Visual Editor VSCode extension. Covers the supported tag set (including collapsible details, strikethrough, and GitHub-style alert blockquotes), the custom <comment> annotation tags, what the extension strips or forbids, and how to keep the markup minimal and semantic.
+---
+
+# Authoring HTML result files for Agentic HTML Visual Editor
+
+This project is a VSCode extension that renders and edits `.html` files in a
+WYSIWYG view. The HTML on disk is the single, portable source of truth shared
+by the AI agent and the human. When you (the agent) produce an HTML deliverable
+for the user, write it so it renders correctly in that view and stays minimal.
+
+## Core principles
+
+1. **Minimize output.** The whole point of the extension is to cut the context
+   an agent emits. Prefer the smallest correct markup. Do not add framework
+   wrappers, utility classes, `<div>` soup, inline scripts, or boilerplate the
+   view does not need.
+2. **Emit a full document with a `<body>`.** The renderer locates content by
+   splitting around the `<body>` tag. Always output a complete skeleton:
+   `<!DOCTYPE html>` → `<html>` → `<head>` (with `<meta charset>` and a
+   `<title>`) → `<body>` … `</body>`. Content placed outside `<body>` is not
+   rendered. Everything from the opening `<body …>` tag back to the doctype, and
+   the closing `</body>…</html>`, is preserved verbatim — only body content is
+   sanitized.
+3. **Don't ship your own CSS framework.** The extension bundles a modern
+   default stylesheet. Only use the `style` attribute for genuinely per-element
+   intent (see *Styling* below). Inline `style` wins over the bundled CSS, so use
+   it sparingly and deliberately.
+4. **Write semantic HTML.** Use headings, paragraphs, lists, and tables for
+   their meaning. The user reads and edits this; clean structure is the product.
+
+## Supported tags
+
+Stay inside this set — anything else may be stripped or render unstyled:
+
+- **Inline:** `strong`, `em`, `code`, `s` (strikethrough), `a`, `span`
+- **Block:** `h1`–`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
+- **Collapsible:** `details`, `summary` (see below)
+- **Lists:** `ul`, `ol`, `li` (nesting allowed)
+- **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`,
+  `col` — with `colspan`, `rowspan`, `scope`
+- **Media:** `img` (see below)
+- **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
+
+Notes:
+
+- **Prefer `strong`/`em` over `b`/`i`.** In the view, `<b>` is rewritten to
+  `<strong>` and `<i>` to `<em>` on edit, so emit the semantic tag directly.
+- **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
+  `<pre>` and `<table>` subtrees are treated as opaque, so their internal
+  whitespace is preserved exactly.
+- **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
+  URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
+  file's own directory. Optional `width`/`height` may be set via inline `style`.
+- **Links:** a relative link to a local file (e.g. `<a href="./notes.html">`)
+  opens that file in a VSCode tab instead of navigating the view away; other
+  links keep their native behavior. Use relative hrefs to cross-link companion
+  documents.
+
+## Collapsible sections (`details` / `summary`)
+
+Use `details` + `summary` for content the reader can expand or collapse. Put the
+`<summary>` first as the clickable title; everything after it is the body. Add
+the boolean `open` attribute to render the section expanded initially; omit it
+for collapsed. The open/closed state is real and persisted back to the HTML.
+
+```html
+<details open>
+  <summary>Implementation notes</summary>
+  <p>Details that can be folded away.</p>
+</details>
+```
+
+## GitHub-style alert blockquotes
+
+Use a `blockquote` with `data-alert` when content needs an emphasized Note,
+Tip, Important, Warning, or Caution presentation. One example per allowed value:
+
+```html
+<blockquote data-alert="note">Useful information the reader should notice.</blockquote>
+<blockquote data-alert="tip">Advice for doing something better or more easily.</blockquote>
+<blockquote data-alert="important">Key information the reader must not miss.</blockquote>
+<blockquote data-alert="warning">Content that needs the reader's careful attention.</blockquote>
+<blockquote data-alert="caution">Risks or negative outcomes of a certain action.</blockquote>
+```
+
+Allowed values are `note`, `tip`, `important`, `warning`, and `caution`. Keep
+the label and icon **out** of the HTML — the WYSIWYG stylesheet supplies the
+fixed English label, icon, and accent colour. A plain `<blockquote>` (no
+`data-alert`) remains an ordinary quotation; an unrecognized `data-alert` value
+also renders as an ordinary blockquote.
+
+## Styling
+
+The extension bundles a modern default stylesheet, so unstyled semantic markup
+already looks good. Reach for the `style` attribute only for genuine
+per-element intent. The properties that carry real, user-meaningful meaning
+(and survive the paste sanitizer) are:
+
+- `color` and `background-color` — on any element.
+- `text-align` — on block elements (`p`, `h1`–`h6`, `blockquote`, `pre`, `div`,
+  `li`, `td`, `th`).
+- `width` (`min-width`/`max-width`) — on table-sizing elements (`table`, `col`,
+  `colgroup`, `th`, `td`).
+- `width`/`height` — on `img`.
+
+Avoid font, spacing, border, and layout styling; let the bundled CSS own the
+look. Never add `class` for styling — there is no external stylesheet to match
+it, and pasted `class` attributes are dropped.
+
+## IMPORTANT — Custom `<comment>` annotation tags
+
+The extension's headline feature is an inline, review-style annotation that
+lives **entirely in the HTML** so any reader — human or AI — can see the full
+thread by inspecting the markup. Treat these tags as first-class and important.
+
+### Structure
+
+```html
+<comment id="c-a1b2c3d4">target text
+<comment-body contenteditable="false" data-author="ai" data-updated="2026-07-16T09:00:00Z">body text</comment-body>
+<comment-reply contenteditable="false" data-author="ai" data-updated="2026-07-16T09:05:00Z">a reply</comment-reply>
+</comment>
+```
+
+- `<comment id="…">` wraps the **inline run of target text** being annotated.
+  In the view it renders as a highlighted, boxed run; clicking it opens a popup
+  showing the body and replies. The box colour is keyed off the entry author, so
+  human- and AI-authored comments are visually distinct.
+- `<comment-body>` — **zero or one** per comment. Holds the main note.
+- `<comment-reply>` — **zero or more** per comment, in document order. Each holds
+  one reply.
+
+### Document order
+
+Emit the children in this canonical order and keep it: **target text first,
+then `<comment-body>`, then `<comment-reply>` elements** (each reply in
+chronological order).
+
+### Author and timestamp metadata (required when you author)
+
+Each `<comment-body>` and `<comment-reply>` records who wrote it and when:
+
+- `data-author` — set to **`"ai"`** on every body/reply **you** write. (The
+  human side uses `"human"`, possibly a named username in the future. `"ai"` is
+  the fixed label for you, and the extension keys "is this the counterpart?"
+  off exactly this value.)
+- `data-updated` — an **ISO 8601** timestamp (e.g. `2026-07-16T09:00:00Z`).
+  Use the current date/time when you create the entry.
+
+The `<comment>` parent may carry a boolean `data-resolved` attribute marking the
+thread as resolved. **Resolving is the human reviewer's action — do not add or
+remove `data-resolved` yourself.**
+
+### Rules to follow when emitting comments
+
+- **`id` format:** `c-` followed by **8** lowercase alphanumeric characters
+  (`[a-z0-9]`), e.g. `c-a1b2c3d4`. Each `id` must be **unique within the
+  document**.
+- **`comment` is inline** — place it inside a block (a `<p>`, `<li>`, `<td>`,
+  etc.), wrapping only the phrase it annotates. Do not wrap whole blocks.
+- **Don't put block elements inside a comment.** Keep the target text and the
+  body/reply text as plain inline text; comments never nest.
+- **Lock the children:** put `contenteditable="false"` on every
+  `<comment-body>` and `<comment-reply>` so the user cannot accidentally type
+  into them in the view. (The extension re-applies this, but emit it anyway.)
+- **Stamp author + time:** every body/reply you write gets `data-author="ai"`
+  and a current `data-updated` ISO 8601 timestamp (see above).
+- **Append only — never modify existing comments.** When revising a document
+  that already has comments, you may **add** new `<comment>` elements and **add**
+  new `<comment-reply>` entries to existing comments. Do **not** edit, reword,
+  delete, re-author, or re-timestamp any existing `<comment>`, `<comment-body>`,
+  or `<comment-reply>` — especially ones authored by the human (`data-author`
+  other than `"ai"`). Leave their text, `data-author`, and `data-updated`
+  untouched. To respond to a human note, add a new `<comment-reply>`.
+
+### When to use a comment
+
+The body and replies are hidden from the document flow visually but remain in
+the HTML source, so they are the intended channel for agent↔human review notes
+inside the deliverable. Use a `<comment>` to flag something the user should
+decide, verify, or be aware of without disrupting the readable flow of the
+document — e.g. "I assumed X here", "needs a source", "two options, picked the
+first". This is preferable to inlining meta-notes into the prose.
+
+Note: comments are **private to the editor**. When the user copies or exports
+HTML, the `<comment-body>`/`<comment-reply>` are dropped and the `<comment>`
+wrapper is unwrapped, leaving only the commented-on text. Do not rely on comment
+content surviving a copy out of the editor.
+
+## What the extension forbids or strips
+
+Do not emit these — they are removed on render (and some are security-sensitive):
+
+- **Never executed / dropped tags:** `script`, `iframe`, `object`, `embed`,
+  `frame`, `frameset`, `noscript`, `link`, `style`, `base`, `meta` (inside
+  `<body>`).
+- **Event handlers:** any `on*` attribute (`onclick`, `onload`, …) is stripped.
+- **Unsafe URLs:** values in `href`, `src`, `xlink:href`, `srcset`, `action`,
+  or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
+  are dropped.
+- **No external CSS/JS:** external stylesheets and scripts are not loaded.
+- **Forms render but don't submit:** a `<form>` shows but submission is disabled.
+
+## Quick checklist before delivering
+
+- [ ] Full document with `<head>` (charset + title) and a real `<body>`.
+- [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
+      `script`/`iframe`/`style`/`on*`/unsafe URLs.
+- [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
+      and no styling `class` attributes.
+- [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
+      `details` has `<summary>` first and `open` only when it should start open.
+- [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
+      order (target → body → replies), and `contenteditable="false"` on its
+      body/replies.
+- [ ] Every body/reply you author has `data-author="ai"` and a current
+      `data-updated` (ISO 8601). You did not touch any existing comment.
+- [ ] Markup is as small as it can be while staying semantic and readable.
+````
+
+</details>
 
 ---
 
@@ -60,6 +312,7 @@ Coding agents and humans both need to read and write the same documents — desi
 | ✍️ **WYSIWYG editing** | Inline editing of `.html`, synced into the source as a diff when you save, with native undo/redo |
 | 💬 **Comments** | HTML-native, review-style inline annotations with author, time & resolved state |
 | ✅ **Lists** | Create, nest and toggle `ul`/`ol` from the toolbar, keyboard or markdown triggers |
+| ℹ️ **Alerts** | GitHub-style Note, Tip, Important, Warning, and Caution blockquotes |
 | ⌨️ **Shortcuts** | Keyboard, toolbar, floating menu, and markdown-style auto-formatting |
 | 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
@@ -83,6 +336,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab (or switching it over to the text editor) prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes — merged with any direct HTML changes made in the meantime — still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
+- Clicking a link to a relative file (e.g. `./notes.html`) opens it in a VS Code tab instead of navigating the view away; the target is resolved safely within the document's workspace folder (or its own directory when outside a workspace). Other links keep their native behavior.
 
 **Supported HTML**
 
@@ -91,7 +345,7 @@ Coding agents and humans both need to read and write the same documents — desi
 - **Collapsible:** `details`, `summary`
 - **Lists:** `ul`, `ol`, `li` (created and nested from within the editor — see *List editing*)
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
-- **Media:** `img` (existing images are rendered and preserved; relative paths such as `./images/foo.png` are resolved from the HTML file's directory; there is currently no built-in image-insertion UI)
+- **Media:** `img` (insert from the toolbar using a relative path or HTTP/HTTPS URL, with optional alt text; relative paths such as `./images/foo.png` are resolved from the HTML file's directory)
 - **Custom tags:** `<comment>`, `<comment-body>`, `<comment-reply>` (below)
 
 ### 💬 Inline comment annotations
@@ -118,6 +372,20 @@ Bulleted (`ul`) and numbered (`ol`) lists can be created and edited entirely wit
 - **Toolbar:** the bulleted-list and numbered-list buttons toggle the current block(s) into a list, switch between `ul`/`ol`, or turn a list back into paragraphs.
 - **Markdown-style:** typing `- ` / `* ` (bulleted) or `1. ` (numbered) at the start of a paragraph starts a list.
 - **Nesting:** Tab indents the current item under the previous one; Shift+Tab outdents it (and promotes a top-level item back to a paragraph). Enter on an empty item exits the list.
+
+### ℹ️ Alert blockquotes
+
+GitHub-style alerts are stored as ordinary blockquotes with a small semantic attribute:
+
+```html
+<blockquote data-alert="note">Useful information.</blockquote>
+```
+
+The WYSIWYG view adds the fixed English label, icon, and type-specific accent colour without adding presentation markup to the saved HTML. Supported values are `note`, `tip`, `important`, `warning`, and `caution`. An unrecognized value remains in the HTML and renders as an ordinary blockquote.
+
+- **Toolbar:** open the block-type menu and hover **Blockquote** to open its submenu. Choose **Normal** (shown first) for an ordinary quote, or choose one of the five alert types.
+- **Markdown-style:** type `>note `, `>tip `, `>important `, `>warning `, or `>caution ` at the start of a block.
+- The existing `> ` shortcut continues to create an ordinary blockquote.
 
 ### ⌨️ Shortcuts
 
@@ -147,11 +415,12 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `- ` / `* ` | Bulleted list |
 | `1. ` | Numbered list |
 | `> ` | Blockquote |
+| `>note ` / `>tip ` / `>important ` / `>warning ` / `>caution ` | Alert blockquote |
 | ` ``` ` + Enter | Code block |
 | `---` + Enter | Horizontal rule |
 
 - **Floating menu:** shows relevant actions based on the current selection.
-- **Toolbar:** one-click access to major tags and actions (save, block type, bold/italic/strikethrough/inline code/code block, clear formatting, link, lists, horizontal rule, details, table, comment, copy).
+- **Toolbar:** one-click access to major tags and actions (save, block type with Blockquote/Alert styles, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
 
 ### 🔍 In-document search
 
@@ -178,170 +447,11 @@ Pasted HTML is sanitized before insertion. Block-level fragments pasted into a p
 
 ---
 
-## 🤖 For AI agents — the bundled Skill
-
-The repository ships an agent **Skill**, `html-result-output`, at `.claude/skills/html-result-output/SKILL.md`. It teaches a coding agent how to author HTML deliverables that render correctly and minimally in this WYSIWYG view: the exact supported tag set, the custom `<comment>` annotation tags, what the extension strips or forbids, and how to keep the markup small and semantic.
-
-<details>
-<summary>📄 <strong>View the full skill (SKILL.md)</strong></summary>
-
-<br />
-
-> The content below is the bundled `.claude/skills/html-result-output/SKILL.md`, reproduced here for reference.
-
-````md
----
-name: html-result-output
-description: Use when writing an HTML result/deliverable file (design notes, research reports, task lists, summaries) that the user will open in the HTML-WYSIWYG VSCode extension. Covers the supported tag set, the custom <comment> annotation tags, what the extension strips or forbids, and how to keep the markup minimal and semantic.
----
-
-# Authoring HTML result files for HTML-WYSIWYG
-
-This project is a VSCode extension that renders and edits `.html` files in a
-WYSIWYG view. When you (the agent) produce an HTML deliverable for the user,
-write it so it renders correctly in that view and stays minimal.
-
-## Core principles
-
-1. **Minimize output.** The whole point of the extension is to cut the context
-   an agent emits. Prefer the smallest correct markup. Do not add framework
-   wrappers, utility classes, `<div soup>`, inline scripts, or boilerplate the
-   view does not need.
-2. **Emit a full document with a `<body>`.** The renderer locates content by
-   splitting around the `<body>` tag. Always output a complete skeleton:
-   `<!DOCTYPE html>` → `<html>` → `<head>` (with `<meta charset>` and a
-   `<title>`) → `<body>` … `</body>`. Content placed outside `<body>` is not
-   rendered.
-3. **Don't ship your own CSS framework.** The extension bundles a modern
-   default stylesheet. Only use the `style` attribute for genuinely per-element
-   intent (e.g. a highlight color, a column width). Inline `style` wins over the
-   bundled CSS, so use it sparingly and deliberately.
-4. **Write semantic HTML.** Use headings, paragraphs, lists, and tables for
-   their meaning. The user reads and edits this; clean structure is the product.
-
-## Supported tags
-
-Stay inside this set — anything else may be stripped or render unstyled:
-
-- **Inline:** `strong`, `em`, `code`, `a`, `span`
-- **Block:** `h1`–`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
-- **Lists:** `ul`, `ol`, `li` (nesting allowed)
-- **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`,
-  `col` — with `colspan`, `rowspan`, `scope`
-- **Media:** `img` (use `src` + `alt`)
-- **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
-
-For code blocks, wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
-
-## IMPORTANT — Custom `<comment>` annotation tags
-
-The extension's headline feature is an inline, review-style annotation that
-lives **entirely in the HTML** so any reader — human or AI — can see the full
-thread by inspecting the markup. Treat these tags as first-class and important.
-
-### Structure
-
-```html
-<comment id="c-xxxxxxxx"><comment-body contenteditable="false" data-author="ai" data-updated="2026-06-18T09:00:00Z">body text</comment-body>target text<comment-reply contenteditable="false" data-author="ai" data-updated="2026-06-18T09:05:00Z">a reply</comment-reply></comment>
-```
-
-(Place `<comment-body>` before the target text in source order if you like; the
-extension normalises order to: target text, body, replies.)
-
-- `<comment id="…">` wraps the **inline run of target text** being annotated.
-  In the view it renders as a highlighted, boxed run; clicking it opens a popup
-  showing the body and replies. The box colour is keyed off the body author, so
-  human- and AI-authored comments are visually distinct.
-- `<comment-body>` — **zero or one** per comment. Holds the main note.
-- `<comment-reply>` — **zero or more** per comment, in document order. Each holds
-  one reply.
-
-### Author and timestamp metadata (required when you author)
-
-Each `<comment-body>` and `<comment-reply>` records who wrote it and when:
-
-- `data-author` — set to **`"ai"`** on every body/reply **you** write. (The
-  human side uses `"human"`, possibly a username in the future. `"ai"` is the
-  fixed label for you.)
-- `data-updated` — an **ISO 8601** timestamp (e.g. `2026-06-18T09:00:00Z`).
-  Use the current date/time when you create the entry.
-
-The `<comment>` parent may carry a boolean `data-resolved` attribute marking the
-thread as resolved. **Resolving is the human reviewer's action — do not add or
-remove `data-resolved` yourself.**
-
-### Rules to follow when emitting comments
-
-- **Document order matters:** target text first, then `<comment-body>`, then
-  `<comment-reply>` elements. Keep this order.
-- **`id` format:** `c-` followed by a short lowercase alphanumeric token (e.g.
-  `c-a1b2c3d4`). Each `id` must be **unique within the document**.
-- **`comment` is inline** — place it inside a block (a `<p>`, `<li>`, `<td>`,
-  etc.), wrapping only the phrase it annotates. Do not wrap whole blocks.
-- **Lock the children:** put `contenteditable="false"` on every
-  `<comment-body>` and `<comment-reply>` so the user cannot accidentally type
-  into them in the view. (The extension re-applies this, but emit it anyway.)
-- **Stamp author + time:** every body/reply you write gets `data-author="ai"`
-  and a current `data-updated` ISO 8601 timestamp (see above).
-- **Append only — never modify existing comments.** When revising a document
-  that already has comments, you may **add** new `<comment>` elements and **add**
-  new `<comment-reply>` entries to existing comments. Do **not** edit, reword,
-  delete, re-author, or re-timestamp any existing `<comment>`, `<comment-body>`,
-  or `<comment-reply>` — especially ones authored by the human (`data-author`
-  other than `"ai"`). Leave their text, `data-author`, and `data-updated`
-  untouched. To respond to a human note, add a new `<comment-reply>`.
-- **The body/replies are hidden visually but present in the source.** Use them
-  to leave open questions, rationale, or TODOs for the user — they are the
-  intended channel for agent↔human review notes inside the deliverable.
-- **Don't put block elements inside a comment.** Keep the target text and the
-  body/reply text as plain inline text.
-
-### When to use a comment
-
-Use a `<comment>` to flag something the user should decide, verify, or be aware
-of without disrupting the readable flow of the document — e.g. "I assumed X
-here", "needs a source", "two options, picked the first". This is preferable to
-inlining meta-notes into the prose.
-
-## What the extension forbids or strips
-
-Do not emit these — they are removed on render (and some are security-sensitive):
-
-- **Never executed / dropped:** `script`, `iframe`, `object`, `embed`, `frame`,
-  `frameset`, `noscript`, `link`, `style`, `base`, `meta` (inside `<body>`).
-- **Event handlers:** any `on*` attribute (`onclick`, `onload`, …) is stripped.
-- **Unsafe URLs:** `href`/`src`/`action`/`srcset`/`formaction` values starting
-  with `javascript:`, `vbscript:`, or `data:text/html` are dropped.
-- **No external CSS/JS:** external stylesheets and scripts are not loaded.
-- **Forms render but don't submit:** a `<form>` shows but submission is disabled.
-
-## Quick checklist before delivering
-
-- [ ] Full document with `<head>` (charset + title) and a real `<body>`.
-- [ ] Only supported tags; no `script`/`iframe`/`style`/`on*`/unsafe URLs.
-- [ ] Inline `style` used only where intentional; no bespoke CSS framework.
-- [ ] Any `<comment>` you add has a unique `c-…` id, correct child order, and
-      `contenteditable="false"` on its body/replies.
-- [ ] Every body/reply you author has `data-author="ai"` and a current
-      `data-updated` (ISO 8601). You did not touch any existing comment.
-- [ ] Markup is as small as it can be while staying semantic and readable.
-````
-
-</details>
-
----
-
 ## 🚫 Unsupported / out of scope
 
 - Execution of `<script>`
 - Loading external CSS / JS
 - Form submission: `<form>` itself is displayed, but submission is disabled
-
----
-
-## 🎯 Intended use case
-
-Coding agents generate design notes, research reports, and task lists as plain HTML. Humans then read and edit them in a readable WYSIWYG view, refining the content while keeping the HTML source in sync.
 
 <div align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F97316,100:F59E0B&height=120&section=footer" alt="" />

@@ -11,6 +11,14 @@ describe('prepareCopy', () => {
     expect(prepareCopy(root, 'html')).toBe('<p>hello</p><p>world</p>');
   });
 
+  it('preserves alert metadata in an HTML copy', () => {
+    const root = makeRoot('<blockquote data-alert="important">Read this</blockquote>');
+    window.getSelection()?.removeAllRanges();
+    expect(prepareCopy(root, 'html')).toBe(
+      '<blockquote data-alert="important">Read this</blockquote>',
+    );
+  });
+
   it('returns the full root innerHTML when the selection is collapsed', () => {
     const root = makeRoot('<p>hello</p>');
     const sel = window.getSelection()!;

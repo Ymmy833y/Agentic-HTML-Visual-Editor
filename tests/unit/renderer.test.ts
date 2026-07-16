@@ -92,6 +92,15 @@ describe('sanitizeFragment', () => {
     expect(out).toBe('<a href="https://example.com" title="t" class="c">x</a>');
   });
 
+  it('preserves data-alert on blockquotes, including unknown future values', () => {
+    expect(sanitizeHtml('<blockquote data-alert="note">x</blockquote>')).toBe(
+      '<blockquote data-alert="note">x</blockquote>',
+    );
+    expect(sanitizeHtml('<blockquote data-alert="future">x</blockquote>')).toBe(
+      '<blockquote data-alert="future">x</blockquote>',
+    );
+  });
+
   it('treats URL detection as case-insensitive and trims whitespace', () => {
     const out = sanitizeHtml('<a href="  JavaScript:alert(1)">x</a>');
     expect(out).toBe('<a>x</a>');

@@ -13,6 +13,7 @@ import { HistoryCoordinator, type HistorySnapshot } from './core/history';
 import { clearFormatting, toggleInline } from './commands/inline-format';
 import { dedentListItem, headingShortcutTag, indentListItem, setBlockTag } from './commands/block-format';
 import { insertLink } from './commands/link';
+import { insertImage } from './commands/image';
 import { findInlineAncestor } from './commands/query';
 import { findAncestor } from './shared/dom-utils';
 import type { CommandContext } from './shared/command-context';
@@ -20,6 +21,7 @@ import { createToolbar } from './ui/toolbar';
 import { mountFloatingMenu } from './ui/floating-menu';
 import { mountSearchWidget } from './ui/search-widget';
 import { openLinkDialog } from './ui/link-dialog';
+import { openImageDialog } from './ui/image-dialog';
 import { prepareCopy } from './features/clipboard/copy';
 import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
 import { insertFragmentAtCursor } from './features/clipboard/insert';
@@ -28,6 +30,7 @@ import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
 import { mountDetails } from './features/details/details';
 import { mountDetailsSelection } from './features/details/details-selection';
+import { mountRelativeFileNavigation } from './features/link/link-navigation';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -188,6 +191,34 @@ async function handleLink(): Promise<void> {
   editor.notifyChanged();
 }
 
+async function handleImage(): Promise<void> {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+
+  const initialRange = sel.getRangeAt(0);
+  if (
+    !root!.contains(initialRange.startContainer) ||
+    !root!.contains(initialRange.endContainer)
+  ) {
+    return;
+  }
+
+  // Keep the insertion point while the modal moves focus into its inputs.
+  const savedRange = document.createRange();
+  savedRange.setStart(initialRange.startContainer, initialRange.startOffset);
+  savedRange.setEnd(initialRange.endContainer, initialRange.endOffset);
+
+  const result = await openImageDialog();
+  if (result.action === 'cancel') return;
+
+  root!.focus({ preventScroll: true });
+  sel.removeAllRanges();
+  sel.addRange(savedRange);
+
+  const image = insertImage(result.source, result.alt, ctx);
+  if (image) editor.notifyChanged('Insert image');
+}
+
 function doCopy(format: CopyFormat): void {
   if (!root) return;
   const text = prepareCopy(root, format);
@@ -196,6 +227,10 @@ function doCopy(format: CopyFormat): void {
 
 const commentPopup = mountCommentPopup(root, {
   onChange: () => editor.notifyChanged(),
+});
+
+mountRelativeFileNavigation(root, (href) => {
+  vscode.postMessage({ type: 'openRelativeFile', href });
 });
 
 function handleAddComment(): void {
@@ -242,6 +277,9 @@ const toolbar = createToolbar(root, {
   onCommand: () => editor.notifyChanged(),
   onLink: () => {
     void handleLink();
+  },
+  onImage: () => {
+    void handleImage();
   },
   onAddComment: handleAddComment,
   onCopy: (format) => doCopy(format),
@@ -628,6 +666,9 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
     }
     case 'testRequestSave':
       requestSave();
+      break;
+    case 'testOpenRelativeFile':
+      vscode.postMessage({ type: 'openRelativeFile', href: message.href });
       break;
     case 'saveResult': {
       // A saveResult can only follow an `init` (saves before that answer the

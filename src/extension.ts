@@ -18,6 +18,8 @@ export interface AhveTestApi {
   setWysiwygTestHtml(uri: vscode.Uri, html: string): boolean;
   getWysiwygTestHtml(uri: vscode.Uri): Promise<string | null>;
   requestWysiwygTestSave(uri: vscode.Uri): boolean;
+  openWysiwygTestRelativeFile(uri: vscode.Uri, href: string): Promise<boolean>;
+  openWysiwygTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean;
 }
 
 export function activate(context: vscode.ExtensionContext): AhveTestApi {
@@ -32,6 +34,9 @@ export function activate(context: vscode.ExtensionContext): AhveTestApi {
     setWysiwygTestHtml: (uri, html) => provider.setTestViewHtml(uri, html),
     getWysiwygTestHtml: (uri) => provider.getTestViewHtml(uri),
     requestWysiwygTestSave: (uri) => provider.requestTestViewSave(uri),
+    openWysiwygTestRelativeFile: (uri, href) => provider.openTestRelativeFile(uri, href),
+    openWysiwygTestRelativeFileViaWebview: (uri, href) =>
+      provider.openTestRelativeFileViaWebview(uri, href),
   };
 }
 

@@ -5,7 +5,13 @@
 
 import { BLOCK_TAGS, CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR, INLINE_FORMAT_TAGS } from '../shared/constants';
 import { blockOrBareCell, findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
-import { ensureBlockInCell, toggleList } from '../commands/block-format';
+import {
+  ensureBlockAtRoot,
+  ensureBlockInCell,
+  findBareRootRun,
+  toggleList,
+} from '../commands/block-format';
+import { alertTypeFromShortcut } from '../shared/alert-types';
 
 const DEBOUNCE_MS = 250;
 
@@ -142,7 +148,7 @@ export function setupEditor(
         recordHandledEdit('Format block');
         return;
       }
-      // "- " / "* " / "1. " start a list; "> " starts a blockquote.
+      // "- " / "* " / "1. " start a list; "> " and ">note " start quotes.
       if (handleListShortcut(root)) {
         e.preventDefault();
         recordHandledEdit('Format list');
@@ -1238,6 +1244,8 @@ function isPlainTextBlock(block: Element): boolean {
 interface ShortcutTarget {
   el: HTMLElement;
   bareCell: boolean;
+  bareRoot: boolean;
+  runStart: Node | null;
 }
 
 /**
@@ -1250,9 +1258,14 @@ interface ShortcutTarget {
  */
 function shortcutTarget(range: Range, root: HTMLElement): ShortcutTarget | null {
   const found = blockOrBareCell(range.startContainer, root);
-  if (!found) return null;
-  if (!found.bareCell && !isPlainTextBlock(found.el)) return null;
-  return found;
+  if (found) {
+    if (!found.bareCell && !isPlainTextBlock(found.el)) return null;
+    return { ...found, bareRoot: false, runStart: null };
+  }
+  const run = findBareRootRun(range.startContainer, root, range.startOffset);
+  return run
+    ? { el: root, bareCell: false, bareRoot: true, runStart: run.first }
+    : null;
 }
 
 /**
@@ -1268,7 +1281,12 @@ function materializeShortcutBlock(
   root: HTMLElement,
   selection: Selection,
 ): { block: HTMLElement; range: Range } | null {
-  if (!found.bareCell) return { block: found.el, range };
+  if (!found.bareCell && !found.bareRoot) return { block: found.el, range };
+  if (found.bareRoot) {
+    const block = ensureBlockAtRoot(range.startContainer, root, range.startOffset);
+    if (!block) return null;
+    return { block, range: selection.getRangeAt(0) };
+  }
   const block = ensureBlockInCell(range.startContainer, root);
   if (!block) return null;
   return { block, range: selection.getRangeAt(0) };
@@ -1288,7 +1306,7 @@ function handleHeadingShortcut(root: HTMLElement): boolean {
   const found = shortcutTarget(range, root);
   if (!found) return false;
 
-  const match = /^(#{1,6})$/.exec(textBeforeCursor(range, found.el));
+  const match = /^(#{1,6})$/.exec(shortcutTextBeforeCursor(range, found));
   if (!match) return false;
   const level = match[1].length;
 
@@ -1334,7 +1352,7 @@ function handleListShortcut(root: HTMLElement): boolean {
   const found = shortcutTarget(range, root);
   if (!found) return false;
 
-  const before = textBeforeCursor(range, found.el);
+  const before = shortcutTextBeforeCursor(range, found);
   let type: 'ul' | 'ol' | null = null;
   if (before === '-' || before === '*') type = 'ul';
   else if (before === '1.') type = 'ol';
@@ -1365,8 +1383,9 @@ function handleListShortcut(root: HTMLElement): boolean {
 }
 
 /**
- * "> " typed at the start of a paragraph turns it into a blockquote. The marker
- * is removed; an empty quote keeps a <br> placeholder so it stays selectable.
+ * "> " typed at the start of a paragraph turns it into a blockquote.
+ * GitHub-style markers such as ">note " create a typed alert blockquote.
+ * The marker is removed; an empty quote keeps a <br> placeholder.
  */
 function handleBlockquoteShortcut(root: HTMLElement): boolean {
   const selection = window.getSelection();
@@ -1377,7 +1396,10 @@ function handleBlockquoteShortcut(root: HTMLElement): boolean {
   const found = shortcutTarget(range, root);
   if (!found) return false;
 
-  if (textBeforeCursor(range, found.el) !== '>') return false;
+  const marker = shortcutTextBeforeCursor(range, found);
+  const match = /^>([a-z]+)$/i.exec(marker);
+  const alertType = match ? alertTypeFromShortcut(match[1]) : null;
+  if (marker !== '>' && !alertType) return false;
 
   const target = materializeShortcutBlock(found, range, root, selection);
   if (!target) return false;
@@ -1392,6 +1414,7 @@ function handleBlockquoteShortcut(root: HTMLElement): boolean {
   block.normalize();
 
   const quote = document.createElement('blockquote');
+  if (alertType) quote.setAttribute('data-alert', alertType);
   while (block.firstChild) quote.appendChild(block.firstChild);
   if (quote.childNodes.length === 0) {
     quote.appendChild(document.createElement('br'));
@@ -1494,6 +1517,16 @@ function isCursorBeforeOnlyTrailingListContent(range: Range, li: HTMLElement): b
 function textBeforeCursor(range: Range, block: Element): string {
   const r = document.createRange();
   r.setStart(block, 0);
+  r.setEnd(range.startContainer, range.startOffset);
+  return r.toString();
+}
+
+function shortcutTextBeforeCursor(range: Range, target: ShortcutTarget): string {
+  if (!target.bareRoot || !target.runStart) {
+    return textBeforeCursor(range, target.el);
+  }
+  const r = document.createRange();
+  r.setStartBefore(target.runStart);
   r.setEnd(range.startContainer, range.startOffset);
   return r.toString();
 }

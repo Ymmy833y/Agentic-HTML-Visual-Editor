@@ -3,10 +3,11 @@
 // serialized and pushed back to the extension host.
 
 import { clearFormatting, isRangeCovered, toggleInline } from '../commands/inline-format';
-import { insertDetails, insertHr, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
-import { findInlineAncestor, getCurrentBlockTag, getNearestListType } from '../commands/query';
+import { insertDetails, insertHr, setAlertType, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
+import { findInlineAncestor, getCurrentAlertType, getCurrentBlockTag, getNearestListType } from '../commands/query';
 import type { CommandContext } from '../shared/command-context';
 import type { CopyFormat } from '../../src/shared/messages';
+import { ALERT_DEFINITIONS, type AlertType } from '../shared/alert-types';
 import { setupTooltip } from './tooltip';
 
 // --- SVG icon strings (16×16, currentColor) ---
@@ -54,11 +55,23 @@ const BLOCK_OPTIONS: DropdownOption[] = [
   { value: 'blockquote', label: 'Blockquote' },
 ];
 
+type AlertDropdownOption = { value: AlertType | null; label: string };
+
+const ALERT_OPTIONS: AlertDropdownOption[] = [
+  { value: null, label: 'Normal' },
+  ...ALERT_DEFINITIONS.map((definition) => ({
+    value: definition.type,
+    label: definition.label,
+  })),
+];
+
 export interface ToolbarOptions {
   /** Called after a synchronous command finishes mutating the DOM. */
   onCommand: () => void;
   /** Open the link dialog and apply the result. */
   onLink: () => void;
+  /** Open the image dialog and insert the result. */
+  onImage: () => void;
   /** Add a comment to the current selection and open its popup. */
   onAddComment: () => void;
   /** Trigger a copy in the requested format. */
@@ -147,7 +160,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
   group(bar, [saveBtn]);
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
-  group(bar, [linkBtn(opts.onLink)]);
+  group(bar, [linkBtn(opts.onLink), imageBtn(opts.onImage)]);
   group(bar, [ulBtn, olBtn]);
   group(bar, [
     textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
@@ -182,8 +195,9 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
 
     const node = range.startContainer;
     const blockTag = getCurrentBlockTag(node, root);
+    const alertType = getCurrentAlertType(node, root);
 
-    updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p');
+    updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p', alertType);
 
     // For a collapsed cursor use ancestor check; for a range require all text
     // to carry the style (matches the toggle semantic: active ↔ "will remove").
@@ -223,7 +237,10 @@ function buildBlockDropdown(
   opts: ToolbarOptions,
   root: HTMLElement,
   getSavedRange: () => Range | null,
-): { wrapper: HTMLElement; updateLabel: (blockTag: string) => void } {
+): {
+  wrapper: HTMLElement;
+  updateLabel: (blockTag: string, alertType: AlertType | null) => void;
+} {
   const wrapper = document.createElement('div');
   wrapper.className = 'ahve-tb-blk-wrap';
 
@@ -252,6 +269,83 @@ function buildBlockDropdown(
   drop.hidden = true;
   document.body.appendChild(drop);
 
+  const alertDrop = document.createElement('div');
+  alertDrop.className = 'ahve-tb-blk-drop ahve-tb-alert-submenu';
+  alertDrop.setAttribute('role', 'listbox');
+  alertDrop.setAttribute('aria-label', 'Blockquote style');
+  alertDrop.hidden = true;
+  document.body.appendChild(alertDrop);
+
+  let blockquoteItem: HTMLElement | null = null;
+  let submenuCloseTimer: number | null = null;
+
+  const restoreEditorSelection = (): void => {
+    const saved = getSavedRange();
+    root.focus({ preventScroll: true });
+    if (!saved) return;
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(saved);
+    }
+  };
+
+  const cancelSubmenuClose = (): void => {
+    if (submenuCloseTimer === null) return;
+    window.clearTimeout(submenuCloseTimer);
+    submenuCloseTimer = null;
+  };
+
+  const closeAlertSubmenu = (): void => {
+    cancelSubmenuClose();
+    alertDrop.hidden = true;
+    blockquoteItem?.setAttribute('aria-expanded', 'false');
+  };
+
+  const scheduleSubmenuClose = (): void => {
+    cancelSubmenuClose();
+    submenuCloseTimer = window.setTimeout(closeAlertSubmenu, 120);
+  };
+
+  const positionAlertSubmenu = (): void => {
+    if (!blockquoteItem) return;
+    const anchor = blockquoteItem.getBoundingClientRect();
+    alertDrop.hidden = false;
+    const menuWidth = alertDrop.getBoundingClientRect().width;
+    const preferredLeft = anchor.right + 3;
+    const left = preferredLeft + menuWidth <= window.innerWidth
+      ? preferredLeft
+      : Math.max(3, anchor.left - menuWidth - 3);
+    const maxTop = Math.max(3, window.innerHeight - alertDrop.getBoundingClientRect().height - 3);
+    alertDrop.style.left = `${left}px`;
+    alertDrop.style.top = `${Math.min(anchor.top, maxTop)}px`;
+  };
+
+  const openAlertSubmenu = (): void => {
+    cancelSubmenuClose();
+    positionAlertSubmenu();
+    blockquoteItem?.setAttribute('aria-expanded', 'true');
+  };
+
+  for (const opt of ALERT_OPTIONS) {
+    const item = document.createElement('div');
+    item.className = 'ahve-tb-blk-opt';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', 'false');
+    item.dataset.alertValue = opt.value ?? '';
+    item.textContent = opt.label;
+    item.addEventListener('mousedown', (e) => e.preventDefault());
+    item.addEventListener('click', () => {
+      restoreEditorSelection();
+      setAlertType(opt.value, ctx);
+      opts.onCommand();
+      closeDropdown();
+    });
+    alertDrop.appendChild(item);
+  }
+  alertDrop.addEventListener('mouseenter', cancelSubmenuClose);
+  alertDrop.addEventListener('mouseleave', scheduleSubmenuClose);
+
   for (const opt of BLOCK_OPTIONS) {
     if (opt === null) {
       const divider = document.createElement('div');
@@ -263,19 +357,31 @@ function buildBlockDropdown(
       item.setAttribute('role', 'option');
       item.setAttribute('aria-selected', 'false');
       item.dataset.value = opt.value;
-      item.textContent = opt.label;
+      if (opt.value === 'blockquote') {
+        blockquoteItem = item;
+        item.classList.add('ahve-tb-blk-has-submenu');
+        item.setAttribute('aria-haspopup', 'listbox');
+        item.setAttribute('aria-expanded', 'false');
+        const text = document.createElement('span');
+        text.textContent = opt.label;
+        const arrow = document.createElement('span');
+        arrow.className = 'ahve-tb-blk-submenu-arrow';
+        arrow.setAttribute('aria-hidden', 'true');
+        arrow.textContent = '›';
+        item.append(text, arrow);
+        item.addEventListener('mouseenter', openAlertSubmenu);
+        item.addEventListener('mouseleave', scheduleSubmenuClose);
+      } else {
+        item.textContent = opt.label;
+        item.addEventListener('mouseenter', closeAlertSubmenu);
+      }
       item.addEventListener('mousedown', (e) => {
         // Prevent this click from losing focus before the click handler fires.
         e.preventDefault();
       });
       item.addEventListener('click', () => {
         // Restore editor selection (may have been lost when the dropdown opened).
-        const saved = getSavedRange();
-        root.focus({ preventScroll: true });
-        if (saved) {
-          const sel = window.getSelection();
-          if (sel) { sel.removeAllRanges(); sel.addRange(saved); }
-        }
+        restoreEditorSelection();
         setBlockTag(opt.value as BlockTag, ctx);
         opts.onCommand();
         closeDropdown();
@@ -293,6 +399,7 @@ function buildBlockDropdown(
   };
 
   const closeDropdown = (): void => {
+    closeAlertSubmenu();
     drop.hidden = true;
     button.setAttribute('aria-expanded', 'false');
   };
@@ -304,7 +411,12 @@ function buildBlockDropdown(
 
   // Close when clicking outside the button + drop panel.
   document.addEventListener('mousedown', (e) => {
-    if (!drop.hidden && !wrapper.contains(e.target as Node) && !drop.contains(e.target as Node)) {
+    if (
+      !drop.hidden &&
+      !wrapper.contains(e.target as Node) &&
+      !drop.contains(e.target as Node) &&
+      !alertDrop.contains(e.target as Node)
+    ) {
       closeDropdown();
     }
   });
@@ -315,15 +427,23 @@ function buildBlockDropdown(
       const rect = button.getBoundingClientRect();
       drop.style.top  = `${rect.bottom + 3}px`;
       drop.style.left = `${rect.left}px`;
+      if (!alertDrop.hidden) positionAlertSubmenu();
     }
   });
 
   wrapper.appendChild(button);
 
-  const updateLabel = (blockTag: string): void => {
+  const updateLabel = (blockTag: string, alertType: AlertType | null): void => {
     labelSpan.textContent = BLOCK_LABELS[blockTag] ?? 'Plain';
     for (const item of drop.querySelectorAll<HTMLElement>('[data-value]')) {
       item.setAttribute('aria-selected', item.dataset.value === blockTag ? 'true' : 'false');
+    }
+    for (const item of alertDrop.querySelectorAll<HTMLElement>('[data-alert-value]')) {
+      const value = item.dataset.alertValue ?? '';
+      const selected = blockTag === 'blockquote' && (
+        alertType === null ? value === '' : value === alertType
+      );
+      item.setAttribute('aria-selected', selected ? 'true' : 'false');
     }
   };
 
@@ -372,6 +492,16 @@ function linkBtn(onLink: () => void): HTMLButtonElement {
   setupTooltip(b, 'Link (Ctrl+K)');
   b.textContent = 'Link';
   b.addEventListener('click', onLink);
+  return b;
+}
+
+function imageBtn(onImage: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ahve-tb-btn ahve-tb-image';
+  setupTooltip(b, 'Insert image');
+  b.textContent = 'Image';
+  b.addEventListener('click', onImage);
   return b;
 }
 

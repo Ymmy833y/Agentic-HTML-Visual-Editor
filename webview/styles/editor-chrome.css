@@ -134,6 +134,20 @@
   border-radius: 3px;
   margin: 0 2px;
 }
+.ahve-tb-blk-has-submenu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.ahve-tb-blk-submenu-arrow {
+  font-size: 1.15em;
+  line-height: 1;
+  opacity: 0.65;
+}
+.ahve-tb-alert-submenu {
+  min-width: 140px;
+}
 .ahve-tb-blk-opt:hover {
   background: var(--ahve-code-bg);
 }
@@ -245,6 +259,22 @@
 .ahve-dialog-input:focus {
   border-color: var(--ahve-accent);
   box-shadow: 0 0 0 1px var(--ahve-accent);
+}
+.ahve-dialog-input[aria-invalid='true'] {
+  border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
+.ahve-dialog-error {
+  color: var(--vscode-inputValidation-errorForeground, var(--ahve-fg));
+  background: var(--vscode-inputValidation-errorBackground, rgba(190, 17, 0, 0.12));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+.ahve-dialog-error[hidden] {
+  display: none;
 }
 
 .ahve-dialog-message {

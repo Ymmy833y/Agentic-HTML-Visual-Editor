@@ -3,8 +3,10 @@ import { CUSTOM_EDITOR_VIEW_TYPE } from '../commands/openInVisualEditor';
 import { AhveDocument } from './AhveDocument';
 import { computeInitPayload, type UnsavedBackup } from './backup';
 import { readBackupFile, writeBackupFile } from './backupFile';
+import { buildContentSecurityPolicy } from './csp';
 import { mergeHtml } from './merge';
 import { mergeHistoryTransition } from './history';
+import { openRelativeFileLink } from './relativeFileLinks';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
@@ -139,6 +141,22 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     return true;
   }
 
+  public openTestRelativeFile(uri: vscode.Uri, href: string): Promise<boolean> {
+    return openRelativeFileLink(uri, href);
+  }
+
+  /**
+   * Test hook: drive the webview to post an `openRelativeFile` message so the
+   * host's message handler (not just `openRelativeFileLink`) is exercised end
+   * to end with the real document uri.
+   */
+  public openTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean {
+    const document = this.findDocument(uri);
+    if (!document?.panel) return false;
+    void document.panel.webview.postMessage({ type: 'testOpenRelativeFile', href });
+    return true;
+  }
+
   private findDocument(uri: vscode.Uri): AhveDocument | undefined {
     return (
       this.documents.get(uri.toString()) ??
@@ -258,6 +276,9 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             break;
           case 'backup':
             document.lastKnown = { baseHtml: message.baseHtml, html: message.html };
+            break;
+          case 'openRelativeFile':
+            await openRelativeFileLink(document.uri, message.href);
             break;
           case 'clipboardWrite':
             await writeClipboard(message.text, message.format);
@@ -496,21 +517,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             .toString()}/" />`
         : '';
 
-    // CSP defaults to 'none' for every directive and we opt back in only for
-    // the bundle's own script, the stylesheet, and rendered <img>/font assets.
-    // `connect-src`, `frame-src`, and `form-action` are listed explicitly even
-    // though `default-src 'none'` already blocks them, so the policy is easy
-    // to audit at a glance.
-    const csp = [
-      `default-src 'none'`,
-      `style-src ${cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}'`,
-      `img-src ${cspSource} https: data:`,
-      `font-src ${cspSource}`,
-      `connect-src 'none'`,
-      `frame-src 'none'`,
-      `form-action 'none'`,
-    ].join('; ');
+    const csp = buildContentSecurityPolicy(cspSource, nonce);
 
     return /* html */ `<!DOCTYPE html>
 <html lang="en">

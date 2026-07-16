@@ -152,6 +152,17 @@ describe('formatForSerialize: nested formatting', () => {
     );
   });
 
+  it('preserves alert metadata and prunes an empty alert placeholder', () => {
+    expect(format('<blockquote data-alert="note"><br></blockquote>')).toBe(
+      '<blockquote data-alert="note"></blockquote>',
+    );
+  });
+
+  it('round-trips an alert without changing its metadata', () => {
+    const saved = '<blockquote data-alert="warning">Careful</blockquote>';
+    expect(roundtrip(saved)).toBe(saved);
+  });
+
   it('formats inside <ul> and prunes the trailing empty <li>', () => {
     expect(format('<ul><li>a</li><li><br></li></ul>')).toBe(
       '<ul><li>a</li>\n<li></li></ul>',

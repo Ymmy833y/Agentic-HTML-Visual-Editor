@@ -225,6 +225,61 @@ describe('setupEditor: blockquote shortcut', () => {
     const evt = dispatchBeforeInput(root, 'insertText', ' ');
     expect(evt.defaultPrevented).toBe(false);
   });
+
+  for (const type of ['note', 'tip', 'important', 'warning', 'caution'] as const) {
+    it(`converts ">${type} " into a ${type} alert`, () => {
+      const root = makeRoot(`<p>&gt;${type}</p>`);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('p')!);
+      const evt = dispatchBeforeInput(root, 'insertText', ' ');
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(
+        `<blockquote data-alert="${type}"><br></blockquote>`,
+      );
+    });
+  }
+
+  it('does not treat ">info " as an alert shortcut', () => {
+    const root = makeRoot('<p>&gt;info</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>&gt;info</p>');
+  });
+
+  it('matches alert markers case-insensitively', () => {
+    const root = makeRoot('<p>&gt;WaRnInG</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+    dispatchBeforeInput(root, 'insertText', ' ');
+    expect(root.innerHTML).toBe('<blockquote data-alert="warning"><br></blockquote>');
+  });
+
+  it('keeps text following an alert marker inside the alert', () => {
+    const root = makeRoot('<p>&gt;tipHelpful</p>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild!;
+    const r = document.createRange();
+    r.setStart(text, 4); // after ">tip"
+    r.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+    dispatchBeforeInput(root, 'insertText', ' ');
+    expect(root.innerHTML).toBe('<blockquote data-alert="tip">Helpful</blockquote>');
+  });
+
+  it('converts an alert shortcut in bare root text', () => {
+    const root = makeRoot('&gt;important');
+    setupEditor(root, () => {});
+    caretAtEnd(root);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="important"><br></blockquote>',
+    );
+  });
 });
 
 describe('setupEditor: code block shortcut', () => {
@@ -266,6 +321,15 @@ describe('setupEditor: block shortcuts also fire inside <div>', () => {
     const evt = dispatchBeforeInput(root, 'insertText', ' ');
     expect(evt.defaultPrevented).toBe(true);
     expect(root.innerHTML).toBe('<blockquote><br></blockquote>');
+  });
+
+  it('converts ">note " inside a <div> into an alert', () => {
+    const root = makeRoot('<div>&gt;note</div>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('div')!);
+    const evt = dispatchBeforeInput(root, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<blockquote data-alert="note"><br></blockquote>');
   });
 
   it('converts "## " inside a <div> into a heading', () => {
@@ -318,6 +382,16 @@ describe('setupEditor: block shortcuts inside a bare table cell', () => {
     const evt = dispatchBeforeInput(td, 'insertText', ' ');
     expect(evt.defaultPrevented).toBe(true);
     expect(td.innerHTML).toBe('<blockquote><br></blockquote>');
+  });
+
+  it('converts ">caution " into an alert inside the cell', () => {
+    const { td } = cell('&gt;caution');
+    caretAtEnd(td);
+    const evt = dispatchBeforeInput(td, 'insertText', ' ');
+    expect(evt.defaultPrevented).toBe(true);
+    expect(td.innerHTML).toBe(
+      '<blockquote data-alert="caution"><br></blockquote>',
+    );
   });
 
   it('keeps the text that follows the marker', () => {
