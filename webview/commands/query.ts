@@ -3,6 +3,7 @@
 
 import { BLOCK_TAGS } from '../shared/constants';
 import { findAncestor, findListContainer } from '../shared/dom-utils';
+import { isAlertType, type AlertType } from '../shared/alert-types';
 
 /** Return the lowercase tag name of the nearest block ancestor inside root. */
 export function getCurrentBlockTag(node: Node, root: Element): string {
@@ -14,6 +15,14 @@ export function getCurrentBlockTag(node: Node, root: Element): string {
     cur = cur.parentNode;
   }
   return '';
+}
+
+/** Return the current blockquote's recognized alert type, or null. */
+export function getCurrentAlertType(node: Node, root: Element): AlertType | null {
+  const quote = findAncestor(node, 'BLOCKQUOTE', root);
+  if (!quote) return null;
+  const value = quote.getAttribute('data-alert');
+  return isAlertType(value) ? value : null;
 }
 
 /** Return the type of the nearest enclosing list container, or '' if none. */

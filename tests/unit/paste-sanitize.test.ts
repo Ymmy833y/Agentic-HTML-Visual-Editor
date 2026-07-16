@@ -86,6 +86,13 @@ describe('cleanupPastedFragment', () => {
     expect(out).toBe('<p>x</p>');
   });
 
+  it('preserves data-alert while removing clipboard class noise', () => {
+    const out = clean(
+      '<blockquote class="markdown-alert" data-alert="tip">Helpful</blockquote>',
+    );
+    expect(out).toBe('<blockquote data-alert="tip">Helpful</blockquote>');
+  });
+
   it('unwraps namespaced Office wrappers', () => {
     // jsdom uppercases unknown tag names; cleanupPastedFragment checks
     // tagName.includes(':') so XML-namespaced elements (o:p, w:sdt) match.

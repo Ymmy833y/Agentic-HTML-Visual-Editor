@@ -5,8 +5,110 @@
 import { blockOrBareCell, findAncestor, findBlockAncestor, findListContainer, isBlockEmpty } from '../shared/dom-utils';
 import { BLOCK_TAGS } from '../shared/constants';
 import type { CommandContext } from '../shared/command-context';
+import type { AlertType } from '../shared/alert-types';
 
 export type BlockTag = 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'blockquote' | 'pre';
+const ALERT_ATTR = 'data-alert';
+const ROOT_BLOCK_BOUNDARY_TAGS = new Set([
+  ...BLOCK_TAGS,
+  'UL', 'OL', 'TABLE', 'HR', 'FIGURE',
+]);
+
+export interface BareRootRun {
+  first: Node;
+  last: Node;
+}
+
+/**
+ * Find the contiguous inline run directly under the editor root that contains
+ * node. Existing HTML may place text or inline elements directly in <body>
+ * without a paragraph wrapper; toolbar block commands must still format it.
+ */
+export function findBareRootRun(
+  node: Node,
+  root: Element,
+  offset = 0,
+): BareRootRun | null {
+  let top: Node | null = node === root
+    ? root.childNodes[Math.max(0, Math.min(root.childNodes.length - 1, offset > 0 ? offset - 1 : 0))]
+      ?? null
+    : node;
+  while (top && top.parentNode !== root) {
+    if (top === root) return null;
+    top = top.parentNode;
+  }
+  if (!top || isRootBlockBoundary(top)) return null;
+
+  let first = top;
+  while (first.previousSibling && !isRootBlockBoundary(first.previousSibling)) {
+    first = first.previousSibling;
+  }
+  let last = top;
+  while (last.nextSibling && !isRootBlockBoundary(last.nextSibling)) {
+    last = last.nextSibling;
+  }
+  return { first, last };
+}
+
+function isRootBlockBoundary(node: Node): boolean {
+  return node instanceof Element && ROOT_BLOCK_BOUNDARY_TAGS.has(node.tagName);
+}
+
+/** Wrap a bare top-level inline run in a paragraph and preserve its selection. */
+export function ensureBlockAtRoot(
+  node: Node,
+  root: HTMLElement,
+  offset = 0,
+): HTMLElement | null {
+  const run = findBareRootRun(node, root, offset);
+  if (!run) return null;
+
+  const sel = window.getSelection();
+  const saved = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+  const p = document.createElement('p');
+  root.insertBefore(p, run.first);
+
+  let current: Node | null = run.first;
+  for (;;) {
+    const next: Node | null = current.nextSibling;
+    p.appendChild(current);
+    if (current === run.last) break;
+    current = next;
+    if (!current) break;
+  }
+  if (p.childNodes.length === 0) p.appendChild(document.createElement('br'));
+
+  if (saved && sel) {
+    try {
+      if (saved.collapsed && saved.startContainer === root) {
+        const r = document.createRange();
+        r.selectNodeContents(p);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return p;
+      }
+      if (!root.contains(saved.startContainer) || !root.contains(saved.endContainer)) {
+        throw new Error('Selection boundary left the editor root.');
+      }
+      sel.removeAllRanges();
+      sel.addRange(saved);
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+  return p;
+}
+
+function commandBlock(range: Range, root: HTMLElement): HTMLElement | null {
+  return ensureBlockInCell(range.startContainer, root)
+    ?? findBlockAncestor(range.startContainer, root)
+    ?? ensureBlockAtRoot(range.startContainer, root, range.startOffset);
+}
 
 /**
  * If the caret sits directly in a bare table cell (TD/TH holding inline content
@@ -77,24 +179,26 @@ export function headingShortcutTag(code: string): BlockTag | null {
   return m[1] === '0' ? 'p' : (('h' + m[1]) as BlockTag);
 }
 
-/** Replace the current block element's tag (e.g. P → H1). */
-export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return;
-  const range = sel.getRangeAt(0);
-
-  const block = ensureBlockInCell(range.startContainer, ctx.root)
-    ?? findBlockAncestor(range.startContainer, ctx.root);
-  if (!block) return;
-  // <summary>/<details> are structural; never rewrite them into a paragraph or
-  // heading just because the caret happens to sit inside one.
-  if (block.tagName === 'SUMMARY' || block.tagName === 'DETAILS') return;
-
-  const replacement = document.createElement(tag);
+/**
+ * Replace block with replacement in place: copy every attribute except the
+ * alert marker, move the children across (keeping a <br> placeholder when the
+ * block had none), then collapse the caret to the end of the new element.
+ * replacement may already carry its own data-alert; the copy never overwrites
+ * it because the block's own alert marker is skipped.
+ */
+function replaceBlockKeepingContent(
+  block: HTMLElement,
+  replacement: HTMLElement,
+  sel: Selection,
+): void {
   for (const attr of Array.from(block.attributes)) {
+    if (attr.name.toLowerCase() === ALERT_ATTR) continue;
     replacement.setAttribute(attr.name, attr.value);
   }
   while (block.firstChild) replacement.appendChild(block.firstChild);
+  if (replacement.childNodes.length === 0) {
+    replacement.appendChild(document.createElement('br'));
+  }
   block.replaceWith(replacement);
 
   const r = document.createRange();
@@ -102,6 +206,44 @@ export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
   r.collapse(false);
   sel.removeAllRanges();
   sel.addRange(r);
+}
+
+/** Replace the current block element's tag (e.g. P → H1). */
+export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+
+  const block = commandBlock(range, ctx.root);
+  if (!block) return;
+  // Lists and details elements are structural; never rewrite them into a
+  // paragraph, heading, quote, or alert.
+  if (block.tagName === 'LI' || block.tagName === 'SUMMARY' || block.tagName === 'DETAILS') return;
+
+  replaceBlockKeepingContent(block, document.createElement(tag), sel);
+}
+
+/**
+ * Convert the current block to a blockquote carrying a normalized alert type.
+ * Passing null removes the alert metadata while leaving an ordinary blockquote.
+ */
+export function setAlertType(type: AlertType | null, ctx: CommandContext): void {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+
+  const block = commandBlock(range, ctx.root);
+  if (!block) return;
+  if (block.tagName === 'LI' || block.tagName === 'SUMMARY' || block.tagName === 'DETAILS') return;
+
+  if (block.tagName === 'BLOCKQUOTE') {
+    if (type === null) block.removeAttribute(ALERT_ATTR);
+    else block.setAttribute(ALERT_ATTR, type);
+    return;
+  }
+  const quote = document.createElement('blockquote');
+  if (type !== null) quote.setAttribute(ALERT_ATTR, type);
+  replaceBlockKeepingContent(block, quote, sel);
 }
 
 /**
