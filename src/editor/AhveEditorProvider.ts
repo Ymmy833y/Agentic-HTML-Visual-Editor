@@ -5,6 +5,7 @@ import { computeInitPayload, type UnsavedBackup } from './backup';
 import { readBackupFile, writeBackupFile } from './backupFile';
 import { mergeHtml } from './merge';
 import { mergeHistoryTransition } from './history';
+import { openRelativeFileLink } from './relativeFileLinks';
 import type {
   CopyFormat,
   ExtensionToWebviewMessage,
@@ -139,6 +140,22 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     return true;
   }
 
+  public openTestRelativeFile(uri: vscode.Uri, href: string): Promise<boolean> {
+    return openRelativeFileLink(uri, href);
+  }
+
+  /**
+   * Test hook: drive the webview to post an `openRelativeFile` message so the
+   * host's message handler (not just `openRelativeFileLink`) is exercised end
+   * to end with the real document uri.
+   */
+  public openTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean {
+    const document = this.findDocument(uri);
+    if (!document?.panel) return false;
+    void document.panel.webview.postMessage({ type: 'testOpenRelativeFile', href });
+    return true;
+  }
+
   private findDocument(uri: vscode.Uri): AhveDocument | undefined {
     return (
       this.documents.get(uri.toString()) ??
@@ -258,6 +275,9 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             break;
           case 'backup':
             document.lastKnown = { baseHtml: message.baseHtml, html: message.html };
+            break;
+          case 'openRelativeFile':
+            await openRelativeFileLink(document.uri, message.href);
             break;
           case 'clipboardWrite':
             await writeClipboard(message.text, message.format);

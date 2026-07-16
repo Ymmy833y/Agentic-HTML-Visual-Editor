@@ -43,6 +43,9 @@ export type ExtensionToWebviewMessage =
   // document, then route it through the normal edit/save pipeline.
   | { type: 'testSetHtml'; html: string }
   | { type: 'testRequestSave' }
+  // Integration-test hook: make the view post an `openRelativeFile` message so
+  // the host's relative-link handler is exercised through the real channel.
+  | { type: 'testOpenRelativeFile'; href: string }
   | { type: 'copyToClipboard'; format: CopyFormat };
 
 export type WebviewToExtensionMessage =
@@ -64,4 +67,7 @@ export type WebviewToExtensionMessage =
   // Unsaved view content, streamed so the host always holds a fresh copy for
   // hot-exit backups and as a save fallback while the webview is unreachable.
   | { type: 'backup'; html: string; baseHtml: string }
+  // Open a relative link outside the webview so navigation cannot replace the
+  // editor page. The host resolves and validates the literal href.
+  | { type: 'openRelativeFile'; href: string }
   | { type: 'clipboardWrite'; text: string; format: CopyFormat };
