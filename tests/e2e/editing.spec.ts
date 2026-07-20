@@ -167,6 +167,21 @@ test.describe('Toolbar editing', () => {
     expect(html).toContain('<body');
     expect(html).toContain('</body>');
   });
+
+  test('Saving preserves the wrapper of a document without a <body> tag', async ({ page }) => {
+    const full = '<html><head><title>t</title></head><p>hello world</p></html>';
+    await mountEditor(page, full);
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.keyboard.press('Control+b');
+
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain('<strong>hello</strong>');
+    expect(html).toContain('<head><title>t</title></head>');
+    expect(html).toContain('</html>');
+    // The split never synthesizes a <body> tag the source did not have.
+    expect(html).not.toContain('<body');
+  });
 });
 
 test.describe('Toolbar active state', () => {

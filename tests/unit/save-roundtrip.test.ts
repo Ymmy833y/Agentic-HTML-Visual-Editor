@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureSelection, restoreSelection } from '../../webview/core/selection';
 import { injectEmptyBlockPlaceholders } from '../../webview/core/placeholder';
 import { formatForSerialize } from '../../webview/core/serialize';
-import { parseBodyContent } from '../../webview/core/renderer';
+import { parseBodyContent, splitAroundBody } from '../../webview/core/renderer';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {
@@ -196,5 +196,36 @@ describe('save-echo round-trip: whitespace preservation', () => {
     const second = formatForSerialize(root);
     expect(second).toBe(first);
     expect(first).toBe(source);
+  });
+});
+
+describe('full-document round-trip without <body>', () => {
+  let root: HTMLElement;
+
+  beforeEach(() => {
+    root = makeRoot('');
+  });
+
+  // Mirrors main.ts: mountFromSource + serialize composed around the split.
+  function roundTrip(source: string): string {
+    const split = splitAroundBody(source);
+    mount(root, split ? split.bodyInner : source);
+    return (split?.prefix ?? '') + formatForSerialize(root) + (split?.suffix ?? '');
+  }
+
+  it('preserves the <html> wrapper of a body-less document', () => {
+    const source = '<html><p>hi</p></html>';
+    expect(roundTrip(source)).toBe(source);
+  });
+
+  it('preserves doctype and head metadata of a body-less document', () => {
+    const source =
+      '<!DOCTYPE html>\n<html lang="en"><head><title>t</title><meta charset="UTF-8"></head>\n<p>hi</p>\n</html>';
+    expect(roundTrip(source)).toBe(source);
+  });
+
+  it('is idempotent across repeated round-trips', () => {
+    const first = roundTrip('<html><p>hi</p></html>');
+    expect(roundTrip(first)).toBe(first);
   });
 });

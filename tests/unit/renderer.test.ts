@@ -29,18 +29,99 @@ describe('splitAroundBody', () => {
     expect(split!.bodyInner).toBe('<P>hi</P>');
   });
 
-  it('returns null when no <body> tag is present', () => {
+  it('returns null when neither <body> nor <html> is present', () => {
     expect(splitAroundBody('<p>fragment only</p>')).toBeNull();
-  });
-
-  it('returns null when </body> is missing', () => {
-    expect(splitAroundBody('<html><body><p>unterminated')).toBeNull();
+    expect(splitAroundBody('bare text')).toBeNull();
   });
 
   it('preserves whitespace inside the body verbatim', () => {
     const html = '<html><body>\n  <p>hi</p>\n</body></html>';
     const split = splitAroundBody(html);
     expect(split!.bodyInner).toBe('\n  <p>hi</p>\n');
+  });
+
+  describe('fallback for body-less documents', () => {
+    it('splits around <html> when <body> is absent', () => {
+      const split = splitAroundBody('<html><p>hi</p></html>');
+      expect(split).toEqual({
+        prefix: '<html>',
+        bodyInner: '<p>hi</p>',
+        suffix: '</html>',
+      });
+    });
+
+    it('keeps doctype and <head> metadata in the prefix', () => {
+      const html =
+        '<!DOCTYPE html>\n<html lang="en"><head><title>t</title></head><p>hi</p></html>';
+      const split = splitAroundBody(html);
+      expect(split).toEqual({
+        prefix: '<!DOCTYPE html>\n<html lang="en"><head><title>t</title></head>',
+        bodyInner: '<p>hi</p>',
+        suffix: '</html>',
+      });
+    });
+
+    it('leaves head content in bodyInner when </head> is omitted', () => {
+      // Documents the sanitizer exposure: without an explicit </head> the
+      // metadata cannot be kept in the prefix (see splitAroundBody comment).
+      const split = splitAroundBody('<html><head><title>t</title><p>hi</p></html>');
+      expect(split).toEqual({
+        prefix: '<html>',
+        bodyInner: '<head><title>t</title><p>hi</p>',
+        suffix: '</html>',
+      });
+    });
+
+    it('yields an empty bodyInner for a head-only document', () => {
+      const split = splitAroundBody('<html><head><title>t</title></head></html>');
+      expect(split).toEqual({
+        prefix: '<html><head><title>t</title></head>',
+        bodyInner: '',
+        suffix: '</html>',
+      });
+    });
+
+    it('yields an empty bodyInner for a bare <html></html>', () => {
+      const split = splitAroundBody('<html></html>');
+      expect(split).toEqual({ prefix: '<html>', bodyInner: '', suffix: '</html>' });
+    });
+
+    it('is case-insensitive for the html fallback', () => {
+      const split = splitAroundBody('<HTML><P>hi</P></HTML>');
+      expect(split).toEqual({ prefix: '<HTML>', bodyInner: '<P>hi</P>', suffix: '</HTML>' });
+    });
+
+    it('handles a missing </html> with an empty suffix', () => {
+      const split = splitAroundBody('<html><p>hi</p>');
+      expect(split).toEqual({ prefix: '<html>', bodyInner: '<p>hi</p>', suffix: '' });
+    });
+
+    it('splits at </html> when </body> is missing', () => {
+      const split = splitAroundBody('<html><body><p>x</p></html>');
+      expect(split).toEqual({
+        prefix: '<html><body>',
+        bodyInner: '<p>x</p>',
+        suffix: '</html>',
+      });
+    });
+
+    it('handles a document with neither </body> nor </html>', () => {
+      const split = splitAroundBody('<html><body><p>unterminated');
+      expect(split).toEqual({
+        prefix: '<html><body>',
+        bodyInner: '<p>unterminated',
+        suffix: '',
+      });
+    });
+
+    it('preserves whitespace verbatim in the fallback', () => {
+      const split = splitAroundBody('<html>\n  <p>hi</p>\n</html>');
+      expect(split).toEqual({
+        prefix: '<html>',
+        bodyInner: '\n  <p>hi</p>\n',
+        suffix: '</html>',
+      });
+    });
   });
 });
 
