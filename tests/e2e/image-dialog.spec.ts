@@ -47,7 +47,7 @@ test.describe('Image insertion dialog', () => {
     await page.locator('.ahve-tb-image').click();
 
     await page.locator('#ahve-image-source').fill('./photo.png');
-    await page.getByRole('button', { name: 'Insert' }).click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
 
     expect(await getRootHtml(page)).toBe('<p><img src="./photo.png"></p>');
   });
@@ -63,7 +63,7 @@ test.describe('Image insertion dialog', () => {
     await page.locator('.ahve-tb-image').dispatchEvent('click');
     await page.locator('#ahve-image-source').fill('./target.png');
     await page.locator('#ahve-image-alt').fill('Target');
-    await page.getByRole('button', { name: 'Insert' }).click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
 
     expect(await getRootHtml(page)).toBe(
       '<p>before <img src="./target.png" alt="Target"> after</p>',
@@ -79,7 +79,7 @@ test.describe('Image insertion dialog', () => {
     await page.locator('.ahve-tb-image').click();
 
     await page.locator('#ahve-image-source').fill('data:image/png;base64,AAA');
-    await page.getByRole('button', { name: 'Insert' }).click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
 
     await expect(page.locator('.ahve-dialog')).toBeVisible();
     await expect(page.locator('#ahve-image-source')).toHaveAttribute('aria-invalid', 'true');
@@ -112,7 +112,7 @@ test.describe('Image insertion dialog', () => {
 
     await page.locator('#ahve-image-source').fill('../assets/photo.webp');
     await page.locator('#ahve-image-alt').fill('Saved image');
-    await page.getByRole('button', { name: 'Insert' }).click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
 
     const html = await saveAndGetHtml(page);
     expect(html).toContain(
@@ -126,7 +126,7 @@ test.describe('Image insertion dialog', () => {
     await caretAtEnd(page, '#ahve-root p');
     await page.locator('.ahve-tb-image').click();
     await page.locator('#ahve-image-source').fill('./photo.png');
-    await page.getByRole('button', { name: 'Insert' }).click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
 
     expect(await getRootHtml(page)).toBe(
       '<p>hello<img src="./photo.png"></p>',

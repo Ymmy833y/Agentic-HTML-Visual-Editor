@@ -341,6 +341,29 @@ test.describe('Comment', () => {
     // Human vs AI carets use their own author hues.
     expect(human).not.toBe(ai);
   });
+
+  test('closing the popup with Escape clears a tooltip anchored to its buttons', async ({ page }) => {
+    await mountEditor(page, '<p>hello world</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+
+    await popup.locator('button', { hasText: '↑' }).hover();
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Previous comment');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+
+    // Escape cancels the auto-opened body edit AND closes the popup while
+    // the pointer still rests on the button; mouseleave never fires on the
+    // hidden popup, so close() must clear the tooltip itself.
+    await page.keyboard.press('Escape');
+
+    await expect(popup).toBeHidden();
+    await expect(tooltip).not.toHaveClass(/ahve-tooltip-visible/);
+  });
 });
 
 // Editing in and around an inline <comment> must never corrupt it: the browser
@@ -791,6 +814,7 @@ test.describe('Comment popup scrolls when the thread is taller than the viewport
     expect(headerBox!.y).toBeGreaterThanOrEqual(0);
     expect(headerBox!.y + headerBox!.height).toBeLessThanOrEqual(viewportH + 1);
   });
+
 });
 
 // Authoritative boundary matrix: drive REAL keyboard input and assert, for every

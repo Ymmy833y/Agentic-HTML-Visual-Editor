@@ -2,6 +2,8 @@
 // input form for tables larger than the grid. Mirrors the popup conventions
 // used by comment-popup (positioning, dismissal, mousedown selection guard).
 
+import { hideTooltipFor, setupTooltip } from '../../ui/tooltip';
+
 export interface TablePickerOptions {
   onPick(rows: number, cols: number, withHeader: boolean): void;
 }
@@ -105,6 +107,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
   okBtn.type = 'button';
   okBtn.className = 'ahve-tp-ok';
   okBtn.textContent = 'Insert';
+  setupTooltip(okBtn, 'Insert table with the chosen size');
   okBtn.addEventListener('click', () => {
     const rows = Math.max(1, Math.floor(Number(rowsInput.input.value) || 0));
     const cols = Math.max(1, Math.floor(Number(colsInput.input.value) || 0));
@@ -134,6 +137,7 @@ export function mountTablePicker(opts: TablePickerOptions): TablePickerHandle {
 
   function close(): void {
     openedFor = null;
+    hideTooltipFor(root);
     root.hidden = true;
   }
 
