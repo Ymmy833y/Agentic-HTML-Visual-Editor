@@ -9,6 +9,24 @@ import {
   sleep,
 } from './helpers';
 
+/**
+ * Wait until the WYSIWYG webview answers a serialization round-trip. A
+ * non-null reply proves the view's `message` listener is live, so a
+ * subsequent fire-and-forget message (e.g. `testOpenRelativeFile`) is
+ * guaranteed to be handled rather than dropped on a still-booting webview.
+ */
+async function waitForWebviewReady(
+  api: AhveTestApi,
+  uri: vscode.Uri,
+  timeoutMs = 10000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await api.getWysiwygTestHtml(uri)) !== null) return true;
+  }
+  return false;
+}
+
 const testRoot = fixtureUri('relative-file-link-test');
 const sourceUri = vscode.Uri.joinPath(testRoot, 'nested', 'source.html');
 
@@ -55,6 +73,15 @@ suite('Relative file links', () => {
     const target = vscode.Uri.joinPath(testRoot, 'nested', 'via-message.txt');
     await writeFile(target);
     const api = getExtension().exports as AhveTestApi;
+
+    // This is the only case that depends on a live webview: it posts a real
+    // `openRelativeFile` message from the view. On a cold first-run webview the
+    // fixed setup delay is not always enough for the view's message listener to
+    // be registered, so confirm the view answers a round-trip before posting.
+    assert.ok(
+      await waitForWebviewReady(api, sourceUri),
+      'the WYSIWYG webview should become responsive',
+    );
 
     // Unlike openWysiwygTestRelativeFile, this drives the view to post a real
     // `openRelativeFile` message, exercising the provider's message handler and
