@@ -129,6 +129,43 @@ test.describe('Table editing', () => {
     expect(tableWidth).toBe('100%');
   });
 
+  // The tooltip hides via opacity, not display, so visibility is asserted
+  // through the ahve-tooltip-visible class rather than toBeVisible/toBeHidden.
+  test('hovering the picker Insert button shows the shared tooltip', async ({ page }) => {
+    await mountEditor(page, '<p>before</p>');
+    await caretAtEnd(page, '#ahve-root p');
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
+
+    await page.locator('#ahve-table-picker .ahve-tp-ok').hover();
+
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Insert table with the chosen size');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+  });
+
+  test('menu-item tooltip shows on hover and clears when the menu closes', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
+    );
+
+    await page.locator('#ahve-root td').first().click({ button: 'right' });
+    await page
+      .locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Use percentage widths' })
+      .hover();
+
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Store column widths as percentages of the table width');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+
+    // Escape closes the menu while the item is still hovered; the tooltip
+    // must not linger (mouseleave never fires on the removed item).
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#ahve-table-menu')).toBeHidden();
+    await expect(tooltip).not.toHaveClass(/ahve-tooltip-visible/);
+  });
+
   test('dragging in percent mode stores the new width in %', async ({ page }) => {
     await mountEditor(
       page,

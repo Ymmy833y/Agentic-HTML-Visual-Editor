@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { setupTooltip } from '../../webview/ui/tooltip';
+import { hideTooltip, hideTooltipFor, setupTooltip } from '../../webview/ui/tooltip';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -102,6 +102,13 @@ describe('setupTooltip', () => {
     expect(document.getElementById('ahve-tooltip')).not.toBeNull();
   });
 
+  it('sets the tooltip text as the aria-label of the anchor element', () => {
+    const btn = makeBtn('B');
+    setupTooltip(btn, 'Bold (Ctrl+B)');
+
+    expect(btn.getAttribute('aria-label')).toBe('Bold (Ctrl+B)');
+  });
+
   it('has aria-hidden="true" on the tooltip element', () => {
     const btn = makeBtn();
     setupTooltip(btn, 'Test');
@@ -109,5 +116,81 @@ describe('setupTooltip', () => {
     btn.dispatchEvent(new MouseEvent('mouseenter'));
 
     expect(document.getElementById('ahve-tooltip')!.getAttribute('aria-hidden')).toBe('true');
+  });
+});
+
+describe('hideTooltip / hideTooltipFor', () => {
+  it('a mouseleave/click on a non-anchor element does not hide the active tooltip', () => {
+    const a = makeBtn('A');
+    const b = makeBtn('B');
+    setupTooltip(a, 'First');
+    setupTooltip(b, 'Second');
+
+    b.dispatchEvent(new MouseEvent('mouseenter'));
+    // Stray events on `a` while `b` owns the tooltip must be no-ops.
+    a.dispatchEvent(new MouseEvent('mouseleave'));
+    a.dispatchEvent(new MouseEvent('click'));
+
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(true);
+  });
+
+  it('hideTooltip removes ahve-tooltip-visible', () => {
+    const btn = makeBtn();
+    setupTooltip(btn, 'Bold');
+    btn.dispatchEvent(new MouseEvent('mouseenter'));
+
+    hideTooltip();
+
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(false);
+  });
+
+  it('hideTooltip before any hover does not throw and does not create the element', () => {
+    expect(() => hideTooltip()).not.toThrow();
+    expect(document.getElementById('ahve-tooltip')).toBeNull();
+  });
+
+  it('hideTooltipFor hides when the active anchor is inside the container', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const btn = document.createElement('button');
+    container.appendChild(btn);
+    setupTooltip(btn, 'Bold');
+    btn.dispatchEvent(new MouseEvent('mouseenter'));
+
+    hideTooltipFor(container);
+
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(false);
+  });
+
+  it('hideTooltipFor leaves a tooltip anchored outside the container visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const outsideBtn = makeBtn();
+    setupTooltip(outsideBtn, 'Bold');
+    outsideBtn.dispatchEvent(new MouseEvent('mouseenter'));
+
+    hideTooltipFor(container);
+
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(true);
+  });
+
+  it('mouseleave clears the anchor so a later hideTooltipFor is a no-op', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const inside = document.createElement('button');
+    container.appendChild(inside);
+    const outside = makeBtn();
+    setupTooltip(inside, 'Inside');
+    setupTooltip(outside, 'Outside');
+
+    // Hover inside, leave, then hover an unrelated button; hiding the
+    // container must not clobber the unrelated tooltip.
+    inside.dispatchEvent(new MouseEvent('mouseenter'));
+    inside.dispatchEvent(new MouseEvent('mouseleave'));
+    outside.dispatchEvent(new MouseEvent('mouseenter'));
+
+    hideTooltipFor(container);
+
+    expect(document.getElementById('ahve-tooltip')!.classList.contains('ahve-tooltip-visible')).toBe(true);
   });
 });

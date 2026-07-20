@@ -117,4 +117,23 @@ test.describe('In-document search (Ctrl+F)', () => {
     expect(await highlightSize(page, 'ahve-search')).toBe(0);
     expect(await highlightSize(page, 'ahve-search-current')).toBe(0);
   });
+
+  test('closing the widget clears a tooltip anchored to one of its buttons', async ({ page }) => {
+    await mountEditor(page, '<p>alpha</p>');
+    await focusEditor(page);
+    await page.keyboard.press('Control+f');
+
+    // Hover the Close button, then close with Escape while the pointer stays
+    // put: mouseleave never fires on the hidden button, so the widget's
+    // close() must clear the tooltip itself.
+    await page.locator('#ahve-search .ahve-search-btn', { hasText: '×' }).hover();
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Close (Esc)');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#ahve-search')).toBeHidden();
+    await expect(tooltip).not.toHaveClass(/ahve-tooltip-visible/);
+  });
 });

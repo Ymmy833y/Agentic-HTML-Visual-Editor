@@ -55,4 +55,31 @@ test.describe('Floating menu', () => {
     await page.locator('#ahve-floating-menu button', { hasText: /^B$/ }).click();
     await expect(page.locator('#ahve-root strong')).toHaveText('hello');
   });
+
+  // The tooltip hides via opacity, not display, so visibility is asserted
+  // through the ahve-tooltip-visible class rather than toBeVisible/toBeHidden.
+  test('hovering a button shows the shared tooltip with the toolbar text', async ({ page }) => {
+    await mountEditor(page, '<p>hello world</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+
+    await page.locator('#ahve-floating-menu button', { hasText: /^B$/ }).hover();
+
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Bold (Ctrl+B)');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+  });
+
+  test('the tooltip is cleared when the menu hides while hovered', async ({ page }) => {
+    await mountEditor(page, '<p>hello world</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.locator('#ahve-floating-menu button', { hasText: /^B$/ }).hover();
+    await expect(page.locator('#ahve-tooltip')).toHaveClass(/ahve-tooltip-visible/);
+
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+    await expect(page.locator('#ahve-floating-menu')).toBeHidden();
+    await expect(page.locator('#ahve-tooltip')).not.toHaveClass(/ahve-tooltip-visible/);
+  });
 });
