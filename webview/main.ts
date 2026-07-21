@@ -34,6 +34,7 @@ import { mountRelativeFileNavigation } from './features/link/link-navigation';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
+import { mountCellSelection, type CellSelectionHandle } from './features/table/cell-selection';
 import { adjacentCell, appendRowAtEnd, insertTable } from './features/table/structure-commands';
 import { findCell, findTable } from './features/table/table-model';
 import type {
@@ -64,6 +65,10 @@ if (!root) {
 
 let prefix = '';
 let suffix = '';
+
+// Multi-cell table selection controller; assigned during mount wiring below,
+// before any host message can trigger a remount.
+let cellSelection: CellSelectionHandle | null = null;
 
 // --- Sync state ---
 // The document text the current DOM was mounted from / last synced with. It is
@@ -106,6 +111,9 @@ function mountFromSource(source: string): void {
   // The remount detached every node the popup pointed at; re-bind it to the
   // fresh DOM (or close it when its comment is gone).
   commentPopup.resyncAfterRemount();
+  // The cell-selection anchors died with the old DOM; drop them so a stale
+  // reference can never seed a range in the fresh tree.
+  cellSelection?.reset();
 }
 
 function serialize(): string | null {
@@ -251,19 +259,6 @@ root.addEventListener('click', (e: MouseEvent) => {
   commentPopup.open(comment);
 });
 
-// Pinned merge anchor for the table context menu. A plain click on a cell
-// records it as the "from" endpoint; a subsequent Shift+click on another
-// cell promotes that endpoint into the active merge anchor. The right-click
-// menu then offers "Merge cells" using (anchor -> clicked cell).
-let lastClickedCell: HTMLTableCellElement | null = null;
-let mergeAnchor: HTMLTableCellElement | null = null;
-
-function setMergeAnchor(cell: HTMLTableCellElement | null): void {
-  if (mergeAnchor) mergeAnchor.classList.remove('ahve-tc-merge-anchor');
-  mergeAnchor = cell;
-  if (mergeAnchor) mergeAnchor.classList.add('ahve-tc-merge-anchor');
-}
-
 const tablePicker = mountTablePicker({
   onPick: (rows, cols, withHeader) => {
     root.focus({ preventScroll: true });
@@ -290,43 +285,22 @@ document.body.insertBefore(toolbar.element, root);
 
 mountTableMenu(root, {
   onCommand: () => {
-    setMergeAnchor(null);
+    // Clear before notifyChanged so the history snapshot serialized there
+    // never carries the highlight class.
+    cellSelection?.clearRange();
     editor.notifyChanged();
   },
-  getMergeAnchor: () => mergeAnchor,
+  getSelectedRange: () => cellSelection?.getRange() ?? null,
 });
 
 mountTableResize(root, {
   onCommand: () => editor.notifyChanged(),
 });
 
-// Track the most recently clicked cell so a follow-up Shift+click can pin
-// it as the merge anchor. Clicking outside any cell clears both.
-root.addEventListener('click', (e: MouseEvent) => {
-  const cell = findCell(e.target as Node, root);
-  if (!cell || !root.contains(cell)) {
-    if (!e.shiftKey) {
-      lastClickedCell = null;
-      setMergeAnchor(null);
-    }
-    return;
-  }
-  if (e.shiftKey) {
-    const table = findTable(cell, root);
-    if (
-      lastClickedCell &&
-      lastClickedCell !== cell &&
-      table &&
-      table.contains(lastClickedCell)
-    ) {
-      setMergeAnchor(lastClickedCell);
-    }
-    return;
-  }
-  // Plain click on a cell: remember it and clear any prior merge anchor.
-  lastClickedCell = cell;
-  setMergeAnchor(null);
-});
+// Mounted after the table menu and resize controllers on purpose: its
+// document keydown must run after the menu's (Escape closes the menu first),
+// and its root mousedown must see the resize controller's preventDefault.
+cellSelection = mountCellSelection(root);
 
 // Click the disclosure marker to open/close a <details> (native toggle is
 // suppressed inside contenteditable).

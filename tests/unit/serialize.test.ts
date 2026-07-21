@@ -242,6 +242,44 @@ describe('formatForSerialize: details / summary', () => {
   });
 });
 
+describe('formatForSerialize: transient cell-selection classes', () => {
+  it('strips the selection class and drops the emptied class attribute', () => {
+    expect(
+      format('<table><tbody><tr><td class="ahve-tc-selected">a</td></tr></tbody></table>'),
+    ).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>');
+  });
+
+  it('strips the legacy merge-anchor class leaked by older builds', () => {
+    expect(
+      format('<table><thead><tr><th class="ahve-tc-merge-anchor">h</th></tr></thead></table>'),
+    ).toBe('<table><thead><tr><th>h</th></tr></thead></table>');
+  });
+
+  it('keeps unrelated user classes on the same cell', () => {
+    expect(
+      format('<table><tbody><tr><td class="user-x ahve-tc-selected">a</td></tr></tbody></table>'),
+    ).toBe('<table><tbody><tr><td class="user-x">a</td></tr></tbody></table>');
+  });
+
+  it('strips both tokens when a cell carries them together', () => {
+    expect(
+      format(
+        '<table><tbody><tr>' +
+          '<td class="ahve-tc-selected ahve-tc-merge-anchor">a</td>' +
+          '</tr></tbody></table>',
+      ),
+    ).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>');
+  });
+
+  it('mutates only the clone: the live DOM keeps its highlight through a save', () => {
+    const root = makeRoot(
+      '<table><tbody><tr><td class="ahve-tc-selected">a</td></tr></tbody></table>',
+    );
+    formatForSerialize(root);
+    expect(root.querySelector('td')!.classList.contains('ahve-tc-selected')).toBe(true);
+  });
+});
+
 describe('formatForSerialize: live DOM is untouched', () => {
   it('does not mutate the source root', () => {
     const root = makeRoot('<p>x</p><p><br></p>');

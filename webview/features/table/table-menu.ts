@@ -18,17 +18,18 @@ import { mergeCells, splitCell } from './merge-commands';
 import { getTableWidthMode, setTableWidthMode } from './width-commands';
 import { boundingRect, buildTableModel, findCell, findCellPosition, tightenRect } from './table-model';
 import { hideTooltipFor, setupTooltip } from '../../ui/tooltip';
+import type { CellRangeSelection } from './cell-selection';
 import type { CommandContext } from '../../shared/command-context';
 
 export interface TableMenuOptions {
   /** Called after the menu has applied a DOM mutation so the editor can serialize. */
   onCommand(): void;
   /**
-   * Optional accessor for the "other anchor" of a multi-cell merge. When the
-   * user is preparing a merge they typically Shift+click a second cell; the
-   * caller stashes that cell so the menu can offer "Merge cells".
+   * Optional accessor for the active multi-cell selection (plain click +
+   * Shift+click highlight). Right-clicking any highlighted cell offers
+   * "Merge cells" for the whole highlighted rectangle.
    */
-  getMergeAnchor?: () => HTMLTableCellElement | null;
+  getSelectedRange?: () => CellRangeSelection | null;
 }
 
 interface MenuItem {
@@ -215,14 +216,16 @@ export function mountTableMenu(
       }
     }
 
-    const mergeTarget = opts.getMergeAnchor?.() ?? null;
-    if (mergeTarget && mergeTarget !== cell && cell.closest('table') === mergeTarget.closest('table')) {
+    const range = opts.getSelectedRange?.() ?? null;
+    if (range && range.cells.includes(cell)) {
       items.push({
         label: 'Merge cells',
-        enabled: canMerge(cell, mergeTarget),
-        tooltip: 'Merge the cells between the Shift+clicked anchor and this cell',
+        // canMerge re-derives the rectangle as a staleness guard: the DOM may
+        // have changed since the highlight was applied.
+        enabled: canMerge(range.anchor, range.focus),
+        tooltip: 'Merge the highlighted cells into one',
         onPick: () => {
-          mergeCells(mergeTarget, cell);
+          mergeCells(range.anchor, range.focus);
         },
       });
     }
