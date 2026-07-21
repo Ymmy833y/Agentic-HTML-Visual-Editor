@@ -1,8 +1,8 @@
 /* Chrome and editing helpers specific to <table>. */
 
-/* Visual cue for a Shift+click "merge anchor" pinned by the user. */
-#ahve-root td.ahve-tc-merge-anchor,
-#ahve-root th.ahve-tc-merge-anchor {
+/* Cells inside the active multi-cell selection (plain click + Shift+click). */
+#ahve-root td.ahve-tc-selected,
+#ahve-root th.ahve-tc-selected {
   outline: 2px solid var(--ahve-accent);
   outline-offset: -2px;
 }

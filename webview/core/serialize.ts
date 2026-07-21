@@ -18,7 +18,12 @@
 //
 // `<pre>` and `<table>` subtrees stay opaque.
 
-import { CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR } from '../shared/constants';
+import {
+  CARET_INSIDE_ATTR,
+  CARET_OUTSIDE_ATTR,
+  CELL_SELECTED_CLASS,
+  LEGACY_MERGE_ANCHOR_CLASS,
+} from '../shared/constants';
 
 export const EMPTYABLE_BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -49,6 +54,7 @@ export function formatForSerialize(root: HTMLElement): string {
   // The marker lives on the live DOM only for the duration of the clone.
   if (active) active.removeAttribute(ACTIVE_ATTR);
   stripTransientCommentMarkers(clone);
+  stripTransientCellSelectionClasses(clone);
   pruneEmptyBlocks(clone);
   fillMissingBlockGaps(clone);
   return clone.innerHTML;
@@ -62,6 +68,20 @@ function stripTransientCommentMarkers(scope: Element): void {
   )) {
     c.removeAttribute(CARET_OUTSIDE_ATTR);
     c.removeAttribute(CARET_INSIDE_ATTR);
+  }
+}
+
+// Drop the transient multi-cell selection highlight (UI-only) plus the legacy
+// merge-anchor token that older builds leaked into saved files. Only these
+// two tokens are removed; user classes on the same cell survive, and the
+// class attribute disappears only when it ends up empty.
+function stripTransientCellSelectionClasses(scope: Element): void {
+  const selector =
+    `td.${CELL_SELECTED_CLASS}, th.${CELL_SELECTED_CLASS}, ` +
+    `td.${LEGACY_MERGE_ANCHOR_CLASS}, th.${LEGACY_MERGE_ANCHOR_CLASS}`;
+  for (const cell of Array.from(scope.querySelectorAll(selector))) {
+    cell.classList.remove(CELL_SELECTED_CLASS, LEGACY_MERGE_ANCHOR_CLASS);
+    if (cell.classList.length === 0) cell.removeAttribute('class');
   }
 }
 

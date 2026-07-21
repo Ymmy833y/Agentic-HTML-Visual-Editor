@@ -63,6 +63,10 @@ export function mountDetailsSelection(root: HTMLElement): void {
 
   root.addEventListener('mousedown', (e: MouseEvent) => {
     if (e.button !== 0) return;
+    // Another controller already claimed this press (e.g. the table
+    // cell-selection suppressing a cross-cell Shift+click, or column resize);
+    // arming a custom drag would resurrect the very selection it suppressed.
+    if (e.defaultPrevented) return;
     const anchor = caretPositionFromPoint(e.clientX, e.clientY);
     if (!anchor || !root.contains(anchor.node)) return;
     // Only arm for drags that start inside a details body; elsewhere the native
