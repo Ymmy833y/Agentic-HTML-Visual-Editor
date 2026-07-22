@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setupEditor } from '../../webview/core/editor-core';
-import { caretAtEnd, caretAtStart, clearDom, makeRoot } from './helpers/selection';
+import { formatForSerialize } from '../../webview/core/serialize';
+import {
+  caretAtEnd,
+  caretAtStart,
+  clearDom,
+  makeRoot,
+  selectTextRange,
+} from './helpers/selection';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -298,6 +305,99 @@ describe('setupEditor: code block shortcut', () => {
     caretAtEnd(root.querySelector('p')!);
     const evt = dispatchBeforeInput(root, 'insertParagraph');
     expect(evt.defaultPrevented).toBe(false);
+  });
+
+  for (const attribute of [
+    '',
+    ' data-alert="note"',
+    ' data-alert="tip"',
+    ' data-alert="important"',
+    ' data-alert="warning"',
+    ' data-alert="caution"',
+  ]) {
+    const kind = attribute ? attribute.match(/"([a-z]+)"/)![1] : 'normal';
+    it(`creates a nested code block inside a ${kind} blockquote`, () => {
+      const root = makeRoot(`<blockquote${attribute}>\`\`\`</blockquote>`);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('blockquote')!);
+
+      const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(
+        `<blockquote${attribute}><pre><br></pre></blockquote>`,
+      );
+    });
+  }
+
+  it('converts only the current quote line and preserves preceding text', () => {
+    const root = makeRoot(
+      '<blockquote data-alert="warning">aaa<br>```</blockquote>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('blockquote')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="warning"><p>aaa</p><pre><br></pre></blockquote>',
+    );
+  });
+});
+
+describe('setupEditor: Enter inside a bare blockquote', () => {
+  for (const attribute of ['', ' data-alert="tip"']) {
+    const kind = attribute ? 'alert' : 'blockquote';
+    it(`inserts a soft line break without creating a sibling ${kind}`, () => {
+      const root = makeRoot(`<blockquote${attribute}>aaa</blockquote>`);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('blockquote')!);
+
+      const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(formatForSerialize(root)).toBe(`<blockquote${attribute}>aaa<br></blockquote>`);
+      expect(root.querySelector('br[data-ahve-quote-placeholder]')).not.toBeNull();
+      expect(root.querySelectorAll('blockquote')).toHaveLength(1);
+    });
+  }
+
+  it('splits inline formatting around a direct quote line break', () => {
+    const root = makeRoot('<blockquote><strong>abcd</strong></blockquote>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('strong')!.firstChild!;
+    selectTextRange(text, 2, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<blockquote><strong>ab</strong><br><strong>cd</strong></blockquote>',
+    );
+  });
+
+  it('exits the quote when Enter is pressed on its trailing empty line', () => {
+    const root = makeRoot('<blockquote>aaa</blockquote>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('blockquote')!);
+
+    dispatchBeforeInput(root, 'insertParagraph');
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<blockquote>aaa</blockquote><p><br></p>');
+  });
+
+  it('leaves Enter inside an existing nested paragraph to its block behavior', () => {
+    const root = makeRoot('<blockquote><p>aaa</p></blockquote>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<blockquote><p>aaa</p></blockquote>');
   });
 });
 

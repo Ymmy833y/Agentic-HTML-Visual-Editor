@@ -106,6 +106,26 @@ describe('insertTable', () => {
     expect(root.querySelectorAll('p').length).toBe(0);
     expect(root.firstElementChild?.tagName).toBe('TABLE');
   });
+
+  for (const attribute of ['', ' data-alert="warning"']) {
+    const kind = attribute ? 'alert' : 'blockquote';
+    it(`keeps a table and surrounding text inside a bare ${kind}`, () => {
+      const root = makeRoot(`<blockquote${attribute}>before after</blockquote>`);
+      const quote = root.querySelector('blockquote')!;
+      const text = quote.firstChild!;
+      selectTextRange(text, 6, 6);
+
+      insertTable({ rows: 1, cols: 1, withHeader: false }, ctxOf(root));
+
+      expect(root.children).toHaveLength(1);
+      expect(quote.children[0].tagName).toBe('P');
+      expect(quote.children[0].textContent).toBe('before');
+      expect(quote.children[1].tagName).toBe('TABLE');
+      expect(quote.children[2].tagName).toBe('P');
+      expect(quote.children[2].textContent).toBe(' after');
+      expect(quote.getAttribute('data-alert')).toBe(attribute ? 'warning' : null);
+    });
+  }
 });
 
 describe('insertRow', () => {

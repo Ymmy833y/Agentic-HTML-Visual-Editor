@@ -3,7 +3,7 @@
 // the caret.
 
 import { blockOrBareCell, findAncestor, findBlockAncestor, findListContainer, isBlockEmpty } from '../shared/dom-utils';
-import { BLOCK_TAGS } from '../shared/constants';
+import { BLOCK_TAGS, QUOTE_PLACEHOLDER_ATTR } from '../shared/constants';
 import type { CommandContext } from '../shared/command-context';
 import type { AlertType } from '../shared/alert-types';
 
@@ -17,6 +17,19 @@ const ROOT_BLOCK_BOUNDARY_TAGS = new Set([
 export interface BareRootRun {
   first: Node;
   last: Node;
+}
+
+export interface BareBlockquoteRun extends BareRootRun {
+  blockquote: HTMLElement;
+}
+
+export interface BareBlockquoteLine {
+  blockquote: HTMLElement;
+  first: Node | null;
+  last: Node | null;
+  lineIndex: number;
+  previousBreak: HTMLBRElement | null;
+  nextBreak: HTMLBRElement | null;
 }
 
 /**
@@ -52,6 +65,289 @@ export function findBareRootRun(
 
 function isRootBlockBoundary(node: Node): boolean {
   return node instanceof Element && ROOT_BLOCK_BOUNDARY_TAGS.has(node.tagName);
+}
+
+/**
+ * Find the contiguous bare inline run inside the nearest blockquote that
+ * contains the caret. A nested block is already independently editable, so it
+ * terminates the search instead of being folded into the quote's inline run.
+ */
+export function findBareBlockquoteRun(
+  node: Node,
+  root: Element,
+  offset = 0,
+): BareBlockquoteRun | null {
+  let blockquote: HTMLElement | null = null;
+  let cur: Node | null = node;
+  while (cur && cur !== root) {
+    if (cur instanceof HTMLElement && cur.tagName === 'BLOCKQUOTE') {
+      blockquote = cur;
+      break;
+    }
+    if (cur instanceof Element && isRootBlockBoundary(cur)) return null;
+    cur = cur.parentNode;
+  }
+  if (!blockquote) return null;
+
+  let direct: Node | null;
+  if (node === blockquote) {
+    const index = Math.max(
+      0,
+      Math.min(blockquote.childNodes.length - 1, offset > 0 ? offset - 1 : 0),
+    );
+    direct = blockquote.childNodes[index] ?? null;
+  } else {
+    direct = node;
+    while (direct && direct.parentNode !== blockquote) direct = direct.parentNode;
+  }
+  if (!direct || isRootBlockBoundary(direct)) return null;
+
+  let first = direct;
+  while (first.previousSibling && !isRootBlockBoundary(first.previousSibling)) {
+    first = first.previousSibling;
+  }
+  let last = direct;
+  while (last.nextSibling && !isRootBlockBoundary(last.nextSibling)) {
+    last = last.nextSibling;
+  }
+  return { blockquote, first, last };
+}
+
+/**
+ * Resolve the visual line containing a caret in a bare blockquote run. Enter
+ * inserts direct-child <br> separators in these runs, so each segment between
+ * separators can later be promoted independently to a paragraph/code block.
+ */
+export function findBareBlockquoteLine(
+  node: Node,
+  root: Element,
+  offset = 0,
+): BareBlockquoteLine | null {
+  const run = findBareBlockquoteRun(node, root, offset);
+  if (!run) return null;
+
+  const { blockquote } = run;
+  const nodes: Node[] = [];
+  let current: Node | null = run.first;
+  while (current) {
+    nodes.push(current);
+    if (current === run.last) break;
+    current = current.nextSibling;
+  }
+
+  let caretPosition: number;
+  if (node === blockquote) {
+    const firstIndex = Array.from(blockquote.childNodes).indexOf(run.first);
+    caretPosition = Math.max(0, Math.min(nodes.length, offset - firstIndex));
+  } else {
+    let direct: Node | null = node;
+    while (direct && direct.parentNode !== blockquote) direct = direct.parentNode;
+    const index = direct ? nodes.indexOf(direct) : -1;
+    if (index < 0) return null;
+    caretPosition = index + 0.5;
+  }
+
+  let previousBreak = -1;
+  let nextBreak = nodes.length;
+  let lineIndex = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    if (
+      !(nodes[i] instanceof HTMLBRElement) ||
+      (nodes[i] as HTMLBRElement).hasAttribute(QUOTE_PLACEHOLDER_ATTR)
+    ) continue;
+    if (i < caretPosition) {
+      previousBreak = i;
+      lineIndex++;
+    } else {
+      nextBreak = i;
+      break;
+    }
+  }
+
+  const first = nodes[previousBreak + 1] ?? null;
+  const last = nodes[nextBreak - 1] ?? null;
+  return {
+    blockquote,
+    first: first instanceof HTMLBRElement ? null : first,
+    last: last instanceof HTMLBRElement ? null : last,
+    lineIndex,
+    previousBreak: previousBreak >= 0 ? nodes[previousBreak] as HTMLBRElement : null,
+    nextBreak: nextBreak < nodes.length ? nodes[nextBreak] as HTMLBRElement : null,
+  };
+}
+
+/**
+ * Promote every <br>-delimited line in the caret's bare quote run to a <p>,
+ * returning the paragraph for the active line. Existing block siblings are
+ * outside the run and remain untouched.
+ */
+export function ensureBlockquoteLineBlock(
+  node: Node,
+  root: HTMLElement,
+  offset = 0,
+): HTMLElement | null {
+  const line = findBareBlockquoteLine(node, root, offset);
+  if (!line) return null;
+
+  const { blockquote } = line;
+  const runNodes: Node[] = [];
+  const run = findBareBlockquoteRun(node, root, offset);
+  if (!run) return null;
+  let current: Node | null = run.first;
+  while (current) {
+    runNodes.push(current);
+    if (current === run.last) break;
+    current = current.nextSibling;
+  }
+  if (runNodes.length === 0) return null;
+
+  const originalChildren = Array.from(blockquote.childNodes);
+  const firstIndex = originalChildren.indexOf(run.first);
+  const sel = window.getSelection();
+  const liveRange = sel?.rangeCount ? sel.getRangeAt(0) : null;
+  const saved = liveRange
+    ? {
+        sc: liveRange.startContainer,
+        so: liveRange.startOffset,
+        ec: liveRange.endContainer,
+        eo: liveRange.endOffset,
+      }
+    : null;
+
+  const paragraphs: HTMLElement[] = [document.createElement('p')];
+  for (const child of runNodes) {
+    if (child instanceof HTMLBRElement) {
+      if (child.hasAttribute(QUOTE_PLACEHOLDER_ATTR)) {
+        child.remove();
+        continue;
+      }
+      child.remove();
+      paragraphs.push(document.createElement('p'));
+    } else {
+      paragraphs[paragraphs.length - 1].appendChild(child);
+    }
+  }
+  for (const p of paragraphs) {
+    if (p.childNodes.length === 0) p.appendChild(document.createElement('br'));
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const p of paragraphs) fragment.appendChild(p);
+  const reference = originalChildren[originalChildren.indexOf(run.last) + 1] ?? null;
+  blockquote.insertBefore(fragment, reference);
+
+  const active = paragraphs[Math.min(line.lineIndex, paragraphs.length - 1)];
+  if (saved && sel) {
+    const remap = (container: Node, boundaryOffset: number): [Node, number] => {
+      if (container !== blockquote) return [container, boundaryOffset];
+      const relative = boundaryOffset - firstIndex;
+      let paragraphIndex = 0;
+      let paragraphOffset = 0;
+      for (let i = 0; i < Math.max(0, relative); i++) {
+        if (runNodes[i] instanceof HTMLBRElement) {
+          paragraphIndex++;
+          paragraphOffset = 0;
+        } else {
+          paragraphOffset++;
+        }
+      }
+      const p = paragraphs[Math.min(paragraphIndex, paragraphs.length - 1)];
+      return [p, Math.min(paragraphOffset, p.childNodes.length)];
+    };
+
+    try {
+      const [sc, so] = remap(saved.sc, saved.so);
+      const [ec, eo] = remap(saved.ec, saved.eo);
+      const restored = document.createRange();
+      restored.setStart(sc, so);
+      restored.setEnd(ec, eo);
+      sel.removeAllRanges();
+      sel.addRange(restored);
+    } catch {
+      const fallback = document.createRange();
+      fallback.selectNodeContents(active);
+      fallback.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(fallback);
+    }
+  }
+  return active;
+}
+
+/**
+ * Wrap the bare inline run at the caret inside a blockquote in a paragraph.
+ * Only that run is moved, so existing sibling blocks (tables, lists, nested
+ * paragraphs, etc.) remain untouched. Live selection boundaries are remapped
+ * when they point directly at the blockquote; descendants move with their
+ * nodes and therefore remain valid automatically.
+ */
+export function ensureBlockInBlockquote(
+  node: Node,
+  root: HTMLElement,
+  offset = 0,
+): HTMLElement | null {
+  const run = findBareBlockquoteRun(node, root, offset);
+  if (!run) return null;
+
+  const { blockquote, first, last } = run;
+  const originalChildren = Array.from(blockquote.childNodes);
+  const firstIndex = originalChildren.indexOf(first);
+  const lastIndex = originalChildren.indexOf(last);
+  if (firstIndex < 0 || lastIndex < firstIndex) return null;
+
+  const sel = window.getSelection();
+  const liveRange = sel?.rangeCount ? sel.getRangeAt(0) : null;
+  const saved = liveRange
+    ? {
+        sc: liveRange.startContainer,
+        so: liveRange.startOffset,
+        ec: liveRange.endContainer,
+        eo: liveRange.endOffset,
+      }
+    : null;
+  const p = document.createElement('p');
+  blockquote.insertBefore(p, first);
+
+  let current: Node | null = first;
+  for (;;) {
+    const next: Node | null = current.nextSibling;
+    p.appendChild(current);
+    if (current === last) break;
+    current = next;
+    if (!current) break;
+  }
+  if (p.childNodes.length === 0) p.appendChild(document.createElement('br'));
+
+  if (saved && sel) {
+    const runLength = lastIndex - firstIndex + 1;
+    const remap = (container: Node, boundaryOffset: number): [Node, number] => {
+      if (container !== blockquote) return [container, boundaryOffset];
+      if (boundaryOffset >= firstIndex && boundaryOffset <= lastIndex + 1) {
+        return [p, boundaryOffset - firstIndex];
+      }
+      if (boundaryOffset > lastIndex + 1) {
+        return [blockquote, boundaryOffset - runLength + 1];
+      }
+      return [blockquote, boundaryOffset];
+    };
+
+    try {
+      const [sc, so] = remap(saved.sc, saved.so);
+      const [ec, eo] = remap(saved.ec, saved.eo);
+      const restored = document.createRange();
+      restored.setStart(sc, so);
+      restored.setEnd(ec, eo);
+      sel.removeAllRanges();
+      sel.addRange(restored);
+    } catch {
+      const fallback = document.createRange();
+      fallback.selectNodeContents(p);
+      fallback.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(fallback);
+    }
+  }
+  return p;
 }
 
 /** Wrap a bare top-level inline run in a paragraph and preserve its selection. */
@@ -214,7 +510,10 @@ export function setBlockTag(tag: BlockTag, ctx: CommandContext): void {
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
 
-  const block = commandBlock(range, ctx.root);
+  const block = tag === 'pre'
+    ? ensureBlockquoteLineBlock(range.startContainer, ctx.root, range.startOffset)
+      ?? commandBlock(sel.getRangeAt(0), ctx.root)
+    : commandBlock(range, ctx.root);
   if (!block) return;
   // Lists and details elements are structural; never rewrite them into a
   // paragraph, heading, quote, or alert.

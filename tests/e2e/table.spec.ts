@@ -39,6 +39,24 @@ test.describe('Table editing', () => {
     expect((await paragraphs.nth(1).textContent())?.trim()).toBe('world');
   });
 
+  test('inserting a table in a bare alert keeps it inside the alert', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<blockquote data-alert="important">before after</blockquote>',
+    );
+    await selectTextInside(page, '#ahve-root blockquote', 6, 6);
+
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
+    await page.locator('#ahve-table-picker .ahve-tp-cell[data-row="1"][data-col="1"]').click();
+
+    const quote = page.locator('#ahve-root blockquote[data-alert="important"]');
+    await expect(quote.locator(':scope > p')).toHaveCount(2);
+    await expect(quote.locator(':scope > table')).toHaveCount(1);
+    await expect(page.locator('#ahve-root > table')).toHaveCount(0);
+    expect((await quote.locator(':scope > p').nth(0).textContent())?.trim()).toBe('before');
+    expect((await quote.locator(':scope > p').nth(1).textContent())?.trim()).toBe('after');
+  });
+
   test('right-click on a cell shows the table menu and "Insert row below" appends a row', async ({ page }) => {
     await mountEditor(
       page,
