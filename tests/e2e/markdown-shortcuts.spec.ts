@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { caretAtEnd, focusEditor, getRootHtml, mountEditor } from './helpers/page';
+import { caretAtEnd, focusEditor, getRootHtml, mountEditor, saveAndGetHtml } from './helpers/page';
 
 test.describe('Markdown-style shortcuts', () => {
   test('"# " at the start of a paragraph converts it to <h1>', async ({ page }) => {
@@ -141,6 +141,41 @@ test.describe('Markdown-style shortcuts', () => {
     await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Enter');
     expect(await getRootHtml(page)).toBe('<pre><br></pre>');
+  });
+
+  test('"```" + Enter creates and saves a code block inside an alert', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<!DOCTYPE html><html><body><blockquote data-alert="caution">aaa</blockquote></body></html>',
+    );
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.keyboard.press('Enter');
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="caution">aaa<br>' +
+      '<br data-ahve-quote-placeholder=""></blockquote>',
+    );
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="caution"><p>aaa</p><pre><br></pre></blockquote>',
+    );
+    expect(await saveAndGetHtml(page)).toContain(
+      '<blockquote data-alert="caution"><p>aaa</p>\n<pre><br></pre></blockquote>',
+    );
+  });
+
+  test('a second Enter on the trailing empty quote line exits to a paragraph', async ({ page }) => {
+    await mountEditor(page, '<blockquote>aaa</blockquote>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe('<blockquote>aaa</blockquote><p><br></p>');
   });
 
   // Typing the marker (rather than pre-seeding it) leaves an empty text node

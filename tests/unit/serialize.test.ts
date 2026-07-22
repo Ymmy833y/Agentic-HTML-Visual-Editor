@@ -158,6 +158,24 @@ describe('formatForSerialize: nested formatting', () => {
     );
   });
 
+  it('preserves code blocks and tables nested inside an alert', () => {
+    const html =
+      '<blockquote data-alert="warning"><pre>const x = 1;</pre>' +
+      '<table><tbody><tr><td>x</td></tr></tbody></table></blockquote>';
+    expect(format(html)).toBe(
+      '<blockquote data-alert="warning"><pre>const x = 1;</pre>\n' +
+      '<table><tbody><tr><td>x</td></tr></tbody></table></blockquote>',
+    );
+  });
+
+  it('preserves a soft line break and nested code block inside an alert', () => {
+    expect(format(
+      '<blockquote data-alert="tip"><p>aaa<br>bbb</p><pre>code</pre></blockquote>',
+    )).toBe(
+      '<blockquote data-alert="tip"><p>aaa<br>bbb</p>\n<pre>code</pre></blockquote>',
+    );
+  });
+
   it('round-trips an alert without changing its metadata', () => {
     const saved = '<blockquote data-alert="warning">Careful</blockquote>';
     expect(roundtrip(saved)).toBe(saved);

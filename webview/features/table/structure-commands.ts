@@ -6,6 +6,7 @@
 import { buildTableModel, findCellPosition, type TableModel } from './table-model';
 import { emptyCell, findRowInsertionRef, setSpans } from './cell-utils';
 import { findBlockAncestor, isBlockEmptyOrStubBr } from '../../shared/dom-utils';
+import { ensureBlockInBlockquote } from '../../commands/block-format';
 import type { CommandContext } from '../../shared/command-context';
 
 export interface InsertTableOptions {
@@ -26,7 +27,13 @@ export function insertTable(opts: InsertTableOptions, ctx: CommandContext): HTML
 
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
-  const range = sel.getRangeAt(0);
+  let range = sel.getRangeAt(0);
+
+  // A quote commonly stores text directly under <blockquote>. Materialize the
+  // caret's inline run as a paragraph so splitting it keeps the table inside
+  // the quote instead of treating the quote itself as the host block.
+  ensureBlockInBlockquote(range.startContainer, ctx.root, range.startOffset);
+  range = sel.getRangeAt(0);
 
   const table = buildEmptyTable(rows, cols, opts.withHeader);
 

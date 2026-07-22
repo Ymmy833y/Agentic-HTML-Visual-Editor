@@ -658,6 +658,61 @@ describe('setBlockTag — pre', () => {
     setBlockTag('p', ctxOf(root));
     expect(root.innerHTML).toBe('<p>code here</p>');
   });
+
+  for (const attribute of ['', ' data-alert="important"']) {
+    const kind = attribute ? 'alert' : 'blockquote';
+    it(`creates a code block inside a bare ${kind}`, () => {
+      const root = makeRoot(`<blockquote${attribute}>code here</blockquote>`);
+      caretAtStart(root.querySelector('blockquote')!.firstChild!);
+
+      setBlockTag('pre', ctxOf(root));
+
+      expect(root.innerHTML).toBe(
+        `<blockquote${attribute}><pre>code here</pre></blockquote>`,
+      );
+    });
+  }
+
+  it('converts a nested quote code block back to a paragraph', () => {
+    const root = makeRoot(
+      '<blockquote data-alert="tip"><pre>code here</pre></blockquote>',
+    );
+    caretAtStart(root.querySelector('pre')!);
+
+    setBlockTag('p', ctxOf(root));
+
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="tip"><p>code here</p></blockquote>',
+    );
+  });
+
+  it('wraps only the selected bare inline run beside existing quote blocks', () => {
+    const root = makeRoot(
+      '<blockquote><p>before</p>bare <em>run</em><table><tbody><tr><td>x</td></tr></tbody></table></blockquote>',
+    );
+    const quote = root.querySelector('blockquote')!;
+    caretAtStart(quote.childNodes[1]);
+
+    setBlockTag('pre', ctxOf(root));
+
+    expect(quote.innerHTML).toBe(
+      '<p>before</p><pre>bare <em>run</em></pre><table><tbody><tr><td>x</td></tr></tbody></table>',
+    );
+  });
+
+  it('converts only the current br-delimited quote line to a code block', () => {
+    const root = makeRoot(
+      '<blockquote data-alert="note">before<br>code<br>after</blockquote>',
+    );
+    const quote = root.querySelector('blockquote')!;
+    caretAtStart(quote.childNodes[2]);
+
+    setBlockTag('pre', ctxOf(root));
+
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="note"><p>before</p><pre>code</pre><p>after</p></blockquote>',
+    );
+  });
 });
 
 describe('getCurrentBlockTag', () => {

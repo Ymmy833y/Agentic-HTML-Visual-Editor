@@ -23,6 +23,7 @@ import {
   CARET_OUTSIDE_ATTR,
   CELL_SELECTED_CLASS,
   LEGACY_MERGE_ANCHOR_CLASS,
+  QUOTE_PLACEHOLDER_ATTR,
 } from '../shared/constants';
 
 export const EMPTYABLE_BLOCK_TAGS = new Set([
@@ -55,9 +56,18 @@ export function formatForSerialize(root: HTMLElement): string {
   if (active) active.removeAttribute(ACTIVE_ATTR);
   stripTransientCommentMarkers(clone);
   stripTransientCellSelectionClasses(clone);
+  stripTransientQuotePlaceholders(clone);
   pruneEmptyBlocks(clone);
   fillMissingBlockGaps(clone);
   return clone.innerHTML;
+}
+
+function stripTransientQuotePlaceholders(scope: Element): void {
+  for (const placeholder of Array.from(
+    scope.querySelectorAll(`br[${QUOTE_PLACEHOLDER_ATTR}]`),
+  )) {
+    placeholder.remove();
+  }
 }
 
 // Drop the transient caret-colour markers (UI-only; see CARET_OUTSIDE_ATTR /

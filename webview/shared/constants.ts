@@ -61,3 +61,10 @@ export const CELL_SELECTED_CLASS = 'ahve-tc-selected';
  * applies it anymore.
  */
 export const LEGACY_MERGE_ANCHOR_CLASS = 'ahve-tc-merge-anchor';
+
+/**
+ * Marks the extra trailing <br> that keeps Chromium's caret on the new line
+ * after Enter at the end of a bare blockquote. The serializer removes it, and
+ * the input handler drops it as soon as real content is typed on that line.
+ */
+export const QUOTE_PLACEHOLDER_ATTR = 'data-ahve-quote-placeholder';

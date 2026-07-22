@@ -87,6 +87,20 @@ test.describe('Toolbar editing', () => {
     expect(await getRootHtml(page)).toBe('<h1>title</h1>');
   });
 
+  test('Code block button keeps a bare alert as the outer container', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<blockquote data-alert="warning">before<br>const x = 1;</blockquote>',
+    );
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.getByRole('button', { name: 'Code block', exact: true }).click();
+
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="warning"><p>before</p><pre>const x = 1;</pre></blockquote>',
+    );
+  });
+
   test('Blockquote submenu creates, changes, and normalizes an alert', async ({ page }) => {
     await mountEditor(page, '<p>Pay attention</p>');
     await caretAtEnd(page, '#ahve-root p');
