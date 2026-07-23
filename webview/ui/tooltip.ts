@@ -17,25 +17,32 @@ function getTooltipEl(): HTMLElement {
   return _tooltipEl;
 }
 
+/**
+ * Show the shared tooltip under `el` without mutating it. Content elements
+ * (rendered document nodes) must use this instead of `setupTooltip`, since
+ * every attribute set on them would be serialized back into the HTML source.
+ */
+export function showTooltip(el: HTMLElement, text: string): void {
+  const tip = getTooltipEl();
+  tip.textContent = text;
+  const rect = el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const vw = document.documentElement.clientWidth;
+  tip.style.top = `${rect.bottom + 6}px`;
+  // Clamp so tooltip stays within viewport horizontally.
+  // offsetWidth is 0 on first show; use 120 as a safe upper bound.
+  const halfW = (tip.offsetWidth || 120) / 2;
+  tip.style.left = `${Math.min(Math.max(cx, halfW + 4), vw - halfW - 4)}px`;
+  tip.classList.add('ahve-tooltip-visible');
+  _activeAnchor = el;
+}
+
 export function setupTooltip(el: HTMLElement, text: string): void {
   // The tooltip element itself is aria-hidden, so mirror the text as the
   // control's accessible name — icon-only and single-letter buttons have no
   // usable one of their own.
   el.setAttribute('aria-label', text);
-  el.addEventListener('mouseenter', () => {
-    const tip = getTooltipEl();
-    tip.textContent = text;
-    const rect = el.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const vw = document.documentElement.clientWidth;
-    tip.style.top = `${rect.bottom + 6}px`;
-    // Clamp so tooltip stays within viewport horizontally.
-    // offsetWidth is 0 on first show; use 120 as a safe upper bound.
-    const halfW = (tip.offsetWidth || 120) / 2;
-    tip.style.left = `${Math.min(Math.max(cx, halfW + 4), vw - halfW - 4)}px`;
-    tip.classList.add('ahve-tooltip-visible');
-    _activeAnchor = el;
-  });
+  el.addEventListener('mouseenter', () => showTooltip(el, text));
   // Symmetric with show: only the anchor that owns the active tooltip may
   // hide it, so a stray leave/click on another element cannot clear a
   // tooltip that element is not showing.
