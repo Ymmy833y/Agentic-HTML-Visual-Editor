@@ -2,7 +2,7 @@
   "name": "agentic-html-visual-editor",
   "displayName": "Agentic HTML Visual Editor",
   "description": "A WYSIWYG editor for facilitating interactions between AI and humans through HTML",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "keywords": [
     "wysiwyg",
     "html",

@@ -422,6 +422,7 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 
 - **Floating menu:** shows relevant actions based on the current selection.
 - **Toolbar:** one-click access to major tags and actions (save, block type with Blockquote/Alert styles, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
+- **Exiting a code block:** press Enter on the blank last line of a code block to leave it and continue in a new paragraph after the `<pre>` (mirroring how Enter on an empty list item exits the list).
 
 ### 🔍 In-document search
 
@@ -438,7 +439,7 @@ Insert a `<details>` / `<summary>` block from the toolbar (the **Details** butto
 
 ### ▦ Table editing
 
-Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units.
+Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units. Shift+click a cell to select the whole rectangular range back to the previously clicked cell (the entire range is highlighted), then merge that range into a single cell.
 
 ### 📋 Clipboard copy/paste
 
