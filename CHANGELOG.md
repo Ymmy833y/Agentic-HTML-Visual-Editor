@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Replace the hand-written README version and VS Code badges (`README.md` / `README_ja.md`) with shields.io dynamic badges that read `version` and `engines.vscode` from `package.json`, making `package.json` the single source of truth so the badges stay in sync automatically (this also corrects the stale `0.1.6` version badge)
+- Replace the hand-written README version badge (`README.md` / `README_ja.md`) with a shields.io dynamic badge that reads the published version from the VS Code Marketplace, so the badge follows releases automatically instead of drifting out of date (this also corrects the stale `0.1.6` version badge)
 
 ## [0.1.7] - 2026-07-23
 

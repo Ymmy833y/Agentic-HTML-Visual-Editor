@@ -3,8 +3,8 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/github/package-json/v/Ymmy833y/Agentic-HTML-Visual-Editor?style=for-the-badge&label=version&color=F59E0B" alt="Version" />
-  <img src="https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/Ymmy833y/Agentic-HTML-Visual-Editor/master/package.json&query=$.engines.vscode&label=VS%20Code&style=for-the-badge&logo=visualstudiocode&logoColor=white&color=F59E0B" alt="VS Code" />
+  <img src="https://img.shields.io/visual-studio-marketplace/v/YuyaMiyamoto.agentic-html-visual-editor?style=for-the-badge&label=version&color=F59E0B" alt="Version" />
+  <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
 </p>
