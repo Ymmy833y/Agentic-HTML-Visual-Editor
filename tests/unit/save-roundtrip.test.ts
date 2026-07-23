@@ -197,6 +197,13 @@ describe('save-echo round-trip: whitespace preservation', () => {
     expect(second).toBe(first);
     expect(first).toBe(source);
   });
+
+  it('preserves a source trailing newline inside <pre><code> without edits', () => {
+    const source = '<pre><code>foo\n</code></pre>';
+    mount(root, source);
+
+    expect(formatForSerialize(root)).toBe(source);
+  });
 });
 
 describe('full-document round-trip without <body>', () => {
