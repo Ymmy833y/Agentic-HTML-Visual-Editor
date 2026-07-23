@@ -21,6 +21,7 @@ import {
   toggleList,
 } from '../commands/block-format';
 import { alertTypeFromShortcut } from '../shared/alert-types';
+import { findTrailingEmptyCodeLine } from '../commands/code-block';
 
 const DEBOUNCE_MS = 250;
 
@@ -104,6 +105,14 @@ export function setupEditor(
     // "type inside" intent (it is meaningful only for the immediate next char).
     if (e.inputType !== 'insertText') boundary.pendingInside = null;
     if (e.inputType === 'insertParagraph') {
+      // A blank trailing line is the escape hatch from a code block. Chromium
+      // represents code-block line breaks with <br> nodes while existing HTML
+      // may contain literal newlines, so the handler supports both forms.
+      if (handleCodeBlockExit(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
       // Enter inside a <summary> must not split it into two summaries; move the
       // caret into the details body instead.
       if (handleSummaryEnter(root)) {
@@ -297,6 +306,47 @@ export function setupEditor(
       onCommandEdit?.(label);
     },
   };
+}
+
+/**
+ * Enter on the trailing empty line of a <pre> exits to a fresh paragraph. The
+ * first Enter still falls through to Chromium and creates that empty line; the
+ * second one removes it, preserving any <code> wrapper and the code before it.
+ * Indentation-only lines count as empty and their whitespace is removed.
+ * Whitespace-only blocks are removed after exit. For wrapper safety, this
+ * cleanup unwraps no structure: only bare stubs or a sole <code> stub qualify,
+ * while empty syntax-highlighting wrappers remain in their <pre>.
+ */
+function handleCodeBlockExit(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  const pre = findAncestor(range.startContainer, 'PRE', root);
+  if (!pre) return false;
+  const lineBreak = findTrailingEmptyCodeLine(range, pre);
+  if (!lineBreak) return false;
+
+  const trailingLine = document.createRange();
+  trailingLine.setStart(lineBreak.container, lineBreak.offset);
+  trailingLine.setEnd(pre, pre.childNodes.length);
+  trailingLine.deleteContents();
+
+  const paragraph = document.createElement('p');
+  paragraph.appendChild(document.createElement('br'));
+  pre.after(paragraph);
+  const code = pre.childNodes.length === 1 && pre.firstElementChild?.tagName === 'CODE'
+    ? pre.firstElementChild
+    : null;
+  if (isBlockEmptyOrStubBr(pre) || (code && isBlockEmptyOrStubBr(code))) pre.remove();
+
+  const caret = document.createRange();
+  caret.setStart(paragraph, 0);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  return true;
 }
 
 /**
