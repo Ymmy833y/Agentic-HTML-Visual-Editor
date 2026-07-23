@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-07-23
+
+### Fixed
+
+- Replace the hand-written README version and VS Code badges (`README.md` / `README_ja.md`) with shields.io dynamic badges that read `version` and `engines.vscode` from `package.json`, making `package.json` the single source of truth so the badges stay in sync automatically (this also corrects the stale `0.1.6` version badge)
+
 ## [0.1.7] - 2026-07-23
 
 ### Added

@@ -3,8 +3,8 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.6-F59E0B?style=for-the-badge" alt="Version 0.1.6" />
-  <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
+  <img src="https://img.shields.io/github/package-json/v/Ymmy833y/Agentic-HTML-Visual-Editor?style=for-the-badge&label=version&color=F59E0B" alt="Version" />
+  <img src="https://img.shields.io/badge/dynamic/json?url=https://raw.githubusercontent.com/Ymmy833y/Agentic-HTML-Visual-Editor/master/package.json&query=$.engines.vscode&label=VS%20Code&style=for-the-badge&logo=visualstudiocode&logoColor=white&color=F59E0B" alt="VS Code" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
 </p>
