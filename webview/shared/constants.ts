@@ -45,3 +45,26 @@ export const CARET_OUTSIDE_ATTR = 'data-ahve-caret-outside';
  * the `:has(> comment[data-ahve-caret-inside])` rule in styles/default.css.
  */
 export const CARET_INSIDE_ATTR = 'data-ahve-caret-inside';
+
+/**
+ * Class applied to every anchor cell inside the active multi-cell table
+ * selection (plain click + Shift+click). Pure UI state: it changes no layout,
+ * lives on the live DOM only, and is stripped on serialize. The same literal
+ * is referenced by the `td.ahve-tc-selected` rule in styles/table.css.
+ */
+export const CELL_SELECTED_CLASS = 'ahve-tc-selected';
+
+/**
+ * Legacy single-cell merge-anchor class. Older builds applied it on
+ * Shift+click and never stripped it on serialize, so saved files may still
+ * contain the token; the serializer keeps removing it even though nothing
+ * applies it anymore.
+ */
+export const LEGACY_MERGE_ANCHOR_CLASS = 'ahve-tc-merge-anchor';
+
+/**
+ * Marks the extra trailing <br> that keeps Chromium's caret on the new line
+ * after Enter at the end of a bare blockquote. The serializer removes it, and
+ * the input handler drops it as soon as real content is typed on that line.
+ */
+export const QUOTE_PLACEHOLDER_ATTR = 'data-ahve-quote-placeholder';

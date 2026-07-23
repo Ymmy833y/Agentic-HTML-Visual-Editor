@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setupEditor } from '../../webview/core/editor-core';
-import { caretAtEnd, caretAtStart, clearDom, makeRoot } from './helpers/selection';
+import { formatForSerialize } from '../../webview/core/serialize';
+import {
+  caretAtEnd,
+  caretAtStart,
+  clearDom,
+  makeRoot,
+  selectTextRange,
+} from './helpers/selection';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -298,6 +305,333 @@ describe('setupEditor: code block shortcut', () => {
     caretAtEnd(root.querySelector('p')!);
     const evt = dispatchBeforeInput(root, 'insertParagraph');
     expect(evt.defaultPrevented).toBe(false);
+  });
+
+  for (const attribute of [
+    '',
+    ' data-alert="note"',
+    ' data-alert="tip"',
+    ' data-alert="important"',
+    ' data-alert="warning"',
+    ' data-alert="caution"',
+  ]) {
+    const kind = attribute ? attribute.match(/"([a-z]+)"/)![1] : 'normal';
+    it(`creates a nested code block inside a ${kind} blockquote`, () => {
+      const root = makeRoot(`<blockquote${attribute}>\`\`\`</blockquote>`);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('blockquote')!);
+
+      const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(
+        `<blockquote${attribute}><pre><br></pre></blockquote>`,
+      );
+    });
+  }
+
+  it('converts only the current quote line and preserves preceding text', () => {
+    const root = makeRoot(
+      '<blockquote data-alert="warning">aaa<br>```</blockquote>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('blockquote')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<blockquote data-alert="warning"><p>aaa</p><pre><br></pre></blockquote>',
+    );
+  });
+});
+
+describe('setupEditor: Enter exits a code block from its trailing empty line', () => {
+  function placeCodeCaret(node: Node, offset: number): void {
+    const selection = window.getSelection();
+    if (!selection) throw new Error('no selection');
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  it('removes the trailing browser line break and inserts a paragraph', () => {
+    const root = makeRoot('<pre>const x = 1;<br><br></pre>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    const pre = root.querySelector('pre')!;
+    // Chromium leaves the caret before the final placeholder <br> after Enter.
+    placeCodeCaret(pre, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre>const x = 1;</pre><p><br></p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Insert paragraph');
+    const selection = window.getSelection()!;
+    expect(selection.anchorNode).toBe(root.querySelector('p'));
+    expect(selection.anchorOffset).toBe(0);
+  });
+
+  it('preserves a <code> wrapper', () => {
+    const root = makeRoot('<pre><code>line<br><br></code></pre>');
+    setupEditor(root, () => {});
+    const code = root.querySelector('code')!;
+    placeCodeCaret(code, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><code>line</code></pre><p><br></p>');
+  });
+
+  it('removes an effectively empty code block when exiting', () => {
+    const root = makeRoot('<pre><br><br></pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, pre.childNodes.length);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p>');
+  });
+
+  it('does not exit an empty code block whose only child is a placeholder', () => {
+    const root = makeRoot('<pre><br></pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, 1);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre><br></pre>');
+  });
+
+  it('removes an effectively empty code block with a <code> wrapper', () => {
+    const root = makeRoot('<pre><code><br><br></code></pre>');
+    setupEditor(root, () => {});
+    const code = root.querySelector('code')!;
+    placeCodeCaret(code, code.childNodes.length);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p>');
+  });
+
+  it('preserves direct <pre> text beside an emptied <code> wrapper', () => {
+    const root = makeRoot('<pre>abc<code><br><br></code></pre>');
+    setupEditor(root, () => {});
+    const code = root.querySelector('code')!;
+    // Match Chromium's caret before the final placeholder <br>.
+    placeCodeCaret(code, 1);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre>abc<code></code></pre><p><br></p>');
+  });
+
+  it('keeps an emptied syntax-highlighted code block for wrapper safety', () => {
+    const root = makeRoot('<pre><code><span><br><br></span></code></pre>');
+    setupEditor(root, () => {});
+    const span = root.querySelector('span')!;
+    placeCodeCaret(span, span.childNodes.length);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<pre><code><span><br></span></code></pre><p><br></p>',
+    );
+  });
+
+  it('removes a whitespace-only code block after its empty trailing line', () => {
+    const root = makeRoot('<pre>\t\t<br><br></pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, pre.childNodes.length);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p>');
+  });
+
+  it('does not treat a source trailing newline as a user-created empty line', () => {
+    const root = makeRoot('<pre>line\n</pre>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('pre')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre>line\n</pre>');
+  });
+
+  for (const {
+    name,
+    html,
+    expected,
+  } of [
+    {
+      name: 'alert',
+      html: '<blockquote data-alert="tip"><pre>line<br><br></pre></blockquote>',
+      expected: '<blockquote data-alert="tip"><pre>line</pre><p><br></p></blockquote>',
+    },
+    {
+      name: 'table cell',
+      html: '<table><tbody><tr><td><pre>line<br><br></pre></td></tr></tbody></table>',
+      expected: '<table><tbody><tr><td><pre>line</pre><p><br></p></td></tr></tbody></table>',
+    },
+  ]) {
+    it(`inserts the paragraph beside the code block inside its ${name}`, () => {
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const pre = root.querySelector('pre')!;
+      placeCodeCaret(pre, 2);
+
+      dispatchBeforeInput(root, 'insertParagraph');
+
+      expect(root.innerHTML).toBe(expected);
+    });
+  }
+
+  it('does not exit from a non-empty trailing line', () => {
+    const root = makeRoot('<pre>line</pre>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('pre')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre>line</pre>');
+  });
+
+  it('does not exit from an empty line in the middle of the code block', () => {
+    const root = makeRoot('<pre>before<br><br>after</pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre>before<br><br>after</pre>');
+  });
+
+  it('does not discard later blank lines when the caret is on an earlier one', () => {
+    const root = makeRoot('<pre>line<br><br><br></pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre>line<br><br><br></pre>');
+  });
+
+  it('does not delete comment metadata after the caret', () => {
+    const html =
+      '<pre>line<br><comment id="c-12345678">target' +
+      '<comment-body contenteditable="false">note</comment-body></comment><br></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('exits through nested syntax-highlighting spans', () => {
+    const root = makeRoot(
+      '<pre><code><span><span>line</span><br><br></span></code></pre>',
+    );
+    setupEditor(root, () => {});
+    const span = root.querySelector('span span')!.parentElement!;
+    placeCodeCaret(span, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<pre><code><span><span>line</span></span></code></pre><p><br></p>',
+    );
+  });
+
+  it('leaves Shift+Enter to the browser', () => {
+    const root = makeRoot('<pre>line<br><br></pre>');
+    setupEditor(root, () => {});
+    const pre = root.querySelector('pre')!;
+    placeCodeCaret(pre, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<pre>line<br><br></pre>');
+  });
+});
+
+describe('setupEditor: Enter inside a bare blockquote', () => {
+  for (const attribute of ['', ' data-alert="tip"']) {
+    const kind = attribute ? 'alert' : 'blockquote';
+    it(`inserts a soft line break without creating a sibling ${kind}`, () => {
+      const root = makeRoot(`<blockquote${attribute}>aaa</blockquote>`);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('blockquote')!);
+
+      const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(formatForSerialize(root)).toBe(`<blockquote${attribute}>aaa<br></blockquote>`);
+      expect(root.querySelector('br[data-ahve-quote-placeholder]')).not.toBeNull();
+      expect(root.querySelectorAll('blockquote')).toHaveLength(1);
+    });
+  }
+
+  it('splits inline formatting around a direct quote line break', () => {
+    const root = makeRoot('<blockquote><strong>abcd</strong></blockquote>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('strong')!.firstChild!;
+    selectTextRange(text, 2, 2);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<blockquote><strong>ab</strong><br><strong>cd</strong></blockquote>',
+    );
+  });
+
+  it('exits the quote when Enter is pressed on its trailing empty line', () => {
+    const root = makeRoot('<blockquote>aaa</blockquote>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('blockquote')!);
+
+    dispatchBeforeInput(root, 'insertParagraph');
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<blockquote>aaa</blockquote><p><br></p>');
+  });
+
+  it('leaves Enter inside an existing nested paragraph to its block behavior', () => {
+    const root = makeRoot('<blockquote><p>aaa</p></blockquote>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<blockquote><p>aaa</p></blockquote>');
   });
 });
 

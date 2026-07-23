@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { caretAtEnd, focusEditor, getRootHtml, mountEditor } from './helpers/page';
+import { caretAtEnd, focusEditor, getRootHtml, mountEditor, saveAndGetHtml } from './helpers/page';
 
 test.describe('Markdown-style shortcuts', () => {
   test('"# " at the start of a paragraph converts it to <h1>', async ({ page }) => {
@@ -141,6 +141,107 @@ test.describe('Markdown-style shortcuts', () => {
     await caretAtEnd(page, '#ahve-root p');
     await page.keyboard.press('Enter');
     expect(await getRootHtml(page)).toBe('<pre><br></pre>');
+  });
+
+  test('a second Enter on the trailing empty code line exits to a paragraph', async ({ page }) => {
+    await mountEditor(page, '<p><br></p>');
+    await focusEditor(page);
+
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('const x = 1;');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe('<pre>const x = 1;</pre><p><br></p>');
+
+    await page.keyboard.type('next');
+    expect(await getRootHtml(page)).toBe('<pre>const x = 1;</pre><p>next</p>');
+    expect(await saveAndGetHtml(page)).toContain('<pre>const x = 1;</pre>\n<p>next</p>');
+  });
+
+  test('an empty shortcut code block exits after two more Enters and is removed', async ({ page }) => {
+    await mountEditor(page, '<p><br></p>');
+    await focusEditor(page);
+
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    expect(await getRootHtml(page)).toBe('<pre><br><br></pre>');
+
+    await page.keyboard.press('Enter');
+    expect(await getRootHtml(page)).toBe('<p><br></p>');
+  });
+
+  test('a source trailing newline still requires two Enter presses to exit', async ({ page }) => {
+    await mountEditor(page, '<pre><code>foo\n</code></pre>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root pre code');
+
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#ahve-root > p')).toHaveCount(0);
+
+    await page.keyboard.press('Enter');
+    expect(await getRootHtml(page)).toBe('<pre><code>foo</code></pre><p><br></p>');
+  });
+
+  test('exiting an indentation-only trailing line discards that line', async ({ page }) => {
+    await mountEditor(page, '<p><br></p>');
+    await focusEditor(page);
+
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('if (x) {');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('  ');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe('<pre>if (x) {</pre><p><br></p>');
+  });
+
+  test('a source whitespace-only trailing line is also discarded on exit', async ({ page }) => {
+    await mountEditor(page, '<pre>if (x) {<br>\t</pre>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root pre');
+
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe('<pre>if (x) {</pre><p><br></p>');
+  });
+
+  test('"```" + Enter creates and saves a code block inside an alert', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<!DOCTYPE html><html><body><blockquote data-alert="caution">aaa</blockquote></body></html>',
+    );
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.keyboard.press('Enter');
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="caution">aaa<br>' +
+      '<br data-ahve-quote-placeholder=""></blockquote>',
+    );
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="caution"><p>aaa</p><pre><br></pre></blockquote>',
+    );
+    expect(await saveAndGetHtml(page)).toContain(
+      '<blockquote data-alert="caution"><p>aaa</p>\n<pre><br></pre></blockquote>',
+    );
+  });
+
+  test('a second Enter on the trailing empty quote line exits to a paragraph', async ({ page }) => {
+    await mountEditor(page, '<blockquote>aaa</blockquote>');
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+
+    expect(await getRootHtml(page)).toBe('<blockquote>aaa</blockquote><p><br></p>');
   });
 
   // Typing the marker (rather than pre-seeding it) leaves an empty text node

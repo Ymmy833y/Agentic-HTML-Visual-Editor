@@ -1,9 +1,10 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   caretAtEnd,
   focusEditor,
   getRootHtml,
   mountEditor,
+  saveAndGetHtml,
   selectTextInside,
 } from './helpers/page';
 
@@ -36,6 +37,24 @@ test.describe('Table editing', () => {
     await expect(paragraphs).toHaveCount(2);
     expect((await paragraphs.nth(0).textContent())?.trim()).toBe('hello');
     expect((await paragraphs.nth(1).textContent())?.trim()).toBe('world');
+  });
+
+  test('inserting a table in a bare alert keeps it inside the alert', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<blockquote data-alert="important">before after</blockquote>',
+    );
+    await selectTextInside(page, '#ahve-root blockquote', 6, 6);
+
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
+    await page.locator('#ahve-table-picker .ahve-tp-cell[data-row="1"][data-col="1"]').click();
+
+    const quote = page.locator('#ahve-root blockquote[data-alert="important"]');
+    await expect(quote.locator(':scope > p')).toHaveCount(2);
+    await expect(quote.locator(':scope > table')).toHaveCount(1);
+    await expect(page.locator('#ahve-root > table')).toHaveCount(0);
+    expect((await quote.locator(':scope > p').nth(0).textContent())?.trim()).toBe('before');
+    expect((await quote.locator(':scope > p').nth(1).textContent())?.trim()).toBe('after');
   });
 
   test('right-click on a cell shows the table menu and "Insert row below" appends a row', async ({ page }) => {
@@ -127,6 +146,43 @@ test.describe('Table editing', () => {
       return t.style.width;
     });
     expect(tableWidth).toBe('100%');
+  });
+
+  // The tooltip hides via opacity, not display, so visibility is asserted
+  // through the ahve-tooltip-visible class rather than toBeVisible/toBeHidden.
+  test('hovering the picker Insert button shows the shared tooltip', async ({ page }) => {
+    await mountEditor(page, '<p>before</p>');
+    await caretAtEnd(page, '#ahve-root p');
+    await page.locator('#ahve-toolbar button', { hasText: /^Table$/ }).click();
+
+    await page.locator('#ahve-table-picker .ahve-tp-ok').hover();
+
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Insert table with the chosen size');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+  });
+
+  test('menu-item tooltip shows on hover and clears when the menu closes', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
+    );
+
+    await page.locator('#ahve-root td').first().click({ button: 'right' });
+    await page
+      .locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Use percentage widths' })
+      .hover();
+
+    const tooltip = page.locator('#ahve-tooltip');
+    await expect(tooltip).toHaveText('Store column widths as percentages of the table width');
+    await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
+
+    // Escape closes the menu while the item is still hovered; the tooltip
+    // must not linger (mouseleave never fires on the removed item).
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#ahve-table-menu')).toBeHidden();
+    await expect(tooltip).not.toHaveClass(/ahve-tooltip-visible/);
   });
 
   test('dragging in percent mode stores the new width in %', async ({ page }) => {
@@ -325,5 +381,81 @@ test.describe('Table editing', () => {
     const merged = cells.first();
     await expect(merged).toHaveAttribute('rowspan', '2');
     await expect(merged).toHaveAttribute('colspan', '2');
+  });
+});
+
+test.describe('Table cell range selection', () => {
+  // The structure from the bug report: thead + 2x2 tbody, one cell with a
+  // trailing <br>, anchor and focus on the diagonal across tbody rows.
+  const REPRO_TABLE =
+    '<table><thead><tr><th>Column A</th><th>Column B</th></tr></thead>' +
+    '<tbody><tr><td>1</td><td>2<br></td></tr><tr><td>3</td><td>4</td></tr></tbody></table>';
+
+  async function selectDiagonal(page: Page): Promise<void> {
+    await page.locator('#ahve-root td', { hasText: '1' }).click();
+    await page.locator('#ahve-root td', { hasText: '4' }).click({ modifiers: ['Shift'] });
+  }
+
+  test('Shift+click highlights the whole rectangle, not just the anchor', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+
+    const selected = page.locator('#ahve-root .ahve-tc-selected');
+    await expect(selected).toHaveCount(4);
+    await expect(selected).toHaveText(['1', '2', '3', '4']);
+    // Header cells sit outside the rectangle.
+    await expect(page.locator('#ahve-root th.ahve-tc-selected')).toHaveCount(0);
+  });
+
+  test('the native text selection and floating menu are suppressed', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+
+    expect(await page.evaluate(() => window.getSelection()!.isCollapsed)).toBe(true);
+    await expect(page.locator('#ahve-floating-menu')).toBeHidden();
+  });
+
+  test('the highlight class never reaches the saved HTML', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+    await expect(page.locator('#ahve-root .ahve-tc-selected')).toHaveCount(4);
+
+    const html = await saveAndGetHtml(page);
+    expect(html).not.toContain('ahve-tc-');
+  });
+
+  test('"Merge cells" from an inner cell merges the whole highlighted range', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+
+    // "3" is neither the anchor nor the Shift+clicked focus.
+    await page.locator('#ahve-root td', { hasText: '3' }).click({ button: 'right' });
+    await page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Merge cells' }).click();
+
+    const cells = page.locator('#ahve-root td');
+    await expect(cells).toHaveCount(1);
+    await expect(cells.first()).toHaveAttribute('rowspan', '2');
+    await expect(cells.first()).toHaveAttribute('colspan', '2');
+    await expect(page.locator('#ahve-root thead th')).toHaveCount(2);
+    await expect(page.locator('#ahve-root .ahve-tc-selected')).toHaveCount(0);
+  });
+
+  test('right-clicking the anchor cell itself also offers "Merge cells"', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+
+    await page.locator('#ahve-root td', { hasText: '1' }).click({ button: 'right' });
+    await expect(
+      page.locator('#ahve-table-menu .ahve-tm-item', { hasText: 'Merge cells' }),
+    ).toBeVisible();
+  });
+
+  test('a plain click clears the highlight', async ({ page }) => {
+    await mountEditor(page, REPRO_TABLE);
+    await selectDiagonal(page);
+    await expect(page.locator('#ahve-root .ahve-tc-selected')).toHaveCount(4);
+
+    await page.locator('#ahve-root td', { hasText: '2' }).click();
+    await expect(page.locator('#ahve-root .ahve-tc-selected')).toHaveCount(0);
   });
 });

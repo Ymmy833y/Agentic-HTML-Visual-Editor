@@ -4,7 +4,7 @@
 // remount only needs a refresh() to rebuild the (now-stale) match ranges.
 
 import { findMatches, type SearchOptions } from '../core/text-search';
-import { setupTooltip } from './tooltip';
+import { hideTooltipFor, setupTooltip } from './tooltip';
 
 const HIGHLIGHT_ALL = 'ahve-search';
 const HIGHLIGHT_CURRENT = 'ahve-search-current';
@@ -112,6 +112,9 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
   function close(): void {
     opened = false;
     widget.hidden = true;
+    // A tooltip anchored to a widget button would linger otherwise:
+    // mouseleave never fires on an element hidden under the pointer.
+    hideTooltipFor(widget);
     if (debounce) {
       clearTimeout(debounce);
       debounce = null;

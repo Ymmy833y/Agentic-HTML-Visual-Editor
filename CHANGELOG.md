@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-07-23
+
+### Added
+
+- Exit a code block by pressing Enter on its blank last line (a second Enter on an empty trailing line moves the caret to a new paragraph after the `<pre>`), matching the "Enter on an empty item exits the list" behavior
+
+### Changed
+
+- Follow any link in the WYSIWYG view with Ctrl+click (Cmd+click on macOS), leaving a plain click available for editing the link text; a hover hint explains this, and relative file links still open in a VS Code tab
+- Unify the hover tooltips used across the toolbar, floating menu, and table menu/picker: each control now also exposes its tooltip text as an accessible name (`aria-label`) for icon-only and single-letter buttons, and the tooltip is cleared when its container hides or closes so it never lingers
+
+### Fixed
+
+- Support mixed inline content and line breaks inside blockquotes; Enter at the end of a bare blockquote keeps the caret on the new line via a transient placeholder that never reaches the saved HTML
+- Shift+click a table cell to highlight the whole rectangular range back to the previously clicked cell and merge that range as a single cell
+- Preserve the document wrapper when `<body>` is absent or unterminated: the doctype / `<html>` / `<head>` are kept verbatim instead of being dropped by the sanitizer on the next save, and an unedited save stays byte-equal
+
+### Security
+
+- Override vulnerable transitive dependencies (`brace-expansion`, `js-yaml`)
+
 ## [0.1.6] - 2026-07-16
 
 ### Added

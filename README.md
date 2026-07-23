@@ -134,10 +134,10 @@ Notes:
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
-- **Links:** a relative link to a local file (e.g. `<a href="./notes.html">`)
-  opens that file in a VSCode tab instead of navigating the view away; other
-  links keep their native behavior. Use relative hrefs to cross-link companion
-  documents.
+- **Links:** follow any link in the WYSIWYG view with Ctrl+click (Cmd+click on
+  macOS), leaving an ordinary click available for editing. A relative link to a
+  local file (e.g. `<a href="./notes.html">`) opens that file in a VSCode tab;
+  use relative hrefs to cross-link companion documents.
 
 ## Collapsible sections (`details` / `summary`)
 
@@ -336,7 +336,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab (or switching it over to the text editor) prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes — merged with any direct HTML changes made in the meantime — still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
-- Clicking a link to a relative file (e.g. `./notes.html`) opens it in a VS Code tab instead of navigating the view away; the target is resolved safely within the document's workspace folder (or its own directory when outside a workspace). Other links keep their native behavior.
+- Links are followed with Ctrl+click (Cmd+click on macOS), so an ordinary click stays available for editing the link text; hovering a link shows the hint. Ctrl+clicking a link to a relative file (e.g. `./notes.html`) opens it in a VS Code tab instead of navigating the view away; the target is resolved safely within the document's workspace folder (or its own directory when outside a workspace). Other links keep their native behavior.
 
 **Supported HTML**
 
@@ -406,6 +406,7 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 | `Ctrl+Y` / `Ctrl+Shift+Z` | Redo WYSIWYG edit |
 | `Tab` / `Shift+Tab` | Indent/outdent list items, or move between table cells |
 | `Ctrl+F` | In-document search |
+| `Ctrl+Click` / `Cmd+Click` | Follow a link (a plain click edits it instead) |
 
 **Markdown-style auto-formatting** (at the start of a block)
 
@@ -421,6 +422,7 @@ Common formatting can be invoked from the keyboard, the toolbar, and markdown-st
 
 - **Floating menu:** shows relevant actions based on the current selection.
 - **Toolbar:** one-click access to major tags and actions (save, block type with Blockquote/Alert styles, bold/italic/strikethrough/inline code/code block, clear formatting, link, image, lists, horizontal rule, details, table, comment, copy).
+- **Exiting a code block:** press Enter on the blank last line of a code block to leave it and continue in a new paragraph after the `<pre>` (mirroring how Enter on an empty list item exits the list).
 
 ### 🔍 In-document search
 
@@ -437,7 +439,7 @@ Insert a `<details>` / `<summary>` block from the toolbar (the **Details** butto
 
 ### ▦ Table editing
 
-Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units.
+Tables can be created and edited from the WYSIWYG view. Insert tables from the toolbar (grid picker), add or remove rows and columns via the right-click menu, toggle row/column headers, merge and split cells, and resize columns by dragging — in either pixel or percent units. Shift+click a cell to select the whole rectangular range back to the previously clicked cell (the entire range is highlighted), then merge that range into a single cell.
 
 ### 📋 Clipboard copy/paste
 

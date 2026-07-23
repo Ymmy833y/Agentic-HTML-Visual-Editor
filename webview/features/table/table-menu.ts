@@ -17,23 +17,27 @@ import {
 import { mergeCells, splitCell } from './merge-commands';
 import { getTableWidthMode, setTableWidthMode } from './width-commands';
 import { boundingRect, buildTableModel, findCell, findCellPosition, tightenRect } from './table-model';
+import { hideTooltipFor, setupTooltip } from '../../ui/tooltip';
+import type { CellRangeSelection } from './cell-selection';
 import type { CommandContext } from '../../shared/command-context';
 
 export interface TableMenuOptions {
   /** Called after the menu has applied a DOM mutation so the editor can serialize. */
   onCommand(): void;
   /**
-   * Optional accessor for the "other anchor" of a multi-cell merge. When the
-   * user is preparing a merge they typically Shift+click a second cell; the
-   * caller stashes that cell so the menu can offer "Merge cells".
+   * Optional accessor for the active multi-cell selection (plain click +
+   * Shift+click highlight). Right-clicking any highlighted cell offers
+   * "Merge cells" for the whole highlighted rectangle.
    */
-  getMergeAnchor?: () => HTMLTableCellElement | null;
+  getSelectedRange?: () => CellRangeSelection | null;
 }
 
 interface MenuItem {
   label: string;
   enabled: boolean;
   onPick: () => void;
+  /** Hover tooltip; only set on items whose label alone does not explain them. */
+  tooltip?: string;
 }
 
 const VIEWPORT_PADDING = 8;
@@ -82,6 +86,7 @@ export function mountTableMenu(
   document.addEventListener('keydown', onKey);
 
   function close(): void {
+    hideTooltipFor(menu);
     menu.hidden = true;
     menu.replaceChildren();
   }
@@ -200,6 +205,10 @@ export function mountTableMenu(
         items.push({
           label: mode === 'percent' ? 'Use pixel widths' : 'Use percentage widths',
           enabled: true,
+          tooltip:
+            mode === 'percent'
+              ? 'Store column widths as fixed pixel values'
+              : 'Store column widths as percentages of the table width',
           onPick: () => {
             setTableWidthMode(table, mode === 'percent' ? 'px' : 'percent');
           },
@@ -207,13 +216,16 @@ export function mountTableMenu(
       }
     }
 
-    const mergeTarget = opts.getMergeAnchor?.() ?? null;
-    if (mergeTarget && mergeTarget !== cell && cell.closest('table') === mergeTarget.closest('table')) {
+    const range = opts.getSelectedRange?.() ?? null;
+    if (range && range.cells.includes(cell)) {
       items.push({
         label: 'Merge cells',
-        enabled: canMerge(cell, mergeTarget),
+        // canMerge re-derives the rectangle as a staleness guard: the DOM may
+        // have changed since the highlight was applied.
+        enabled: canMerge(range.anchor, range.focus),
+        tooltip: 'Merge the highlighted cells into one',
         onPick: () => {
-          mergeCells(mergeTarget, cell);
+          mergeCells(range.anchor, range.focus);
         },
       });
     }
@@ -222,6 +234,7 @@ export function mountTableMenu(
       items.push({
         label: 'Split cell',
         enabled: true,
+        tooltip: 'Split this merged cell back into individual cells',
         onPick: () => splitCell(cell),
       });
     }
@@ -244,6 +257,7 @@ export function mountTableMenu(
       root.removeEventListener('contextmenu', onContextMenu);
       document.removeEventListener('mousedown', onDismiss);
       document.removeEventListener('keydown', onKey);
+      hideTooltipFor(menu);
       menu.remove();
     },
   };
@@ -256,6 +270,10 @@ function menuButton(item: MenuItem, onClick: () => void): HTMLButtonElement {
   b.textContent = item.label;
   b.disabled = !item.enabled;
   if (item.enabled) b.addEventListener('click', onClick);
+  // Browsers suppress mouse events on disabled buttons, so a tooltip there
+  // could never show; skip the wiring (and the aria-label that would
+  // otherwise replace the label as the accessible name) entirely.
+  if (item.enabled && item.tooltip) setupTooltip(b, item.tooltip);
   return b;
 }
 

@@ -158,6 +158,24 @@ describe('formatForSerialize: nested formatting', () => {
     );
   });
 
+  it('preserves code blocks and tables nested inside an alert', () => {
+    const html =
+      '<blockquote data-alert="warning"><pre>const x = 1;</pre>' +
+      '<table><tbody><tr><td>x</td></tr></tbody></table></blockquote>';
+    expect(format(html)).toBe(
+      '<blockquote data-alert="warning"><pre>const x = 1;</pre>\n' +
+      '<table><tbody><tr><td>x</td></tr></tbody></table></blockquote>',
+    );
+  });
+
+  it('preserves a soft line break and nested code block inside an alert', () => {
+    expect(format(
+      '<blockquote data-alert="tip"><p>aaa<br>bbb</p><pre>code</pre></blockquote>',
+    )).toBe(
+      '<blockquote data-alert="tip"><p>aaa<br>bbb</p>\n<pre>code</pre></blockquote>',
+    );
+  });
+
   it('round-trips an alert without changing its metadata', () => {
     const saved = '<blockquote data-alert="warning">Careful</blockquote>';
     expect(roundtrip(saved)).toBe(saved);
@@ -239,6 +257,44 @@ describe('formatForSerialize: details / summary', () => {
   it('round-trips a saved details through parse + inject + serialize', () => {
     const saved = '<details open=""><summary>Title</summary>\n<p>body</p></details>';
     expect(roundtrip(saved)).toBe(saved);
+  });
+});
+
+describe('formatForSerialize: transient cell-selection classes', () => {
+  it('strips the selection class and drops the emptied class attribute', () => {
+    expect(
+      format('<table><tbody><tr><td class="ahve-tc-selected">a</td></tr></tbody></table>'),
+    ).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>');
+  });
+
+  it('strips the legacy merge-anchor class leaked by older builds', () => {
+    expect(
+      format('<table><thead><tr><th class="ahve-tc-merge-anchor">h</th></tr></thead></table>'),
+    ).toBe('<table><thead><tr><th>h</th></tr></thead></table>');
+  });
+
+  it('keeps unrelated user classes on the same cell', () => {
+    expect(
+      format('<table><tbody><tr><td class="user-x ahve-tc-selected">a</td></tr></tbody></table>'),
+    ).toBe('<table><tbody><tr><td class="user-x">a</td></tr></tbody></table>');
+  });
+
+  it('strips both tokens when a cell carries them together', () => {
+    expect(
+      format(
+        '<table><tbody><tr>' +
+          '<td class="ahve-tc-selected ahve-tc-merge-anchor">a</td>' +
+          '</tr></tbody></table>',
+      ),
+    ).toBe('<table><tbody><tr><td>a</td></tr></tbody></table>');
+  });
+
+  it('mutates only the clone: the live DOM keeps its highlight through a save', () => {
+    const root = makeRoot(
+      '<table><tbody><tr><td class="ahve-tc-selected">a</td></tr></tbody></table>',
+    );
+    formatForSerialize(root);
+    expect(root.querySelector('td')!.classList.contains('ahve-tc-selected')).toBe(true);
   });
 });
 

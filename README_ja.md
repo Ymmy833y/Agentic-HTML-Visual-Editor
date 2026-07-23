@@ -136,10 +136,10 @@ Notes:
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
-- **Links:** a relative link to a local file (e.g. `<a href="./notes.html">`)
-  opens that file in a VSCode tab instead of navigating the view away; other
-  links keep their native behavior. Use relative hrefs to cross-link companion
-  documents.
+- **Links:** follow any link in the WYSIWYG view with Ctrl+click (Cmd+click on
+  macOS), leaving an ordinary click available for editing. A relative link to a
+  local file (e.g. `<a href="./notes.html">`) opens that file in a VSCode tab;
+  use relative hrefs to cross-link companion documents.
 
 ## Collapsible sections (`details` / `summary`)
 
@@ -338,7 +338,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - WYSIWYG エディタは VSCode 標準の保存ライフサイクルに参加する。未保存の WYSIWYG タブを閉じる（またはテキストエディタに切り替える）と保存・破棄の確認が表示され、**ファイルを元に戻す（Revert File）** で変更を破棄でき、自動保存（`files.autoSave`）も適用される。ウィンドウのリロード（ホット終了）時には未保存の変更が復元される。その間に HTML ソースが直接変更されていた場合は、その変更とマージした内容が未保存状態のまま表示される。
 - バンドル同梱の独自デフォルト CSS により、最初からモダンな見た目を提供する。
 - HTML に直書きされた `style` 属性も尊重する（デフォルト CSS より優先）。
-- 相対パスのファイルへのリンク（例 `./notes.html`）をクリックすると、ビューから離脱せずに VS Code のタブで開く。リンク先はドキュメントのワークスペースフォルダ内（ワークスペース外の場合は同じディレクトリ内）に限定して安全に解決される。それ以外のリンクは通常どおりの挙動を保つ。
+- リンクの追従は Ctrl+クリック（macOS では Cmd+クリック）で行うため、通常のクリックはリンク文字の編集に使える。リンクにホバーするとその旨のヒントが表示される。相対パスのファイルへのリンク（例 `./notes.html`）を Ctrl+クリックすると、ビューから離脱せずに VS Code のタブで開く。リンク先はドキュメントのワークスペースフォルダ内（ワークスペース外の場合は同じディレクトリ内）に限定して安全に解決される。それ以外のリンクは通常どおりの挙動を保つ。
 
 **サポートする HTML**
 
@@ -408,6 +408,7 @@ WYSIWYG 画面では固定の英語ラベル、アイコン、種類ごとのア
 | `Ctrl+Y` / `Ctrl+Shift+Z` | WYSIWYG 編集を redo |
 | `Tab` / `Shift+Tab` | リスト項目のネスト昇降、またはテーブルセル間の移動 |
 | `Ctrl+F` | ドキュメント内検索 |
+| `Ctrl+クリック` / `Cmd+クリック` | リンクを開く（通常のクリックは編集） |
 
 **マークダウン風オートフォーマット**（ブロック先頭で）
 
@@ -423,6 +424,7 @@ WYSIWYG 画面では固定の英語ラベル、アイコン、種類ごとのア
 
 - **フローティングメニュー:** 選択範囲に応じて関連操作を提示。
 - **ツールバー:** 主要タグと操作へのワンクリックアクセス（保存、Blockquote／Alertスタイルを含むブロック種別、太字／斜体／取り消し線／インラインコード／コードブロック、書式クリア、リンク、画像、リスト、水平線、details、テーブル、コメント、コピー）。
+- **コードブロックを抜ける:** コードブロックの空の最終行で Enter を押すと、ブロックを抜けて `<pre>` の直後の新しい段落へ移動する（空のリスト項目で Enter を押すとリストを抜けるのと同様）。
 
 ### 🔍 ドキュメント内検索
 
@@ -439,7 +441,7 @@ Ctrl+F でビュー右上に検索パネルを開ける:
 
 ### ▦ テーブル編集
 
-WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバー（グリッドピッカー）からの挿入、右クリックメニューでの行列の追加・削除、行・列ヘッダーの切替、セルの結合・分割、列幅のドラッグ調整（px / % モード切替対応）に対応する。
+WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバー（グリッドピッカー）からの挿入、右クリックメニューでの行列の追加・削除、行・列ヘッダーの切替、セルの結合・分割、列幅のドラッグ調整（px / % モード切替対応）に対応する。セルを Shift+クリックすると、直前にクリックしたセルまでの矩形範囲全体を選択でき（範囲全体がハイライトされる）、その範囲を 1 つのセルに結合できる。
 
 ### 📋 クリップボードのコピー/貼り付け
 

@@ -3,15 +3,25 @@
 // lightweight markdown-style shortcuts, and dispatches debounced change
 // notifications so callers can serialize and push edits back.
 
-import { BLOCK_TAGS, CARET_INSIDE_ATTR, CARET_OUTSIDE_ATTR, INLINE_FORMAT_TAGS } from '../shared/constants';
+import {
+  BLOCK_TAGS,
+  CARET_INSIDE_ATTR,
+  CARET_OUTSIDE_ATTR,
+  INLINE_FORMAT_TAGS,
+  QUOTE_PLACEHOLDER_ATTR,
+} from '../shared/constants';
 import { blockOrBareCell, findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
 import {
   ensureBlockAtRoot,
   ensureBlockInCell,
+  ensureBlockquoteLineBlock,
+  findBareBlockquoteLine,
+  findBareBlockquoteRun,
   findBareRootRun,
   toggleList,
 } from '../commands/block-format';
 import { alertTypeFromShortcut } from '../shared/alert-types';
+import { findTrailingEmptyCodeLine } from '../commands/code-block';
 
 const DEBOUNCE_MS = 250;
 
@@ -95,6 +105,14 @@ export function setupEditor(
     // "type inside" intent (it is meaningful only for the immediate next char).
     if (e.inputType !== 'insertText') boundary.pendingInside = null;
     if (e.inputType === 'insertParagraph') {
+      // A blank trailing line is the escape hatch from a code block. Chromium
+      // represents code-block line breaks with <br> nodes while existing HTML
+      // may contain literal newlines, so the handler supports both forms.
+      if (handleCodeBlockExit(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
       // Enter inside a <summary> must not split it into two summaries; move the
       // caret into the details body instead.
       if (handleSummaryEnter(root)) {
@@ -114,10 +132,25 @@ export function setupEditor(
         recordHandledEdit('Insert paragraph');
         return;
       }
+      // Resolve code markers before the quote-specific Enter handler turns
+      // the keystroke into a soft line break.
+      if (handleCodeBlockShortcut(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert code block');
+        return;
+      }
       // Keep an inline <comment> whole: split the block at the boundary just
       // after the comment so the browser default never cuts through it (which
       // corrupts the contenteditable=false body and duplicates the id).
       if (keepCommentWholeOnEnter(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
+      // A bare blockquote is one flow container, not a sequence of sibling
+      // quotes. Enter inserts a direct <br>; Enter again on the trailing empty
+      // line exits to a normal paragraph.
+      if (handleBareBlockquoteEnter(root)) {
         e.preventDefault();
         recordHandledEdit('Insert paragraph');
         return;
@@ -133,12 +166,6 @@ export function setupEditor(
       if (handleThematicBreakShortcut(root)) {
         e.preventDefault();
         recordHandledEdit('Insert horizontal rule');
-        return;
-      }
-      // "``` + Enter" opens a code block.
-      if (handleCodeBlockShortcut(root)) {
-        e.preventDefault();
-        recordHandledEdit('Insert code block');
         return;
       }
     }
@@ -258,6 +285,7 @@ export function setupEditor(
   root.addEventListener('input', (event: Event) => {
     const e = event as InputEvent;
     if (!composing) normalizePresentationalTags(root);
+    removeQuotePlaceholders(root);
     scheduleChange();
     onNativeEdit?.(e.inputType);
   });
@@ -278,6 +306,47 @@ export function setupEditor(
       onCommandEdit?.(label);
     },
   };
+}
+
+/**
+ * Enter on the trailing empty line of a <pre> exits to a fresh paragraph. The
+ * first Enter still falls through to Chromium and creates that empty line; the
+ * second one removes it, preserving any <code> wrapper and the code before it.
+ * Indentation-only lines count as empty and their whitespace is removed.
+ * Whitespace-only blocks are removed after exit. For wrapper safety, this
+ * cleanup unwraps no structure: only bare stubs or a sole <code> stub qualify,
+ * while empty syntax-highlighting wrappers remain in their <pre>.
+ */
+function handleCodeBlockExit(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.startContainer)) return false;
+
+  const pre = findAncestor(range.startContainer, 'PRE', root);
+  if (!pre) return false;
+  const lineBreak = findTrailingEmptyCodeLine(range, pre);
+  if (!lineBreak) return false;
+
+  const trailingLine = document.createRange();
+  trailingLine.setStart(lineBreak.container, lineBreak.offset);
+  trailingLine.setEnd(pre, pre.childNodes.length);
+  trailingLine.deleteContents();
+
+  const paragraph = document.createElement('p');
+  paragraph.appendChild(document.createElement('br'));
+  pre.after(paragraph);
+  const code = pre.childNodes.length === 1 && pre.firstElementChild?.tagName === 'CODE'
+    ? pre.firstElementChild
+    : null;
+  if (isBlockEmptyOrStubBr(pre) || (code && isBlockEmptyOrStubBr(code))) pre.remove();
+
+  const caret = document.createRange();
+  caret.setStart(paragraph, 0);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  return true;
 }
 
 /**
@@ -395,6 +464,103 @@ function handleEnter(root: HTMLElement): boolean {
 }
 
 /**
+ * Enter in text stored directly under a blockquote is a soft line break inside
+ * that same quote. Chromium's native contenteditable behavior clones the
+ * blockquote as a sibling instead, which changes one quotation into two.
+ * A second Enter on the trailing empty line exits to a normal paragraph.
+ */
+function handleBareBlockquoteEnter(root: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+
+  const line = findBareBlockquoteLine(range.startContainer, root, range.startOffset);
+  if (!line) return false;
+
+  const lineEmpty = !line.first || !line.last || bareQuoteLineIsEmpty(line.first, line.last);
+  if (lineEmpty && !line.nextBreak && line.previousBreak) {
+    line.previousBreak.remove();
+    removeQuotePlaceholders(line.blockquote);
+    removeEmptyInlineEdge(line.blockquote.lastChild);
+
+    const p = document.createElement('p');
+    p.appendChild(document.createElement('br'));
+    line.blockquote.after(p);
+    if (isBlockEmptyOrStubBr(line.blockquote)) line.blockquote.remove();
+
+    const caret = document.createRange();
+    caret.setStart(p, 0);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+    return true;
+  }
+
+  return insertBareBlockquoteBreak(range, root, selection);
+}
+
+function bareQuoteLineIsEmpty(first: Node, last: Node): boolean {
+  let current: Node | null = first;
+  while (current) {
+    if (!isInsignificantTail(current)) return false;
+    if (current === last) return true;
+    current = current.nextSibling;
+  }
+  return true;
+}
+
+/** Split inline wrappers at range and insert a direct-child <br> in the quote. */
+function insertBareBlockquoteBreak(
+  range: Range,
+  root: HTMLElement,
+  selection: Selection,
+): boolean {
+  const run = findBareBlockquoteRun(range.startContainer, root, range.startOffset);
+  if (!run) return false;
+
+  const reference = run.last.nextSibling;
+  const tailRange = document.createRange();
+  tailRange.setStart(range.startContainer, range.startOffset);
+  tailRange.setEndAfter(run.last);
+  const tail = tailRange.extractContents();
+  const tailHasContent = Array.from(tail.childNodes).some(
+    (child) => !isInsignificantTail(child),
+  );
+
+  const br = document.createElement('br');
+  run.blockquote.insertBefore(br, reference);
+  if (tailHasContent) {
+    run.blockquote.insertBefore(tail, reference);
+  } else {
+    const placeholder = document.createElement('br');
+    placeholder.setAttribute(QUOTE_PLACEHOLDER_ATTR, '');
+    run.blockquote.insertBefore(placeholder, reference);
+  }
+  removeEmptyInlineEdge(br.previousSibling);
+
+  const caret = document.createRange();
+  caret.setStartAfter(br);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  return true;
+}
+
+function removeEmptyInlineEdge(node: Node | null): void {
+  if (!node || node instanceof HTMLBRElement) return;
+  if (isInsignificantTail(node)) node.parentNode?.removeChild(node);
+}
+
+function removeQuotePlaceholders(root: HTMLElement): void {
+  for (const placeholder of Array.from(
+    root.querySelectorAll(`br[${QUOTE_PLACEHOLDER_ATTR}]`),
+  )) {
+    placeholder.remove();
+  }
+}
+
+/**
  * Enter at the end of a block whose trailing content is wrapped in inline
  * formatting (strong/em/code/s) creates a new sibling block of the same tag
  * that reproduces the inline-wrapper chain around a `<br>` placeholder, with
@@ -460,6 +626,13 @@ function keepCommentWholeOnEnter(root: HTMLElement): boolean {
   if (!comment) return false;
   const block = findBlockAncestor(comment, root);
   if (!block) return false;
+
+  if (block.tagName === 'BLOCKQUOTE') {
+    const safeRange = document.createRange();
+    safeRange.setStartAfter(comment);
+    safeRange.collapse(true);
+    return insertBareBlockquoteBreak(safeRange, root, selection);
+  }
 
   // Extract everything after the comment up to the block end. extractContents
   // splits any inline-format wrappers between the comment and the block, so a
@@ -1245,7 +1418,9 @@ interface ShortcutTarget {
   el: HTMLElement;
   bareCell: boolean;
   bareRoot: boolean;
+  bareBlockquote: boolean;
   runStart: Node | null;
+  runEnd: Node | null;
 }
 
 /**
@@ -1256,15 +1431,45 @@ interface ShortcutTarget {
  * outside any block/cell. Read-only — it never mutates, so a plain space that
  * fails the per-shortcut marker test leaves the cell untouched.
  */
-function shortcutTarget(range: Range, root: HTMLElement): ShortcutTarget | null {
+function shortcutTarget(
+  range: Range,
+  root: HTMLElement,
+  allowBareBlockquote = false,
+): ShortcutTarget | null {
+  if (allowBareBlockquote) {
+    const line = findBareBlockquoteLine(range.startContainer, root, range.startOffset);
+    if (line) {
+      return {
+        el: line.blockquote,
+        bareCell: false,
+        bareRoot: false,
+        bareBlockquote: true,
+        runStart: line.first,
+        runEnd: line.last,
+      };
+    }
+  }
   const found = blockOrBareCell(range.startContainer, root);
   if (found) {
     if (!found.bareCell && !isPlainTextBlock(found.el)) return null;
-    return { ...found, bareRoot: false, runStart: null };
+    return {
+      ...found,
+      bareRoot: false,
+      bareBlockquote: false,
+      runStart: null,
+      runEnd: null,
+    };
   }
   const run = findBareRootRun(range.startContainer, root, range.startOffset);
   return run
-    ? { el: root, bareCell: false, bareRoot: true, runStart: run.first }
+    ? {
+        el: root,
+        bareCell: false,
+        bareRoot: true,
+        bareBlockquote: false,
+        runStart: run.first,
+        runEnd: run.last,
+      }
     : null;
 }
 
@@ -1281,7 +1486,14 @@ function materializeShortcutBlock(
   root: HTMLElement,
   selection: Selection,
 ): { block: HTMLElement; range: Range } | null {
-  if (!found.bareCell && !found.bareRoot) return { block: found.el, range };
+  if (!found.bareCell && !found.bareRoot && !found.bareBlockquote) {
+    return { block: found.el, range };
+  }
+  if (found.bareBlockquote) {
+    const block = ensureBlockquoteLineBlock(range.startContainer, root, range.startOffset);
+    if (!block) return null;
+    return { block, range: selection.getRangeAt(0) };
+  }
   if (found.bareRoot) {
     const block = ensureBlockAtRoot(range.startContainer, root, range.startOffset);
     if (!block) return null;
@@ -1439,10 +1651,10 @@ function handleCodeBlockShortcut(root: HTMLElement): boolean {
   const range = selection.getRangeAt(0);
   if (!range.collapsed) return false;
 
-  const found = shortcutTarget(range, root);
+  const found = shortcutTarget(range, root, true);
   if (!found) return false;
 
-  if ((found.el.textContent ?? '').trim() !== '```') return false;
+  if (shortcutTargetText(found).trim() !== '```') return false;
 
   const target = materializeShortcutBlock(found, range, root, selection);
   if (!target) return false;
@@ -1522,11 +1734,21 @@ function textBeforeCursor(range: Range, block: Element): string {
 }
 
 function shortcutTextBeforeCursor(range: Range, target: ShortcutTarget): string {
-  if (!target.bareRoot || !target.runStart) {
+  if ((!target.bareRoot && !target.bareBlockquote) || !target.runStart) {
     return textBeforeCursor(range, target.el);
   }
   const r = document.createRange();
   r.setStartBefore(target.runStart);
   r.setEnd(range.startContainer, range.startOffset);
+  return r.toString();
+}
+
+function shortcutTargetText(target: ShortcutTarget): string {
+  if ((!target.bareRoot && !target.bareBlockquote) || !target.runStart || !target.runEnd) {
+    return target.el.textContent ?? '';
+  }
+  const r = document.createRange();
+  r.setStartBefore(target.runStart);
+  r.setEndAfter(target.runEnd);
   return r.toString();
 }

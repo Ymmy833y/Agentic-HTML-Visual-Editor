@@ -87,6 +87,20 @@ test.describe('Toolbar editing', () => {
     expect(await getRootHtml(page)).toBe('<h1>title</h1>');
   });
 
+  test('Code block button keeps a bare alert as the outer container', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<blockquote data-alert="warning">before<br>const x = 1;</blockquote>',
+    );
+    await caretAtEnd(page, '#ahve-root blockquote');
+
+    await page.getByRole('button', { name: 'Code block', exact: true }).click();
+
+    expect(await getRootHtml(page)).toBe(
+      '<blockquote data-alert="warning"><p>before</p><pre>const x = 1;</pre></blockquote>',
+    );
+  });
+
   test('Blockquote submenu creates, changes, and normalizes an alert', async ({ page }) => {
     await mountEditor(page, '<p>Pay attention</p>');
     await caretAtEnd(page, '#ahve-root p');
@@ -166,6 +180,21 @@ test.describe('Toolbar editing', () => {
     expect(html).toContain('<strong>hello</strong>');
     expect(html).toContain('<body');
     expect(html).toContain('</body>');
+  });
+
+  test('Saving preserves the wrapper of a document without a <body> tag', async ({ page }) => {
+    const full = '<html><head><title>t</title></head><p>hello world</p></html>';
+    await mountEditor(page, full);
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.keyboard.press('Control+b');
+
+    const html = await saveAndGetHtml(page);
+    expect(html).toContain('<strong>hello</strong>');
+    expect(html).toContain('<head><title>t</title></head>');
+    expect(html).toContain('</html>');
+    // The split never synthesizes a <body> tag the source did not have.
+    expect(html).not.toContain('<body');
   });
 });
 

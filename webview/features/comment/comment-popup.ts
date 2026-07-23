@@ -4,7 +4,7 @@
 
 import * as cdom from './comment-dom';
 import { removeComment } from './comment-commands';
-import { setupTooltip } from '../../ui/tooltip';
+import { hideTooltipFor, setupTooltip } from '../../ui/tooltip';
 import { openConfirmDialog } from '../../ui/confirm-dialog';
 
 export interface CommentPopupOptions {
@@ -166,6 +166,9 @@ export function mountCommentPopup(
     commitPending();
     current = null;
     popup.hidden = true;
+    // A tooltip anchored to a popup button would linger otherwise:
+    // mouseleave never fires on an element hidden under the pointer.
+    hideTooltipFor(popup);
   }
 
   function refreshIfOpen(comment: Element): void {
@@ -402,6 +405,7 @@ export function mountCommentPopup(
       // reply text into the detached element. The comment is gone; drop it.
       current = null;
       popup.hidden = true;
+      hideTooltipFor(popup);
       replyInput.value = '';
       return;
     }

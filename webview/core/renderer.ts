@@ -36,17 +36,53 @@ export interface BodySplit {
   suffix: string;
 }
 
+// Splits a document string into the part mounted into the editor (bodyInner)
+// and the surrounding wrapper (prefix/suffix), both preserved verbatim.
+//
+// Documents without a <body> tag still need their wrapper preserved: mounting
+// the whole source would let the template parser and sanitizer silently drop
+// the doctype/<html>/<head> on the next save. When <body> is absent (or
+// unterminated) the split falls back to <html>/</head>/</html> boundaries.
+// No <body> tag is ever synthesized — an unedited save must stay byte-equal.
+//
+// The scan is textual, so tag-like strings inside comments or <code> samples
+// can be matched as real boundaries; that limitation predates the fallback.
 export function splitAroundBody(source: string): BodySplit | null {
-  const openMatch = /<body\b[^>]*>/i.exec(source);
-  if (!openMatch) return null;
-  const bodyStart = openMatch.index + openMatch[0].length;
-  const closeMatch = /<\/body\s*>/i.exec(source.slice(bodyStart));
-  if (!closeMatch) return null;
-  const bodyEnd = bodyStart + closeMatch.index;
+  const openBody = /<body\b[^>]*>/i.exec(source);
+  if (openBody) {
+    const bodyStart = openBody.index + openBody[0].length;
+    const closeBody = /<\/body\s*>/i.exec(source.slice(bodyStart));
+    if (closeBody) {
+      const bodyEnd = bodyStart + closeBody.index;
+      return {
+        prefix: source.slice(0, bodyStart),
+        bodyInner: source.slice(bodyStart, bodyEnd),
+        suffix: source.slice(bodyEnd),
+      };
+    }
+    // </body> missing: treat everything up to </html> (if any) as body inner
+    // rather than losing the wrapper entirely.
+    return splitAt(source, bodyStart);
+  }
+  const openHtml = /<html\b[^>]*>/i.exec(source);
+  if (!openHtml) return null;
+  const htmlStart = openHtml.index + openHtml[0].length;
+  // Keep <head> content in the prefix so the sanitizer never sees (and
+  // strips) meta/link/style/title metadata. This relies on an explicit
+  // </head>; when it is omitted (valid HTML), head content falls into
+  // bodyInner and is sanitized like any other body markup.
+  const closeHead = /<\/head\s*>/i.exec(source.slice(htmlStart));
+  const innerStart = closeHead ? htmlStart + closeHead.index + closeHead[0].length : htmlStart;
+  return splitAt(source, innerStart);
+}
+
+function splitAt(source: string, innerStart: number): BodySplit {
+  const closeHtml = /<\/html\s*>/i.exec(source.slice(innerStart));
+  const innerEnd = closeHtml ? innerStart + closeHtml.index : source.length;
   return {
-    prefix: source.slice(0, bodyStart),
-    bodyInner: source.slice(bodyStart, bodyEnd),
-    suffix: source.slice(bodyEnd),
+    prefix: source.slice(0, innerStart),
+    bodyInner: source.slice(innerStart, innerEnd),
+    suffix: source.slice(innerEnd),
   };
 }
 
