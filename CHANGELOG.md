@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-07-23
+
+### Fixed
+
+- Correct the stale README version badge (`README.md` / `README_ja.md`), which still showed `0.1.6`, to match `package.json`
+
+### Added
+
+- CI check (`Badge version` workflow) that fails when the README version badge drifts from the `version` in `package.json`, so the badges can no longer fall out of sync unnoticed
+
 ## [0.1.7] - 2026-07-23
 
 ### Added
