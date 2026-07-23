@@ -30,7 +30,7 @@ import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
 import { mountDetails } from './features/details/details';
 import { mountDetailsSelection } from './features/details/details-selection';
-import { mountRelativeFileNavigation } from './features/link/link-navigation';
+import { isFollowLinkModifier, mountLinkNavigation } from './features/link/link-navigation';
 import { mountTablePicker } from './features/table/table-picker';
 import { mountTableMenu } from './features/table/table-menu';
 import { mountTableResize } from './features/table/table-resize';
@@ -237,7 +237,7 @@ const commentPopup = mountCommentPopup(root, {
   onChange: () => editor.notifyChanged(),
 });
 
-mountRelativeFileNavigation(root, (href) => {
+mountLinkNavigation(root, (href) => {
   vscode.postMessage({ type: 'openRelativeFile', href });
 });
 
@@ -254,6 +254,10 @@ function handleAddComment(): void {
 root.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as Element | null;
   if (!target) return;
+  // A modified click on a link follows the link; it must not also open the
+  // popup of a comment the link happens to sit in.
+  const link = target.closest('a[href]');
+  if (isFollowLinkModifier(e) && link && root.contains(link)) return;
   const comment = target.closest('comment[id]');
   if (!comment || !root.contains(comment)) return;
   commentPopup.open(comment);

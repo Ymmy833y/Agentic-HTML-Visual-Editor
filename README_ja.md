@@ -136,10 +136,10 @@ Notes:
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
-- **Links:** a relative link to a local file (e.g. `<a href="./notes.html">`)
-  opens that file in a VSCode tab instead of navigating the view away; other
-  links keep their native behavior. Use relative hrefs to cross-link companion
-  documents.
+- **Links:** follow any link in the WYSIWYG view with Ctrl+click (Cmd+click on
+  macOS), leaving an ordinary click available for editing. A relative link to a
+  local file (e.g. `<a href="./notes.html">`) opens that file in a VSCode tab;
+  use relative hrefs to cross-link companion documents.
 
 ## Collapsible sections (`details` / `summary`)
 
@@ -338,7 +338,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - WYSIWYG エディタは VSCode 標準の保存ライフサイクルに参加する。未保存の WYSIWYG タブを閉じる（またはテキストエディタに切り替える）と保存・破棄の確認が表示され、**ファイルを元に戻す（Revert File）** で変更を破棄でき、自動保存（`files.autoSave`）も適用される。ウィンドウのリロード（ホット終了）時には未保存の変更が復元される。その間に HTML ソースが直接変更されていた場合は、その変更とマージした内容が未保存状態のまま表示される。
 - バンドル同梱の独自デフォルト CSS により、最初からモダンな見た目を提供する。
 - HTML に直書きされた `style` 属性も尊重する（デフォルト CSS より優先）。
-- 相対パスのファイルへのリンク（例 `./notes.html`）をクリックすると、ビューから離脱せずに VS Code のタブで開く。リンク先はドキュメントのワークスペースフォルダ内（ワークスペース外の場合は同じディレクトリ内）に限定して安全に解決される。それ以外のリンクは通常どおりの挙動を保つ。
+- リンクの追従は Ctrl+クリック（macOS では Cmd+クリック）で行うため、通常のクリックはリンク文字の編集に使える。リンクにホバーするとその旨のヒントが表示される。相対パスのファイルへのリンク（例 `./notes.html`）を Ctrl+クリックすると、ビューから離脱せずに VS Code のタブで開く。リンク先はドキュメントのワークスペースフォルダ内（ワークスペース外の場合は同じディレクトリ内）に限定して安全に解決される。それ以外のリンクは通常どおりの挙動を保つ。
 
 **サポートする HTML**
 
@@ -408,6 +408,7 @@ WYSIWYG 画面では固定の英語ラベル、アイコン、種類ごとのア
 | `Ctrl+Y` / `Ctrl+Shift+Z` | WYSIWYG 編集を redo |
 | `Tab` / `Shift+Tab` | リスト項目のネスト昇降、またはテーブルセル間の移動 |
 | `Ctrl+F` | ドキュメント内検索 |
+| `Ctrl+クリック` / `Cmd+クリック` | リンクを開く（通常のクリックは編集） |
 
 **マークダウン風オートフォーマット**（ブロック先頭で）
 
