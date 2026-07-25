@@ -936,3 +936,221 @@ test.describe('Comment boundary typing — real keyboard, all four cases', () =>
     expect(html).not.toContain('data-ahve-caret-inside');
   });
 });
+
+// Displayed body/reply text must be natively selectable without switching into
+// edit mode: the popup's blanket mousedown-preventDefault exempts the display
+// nodes, and the click that ends a drag-selection is not treated as a request
+// to edit (pointer-travel check in comment-popup.ts). A plain click — including
+// one that lands on text already selected — still opens the editor as before.
+test.describe('Comment display text selection', () => {
+  const SAMPLE =
+    '<p>hi <comment id="c-sel">target' +
+    '<comment-body data-author="human">selectable body text</comment-body>' +
+    '<comment-reply data-author="human">selectable reply text</comment-reply>' +
+    '</comment> bye</p>';
+
+  const BODY_DISPLAY = '#ahve-comment-popup .ahve-cp-body-display';
+  const REPLY_DISPLAY = '#ahve-comment-popup .ahve-cp-reply-display';
+
+  // Drag the mouse horizontally across the element to make a text selection.
+  // Both ends sit in the element's horizontal padding, so a successful drag
+  // covers the whole (single-line) text.
+  async function dragAcross(page: Page, selector: string): Promise<void> {
+    await pressAndDragAcross(page, selector);
+    await page.mouse.up();
+  }
+
+  // Same drag, but the button stays down. Use this when the selection must be
+  // inspected while the display node is still mounted: releasing fires a click
+  // that may open the editor, which replaces the node.
+  async function pressAndDragAcross(page: Page, selector: string): Promise<void> {
+    const box = await page.locator(selector).boundingBox();
+    expect(box).not.toBeNull();
+    const y = box!.y + box!.height / 2;
+    await page.mouse.move(box!.x + 2, y);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + box!.width - 2, y, { steps: 5 });
+  }
+
+  /** The selected text, plus whether the selection lives inside `selector`. */
+  function selectionIn(page: Page, selector: string): Promise<{ text: string; inside: boolean }> {
+    return page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      // Fail loudly instead of reporting "nothing selected": a node that was
+      // replaced by an editor must never make a not-selected assertion pass.
+      if (!el) throw new Error(`selectionIn: no element matches ${selector}`);
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return { text: '', inside: false };
+      return {
+        text: sel.toString(),
+        inside: el.contains(sel.anchorNode) && el.contains(sel.focusNode),
+      };
+    }, selector);
+  }
+
+  test('drag-selecting the body text keeps the selection and stays in display mode', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    const display = popup.locator('.ahve-cp-body-display');
+    await expect(display).toHaveText('selectable body text');
+
+    await dragAcross(page, BODY_DISPLAY);
+
+    const selected = await selectionIn(page, BODY_DISPLAY);
+    expect(selected.text).toBe('selectable body text');
+    expect(selected.inside).toBe(true);
+    // The drag did not flip the body into edit mode.
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toHaveCount(0);
+    await expect(display).toBeVisible();
+  });
+
+  test('drag-selecting a reply keeps the selection and stays in display mode', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    const display = popup.locator('.ahve-cp-reply-display');
+    await expect(display).toHaveText('selectable reply text');
+
+    await dragAcross(page, REPLY_DISPLAY);
+
+    const selected = await selectionIn(page, REPLY_DISPLAY);
+    expect(selected.text).toBe('selectable reply text');
+    expect(selected.inside).toBe(true);
+    // The drag did not flip the reply into edit mode.
+    await expect(popup.locator('.ahve-cp-reply-row textarea.ahve-cp-reply-input')).toHaveCount(0);
+    await expect(display).toBeVisible();
+  });
+
+  test('a plain click still opens the body and reply editors', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+
+    await popup.locator('.ahve-cp-body-display').click();
+    const bodyInput = popup.locator('textarea.ahve-cp-body-input');
+    await expect(bodyInput).toBeVisible();
+    // Commit the (unchanged) body edit so the popup stays open in display mode.
+    await bodyInput.press('Enter');
+    await expect(popup.locator('.ahve-cp-body-display')).toBeVisible();
+
+    await popup.locator('.ahve-cp-reply-display').click();
+    await expect(popup.locator('.ahve-cp-reply-row textarea.ahve-cp-reply-input')).toBeVisible();
+  });
+
+  // Selecting text and then clicking it to edit is the natural follow-up, and
+  // it is exactly where a selection-state guard would swallow the click: the
+  // mousedown lands inside the existing selection, which the browser keeps
+  // alive until it knows whether a drag started.
+  test('clicking body text that is already selected opens the body editor', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await dragAcross(page, BODY_DISPLAY);
+    expect((await selectionIn(page, BODY_DISPLAY)).inside).toBe(true);
+
+    await popup.locator('.ahve-cp-body-display').click();
+
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toHaveValue('selectable body text');
+  });
+
+  test('clicking a reply that is already selected opens the reply editor', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await dragAcross(page, REPLY_DISPLAY);
+    expect((await selectionIn(page, REPLY_DISPLAY)).inside).toBe(true);
+
+    await popup.locator('.ahve-cp-reply-display').click();
+
+    await expect(popup.locator('.ahve-cp-reply-row textarea.ahve-cp-reply-input')).toHaveValue(
+      'selectable reply text',
+    );
+  });
+
+  // Display-mode selection is drag-only by design: the first click of a
+  // double-click opens the editor, so the word selection happens in the
+  // textarea. Pinned here so the trade-off cannot change unnoticed.
+  test('double-clicking the body text opens the editor without changing the body', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+
+    await popup.locator('.ahve-cp-body-display').dblclick();
+
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toHaveValue('selectable body text');
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('selectable body text');
+  });
+
+  // A press released outside the text produces no click on it, so the recorded
+  // press is never consumed. A later click with no pointer behind it (element
+  // .click(), assistive activation) reports coordinates of 0 and must still
+  // open the editor rather than be measured against that stale press.
+  test('a coordinate-less click opens the body editor after a drag released elsewhere', async ({
+    page,
+  }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    const display = popup.locator('.ahve-cp-body-display');
+    await expect(display).toHaveText('selectable body text');
+
+    // Press on the body text, then release over the reply form at the bottom
+    // of the popup: the click lands on a common ancestor, not on the text.
+    await pressAndDragAcross(page, BODY_DISPLAY);
+    const popupBox = await popup.boundingBox();
+    expect(popupBox).not.toBeNull();
+    await page.mouse.move(popupBox!.x + 8, popupBox!.y + popupBox!.height - 8, { steps: 5 });
+    await page.mouse.up();
+    await expect(display).toBeVisible();
+
+    await display.dispatchEvent('click');
+
+    await expect(popup.locator('textarea.ahve-cp-body-input')).toHaveValue('selectable body text');
+  });
+
+  test('the empty-body placeholder is not selectable and any press starts writing', async ({ page }) => {
+    await mountEditor(page, '<p>hello world that is long enough</p>');
+    await focusEditor(page);
+    await selectTextInside(page, '#ahve-root p', 0, 5);
+    await page.locator('#ahve-floating-menu button', { hasText: /^Comment$/ }).click();
+    const popup = page.locator('#ahve-comment-popup');
+    const bodyInput = popup.locator('textarea.ahve-cp-body-input');
+    await expect(bodyInput).toBeFocused();
+    // Commit the (empty, unchanged) body so the placeholder is shown instead.
+    await bodyInput.press('Enter');
+    await expect(popup.locator('.ahve-cp-body-display.ahve-cp-empty')).toHaveText('Add a comment');
+
+    // Assert mid-drag, while the placeholder is still mounted: the release
+    // fires the click that opens the editor and unmounts it, and a vanished
+    // node would make "not selected" true no matter what the code does.
+    await pressAndDragAcross(page, BODY_DISPLAY);
+    const selected = await selectionIn(page, BODY_DISPLAY);
+    expect(selected.inside).toBe(false);
+    expect(selected.text).not.toContain('Add a comment');
+
+    // The press opens the body editor even though the pointer travelled.
+    await page.mouse.up();
+    await expect(bodyInput).toBeVisible();
+  });
+
+  // While an inline editor is open the display text is deliberately not
+  // selectable: blurring the textarea mid-drag would commit it and re-render
+  // the popup, moving the dragged text out from under the pointer.
+  test('dragging a reply while the body editor is open commits nothing and selects nothing', async ({ page }) => {
+    await mountEditor(page, SAMPLE);
+    await page.locator('#ahve-root comment').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await popup.locator('.ahve-cp-body-display').click();
+    const bodyInput = popup.locator('textarea.ahve-cp-body-input');
+    await bodyInput.fill('edited body');
+
+    await dragAcross(page, REPLY_DISPLAY);
+
+    await expect(bodyInput).toBeFocused();
+    await expect(bodyInput).toHaveValue('edited body');
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('selectable body text');
+    await expect(popup.locator('.ahve-cp-reply-row textarea.ahve-cp-reply-input')).toHaveCount(0);
+    expect((await selectionIn(page, REPLY_DISPLAY)).inside).toBe(false);
+  });
+});

@@ -47,6 +47,16 @@ interface ActiveInlineEdit {
 const MARGIN = 8;
 const VIEWPORT_PADDING = 8;
 
+/**
+ * Displayed text the user may select natively. The empty-body placeholder
+ * ("Add a comment") is UI chrome rather than comment content, so it stays
+ * unselectable and any press on it means "start writing the body".
+ */
+const SELECTABLE_DISPLAY = '.ahve-cp-body-display:not(.ahve-cp-empty), .ahve-cp-reply-display';
+
+/** Pointer travel (px) up to which a press/release still counts as a click. */
+const CLICK_SLOP = 4;
+
 export function mountCommentPopup(
   root: HTMLElement,
   opts: CommentPopupOptions,
@@ -100,10 +110,14 @@ export function mountCommentPopup(
   document.body.appendChild(popup);
 
   // Prevent the editor from losing selection when the popup is clicked.
+  // Displayed body/reply text is exempt so it stays natively selectable — but
+  // only while no inline editor is open: letting a textarea blur mid-drag
+  // would commit it and re-render, moving the text out from under the pointer.
   popup.addEventListener('mousedown', (e) => {
     if (e.target instanceof HTMLElement) {
       const tag = e.target.tagName;
       if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+      if (activeEdit === null && e.target.closest(SELECTABLE_DISPLAY)) return;
     }
     e.preventDefault();
   });
@@ -209,14 +223,18 @@ export function mountCommentPopup(
     const display = document.createElement('div');
     display.className = 'ahve-cp-body-display';
     if (text === '') {
+      // Placeholder: nothing to select, so every press opens the editor.
       display.classList.add('ahve-cp-empty');
       display.textContent = 'Add a comment';
+      display.addEventListener('click', () => {
+        void editBody();
+      });
     } else {
       display.textContent = text;
+      onDisplayClick(display, () => {
+        void editBody();
+      });
     }
-    display.addEventListener('click', () => {
-      void editBody();
-    });
     bodySection.appendChild(display);
   }
 
@@ -295,7 +313,7 @@ export function mountCommentPopup(
     const display = document.createElement('div');
     display.className = 'ahve-cp-reply-display';
     display.textContent = reply.textContent ?? '';
-    display.addEventListener('click', () => {
+    onDisplayClick(display, () => {
       void editReply(reply, row);
     });
     main.appendChild(display);
@@ -507,6 +525,41 @@ export function mountCommentPopup(
 
 function bodyEl(comment: Element): Element | null {
   return comment.querySelector(':scope > comment-body');
+}
+
+/**
+ * Run `activate` on a click that means "edit this text", telling it apart from
+ * the click that merely ends a drag-selection (which must keep the selection).
+ *
+ * Pointer travel decides, not selection state: a mousedown landing inside an
+ * existing selection keeps that selection alive until the browser has settled
+ * whether a drag started, so a plain click on already-selected text can still
+ * see a non-collapsed selection and would never reach the editor.
+ *
+ * A double-click is not special-cased: its first click opens the editor, and
+ * the word selection then happens inside the textarea. Display-mode selection
+ * is therefore drag-only, which keeps click-to-edit instant.
+ */
+function onDisplayClick(display: HTMLElement, activate: () => void): void {
+  let downAt: { x: number; y: number } | null = null;
+  display.addEventListener('mousedown', (e) => {
+    downAt = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
+  });
+  display.addEventListener('click', (e) => {
+    const from = downAt;
+    downAt = null;
+    // Travel is only measurable for a click that a real press produced.
+    // detail === 0 marks a click with no pointer behind it (element .click(),
+    // assistive activation): its coordinates are 0, and a press released
+    // outside this element leaves `from` set with no click to consume it — so
+    // comparing the two would swallow the activation. Treat it as a plain one.
+    if (e.detail !== 0 && from) {
+      const moved =
+        Math.abs(e.clientX - from.x) > CLICK_SLOP || Math.abs(e.clientY - from.y) > CLICK_SLOP;
+      if (moved) return;
+    }
+    activate();
+  });
 }
 
 function formatAuthor(author: string): string {
