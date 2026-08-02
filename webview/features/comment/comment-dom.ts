@@ -5,6 +5,8 @@
 // no separate metadata store. Each body/reply carries its own author and last
 // update time; `data-resolved` lives on the <comment> parent (thread scope).
 
+import { deepestEditableText } from '../../shared/dom-utils';
+
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const ID_LENGTH = 8;
 
@@ -32,6 +34,47 @@ export function newCommentId(root: HTMLElement): string {
 
 export function findCommentById(root: HTMLElement, id: string): HTMLElement | null {
   return root.querySelector(`comment[id="${cssEscape(id)}"]`);
+}
+
+/**
+ * Deepest, first non-empty text node within a comment's editable target region
+ * (the content before the first <comment-body>/<comment-reply>), or null.
+ *
+ * The target region is what the reader sees and the only part of a comment an
+ * edit may touch, so both the deletion handlers and the arrow/typing boundary
+ * handlers resolve it through this pair rather than each walking the children
+ * themselves.
+ */
+export function firstNonEmptyTargetText(comment: Element): Text | null {
+  return targetText(comment, false);
+}
+
+/** Mirror of {@link firstNonEmptyTargetText}, taken from the target's end. */
+export function lastNonEmptyTargetText(comment: Element): Text | null {
+  return targetText(comment, true);
+}
+
+function targetText(comment: Element, atEnd: boolean): Text | null {
+  const kids = comment.childNodes;
+  let end = kids.length;
+  for (let i = 0; i < kids.length; i++) {
+    const n = kids[i];
+    if (n.nodeType === Node.ELEMENT_NODE) {
+      const tag = (n as Element).tagName;
+      if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') {
+        end = i;
+        break;
+      }
+    }
+  }
+  const order = atEnd
+    ? Array.from({ length: end }, (_, i) => end - 1 - i)
+    : Array.from({ length: end }, (_, i) => i);
+  for (const i of order) {
+    const found = deepestEditableText(kids[i], atEnd);
+    if (found) return found;
+  }
+  return null;
 }
 
 export function getBody(comment: Element): string {
