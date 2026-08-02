@@ -1,6 +1,17 @@
 // Structural helpers for code-block editing. These functions inspect a
 // collapsed caret without reading editor state or mutating the live DOM.
 
+import type { DeleteDirection } from '../shared/constants';
+
+// Syntax highlighting and imported HTML may wrap code in inline elements.
+// Unknown elements (especially comment metadata) are protected as content so
+// an Enter handler can never remove them as if they were an empty line. Every
+// consumer below spells that guarantee differently — 'content' / true / null —
+// but they all mean "not an ignorable wrapper, so do not touch it".
+const TRANSPARENT_CODE_TAGS = new Set([
+  'CODE', 'SPAN', 'STRONG', 'EM', 'S', 'A', 'B', 'I',
+]);
+
 export interface CodeLineBreakBoundary {
   container: Node;
   offset: number;
@@ -13,12 +24,64 @@ interface CodeFragmentSummary {
 
 type BackwardScanResult = CodeLineBreakBoundary | 'content' | null;
 
-// Syntax highlighting and imported HTML may wrap code in inline elements.
-// Unknown elements (especially comment metadata) are protected as content so
-// an Enter handler can never remove them as if they were an empty line.
-const TRANSPARENT_CODE_TAGS = new Set([
-  'CODE', 'SPAN', 'STRONG', 'EM', 'S', 'A', 'B', 'I',
-]);
+/**
+ * A preformatted block cannot use the ordinary block-edge test because spaces,
+ * newlines, and <br> nodes are editable code content. Ignore only empty inline
+ * wrapper shells introduced by syntax highlighting.
+ */
+export function isCaretAtPreEdge(
+  range: Range,
+  pre: HTMLElement,
+  direction: DeleteDirection,
+): boolean {
+  const edge = document.createRange();
+  if (direction === 'backward') {
+    edge.setStart(pre, 0);
+    edge.setEnd(range.startContainer, range.startOffset);
+  } else {
+    edge.setStart(range.endContainer, range.endOffset);
+    edge.setEnd(pre, pre.childNodes.length);
+  }
+  return !Array.from(edge.cloneContents().childNodes).some(preNodeHasContent);
+}
+
+function preNodeHasContent(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) return (node as Text).data.length > 0;
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  const element = node as Element;
+  if (element.tagName === 'BR') return true;
+  if (!TRANSPARENT_CODE_TAGS.has(element.tagName)) return true;
+  return Array.from(element.childNodes).some(preNodeHasContent);
+}
+
+function codePlaceholderBreakCount(node: Node): number | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node as Text).data.length === 0 ? 0 : null;
+  }
+  if (node.nodeType === Node.COMMENT_NODE) return null;
+  if (node.nodeType !== Node.ELEMENT_NODE) return 0;
+  const element = node as Element;
+  if (element.tagName === 'BR') return 1;
+  if (!TRANSPARENT_CODE_TAGS.has(element.tagName)) return null;
+
+  let breaks = 0;
+  for (const child of Array.from(element.childNodes)) {
+    const childBreaks = codePlaceholderBreakCount(child);
+    if (childBreaks === null) return null;
+    breaks += childBreaks;
+  }
+  return breaks;
+}
+
+export function isEmptyPrePlaceholder(pre: HTMLElement): boolean {
+  let breaks = 0;
+  for (const child of Array.from(pre.childNodes)) {
+    const childBreaks = codePlaceholderBreakCount(child);
+    if (childBreaks === null) return false;
+    breaks += childBreaks;
+  }
+  return breaks <= 1;
+}
 
 /**
  * Return the <br> that starts the trailing empty code line at the caret.

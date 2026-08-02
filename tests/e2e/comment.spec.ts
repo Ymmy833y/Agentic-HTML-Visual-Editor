@@ -369,8 +369,8 @@ test.describe('Comment', () => {
 // Editing in and around an inline <comment> must never corrupt it: the browser
 // default contenteditable split/merge would otherwise cut through the comment
 // (whose <comment-body> is contenteditable=false), losing the target text or
-// body and duplicating the id. See keepCommentWholeOnEnter in editor-core and
-// the COMMENT guard in serialize.
+// body and duplicating the id. See keepCommentWholeOnEnter in
+// features/comment/comment-boundary and the COMMENT guard in serialize.
 test.describe('Comment editing keeps comments intact', () => {
   const SAMPLE =
     '<p>This is sample <comment id="c-gsb0lvjq">text' +
@@ -610,7 +610,8 @@ test.describe('Comment editing keeps comments intact', () => {
 // </comment> (outside) render at the same spot because the <comment-body> is
 // display:none. ArrowRight steps the caret outside so the next character is
 // typed after the comment; ArrowLeft steps back inside. See
-// handleCommentArrowRight / handleInsertOutsideComment in editor-core.
+// handleCommentArrowRight / handleBoundaryInsert in
+// features/comment/comment-boundary.
 test.describe('Comment inside/outside typing', () => {
   // A comment sitting at the very end of its block (nothing after </comment>).
   const TAIL =

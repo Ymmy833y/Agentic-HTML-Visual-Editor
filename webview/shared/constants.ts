@@ -4,6 +4,27 @@
 // UL/OL/TABLE/etc.; paste-sanitize works in lowercase and adds TD/TH).
 
 /**
+ * Which way a deletion travels from the caret. Shared by editor-core's
+ * beforeinput routing and the <pre> edge test in commands/code-block.
+ */
+export type DeleteDirection = 'backward' | 'forward';
+
+/**
+ * How much a deletion removes. The browser reports this through the
+ * `deleteContent*` / `deleteWord*` / `delete{Soft,Hard}Line*` input types; the
+ * comment handlers need it to reproduce the right amount themselves.
+ *
+ * The two line granularities are kept apart because only one of them can be
+ * reproduced safely. A HARD line is the block, so clipping a deletion to the
+ * caret's own text node can only ever remove less than the browser would. A SOFT
+ * line is a VISUAL line, whose extent comes from layout — in a wrapped paragraph
+ * the caret's text node spans several of them, so the same clipping removes
+ * whole lines the user never asked for. Soft-line deletions are therefore
+ * blocked rather than reproduced wherever they are unsafe.
+ */
+export type DeleteGranularity = 'character' | 'word' | 'soft-line' | 'hard-line';
+
+/**
  * Uppercase tag names treated as block-level containers when walking up the
  * tree to find the enclosing block. Single source of truth shared by the
  * editing commands and editor-core.
