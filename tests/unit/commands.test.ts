@@ -231,6 +231,15 @@ describe('insertHr', () => {
     expect(root.innerHTML).toBe('<hr><p><br></p>');
   });
 
+  // Only a list item is emptied by its stub <br> (an abandoned item would show
+  // a stray bullet); an ordinary block keeps the blank line the user made.
+  it('keeps a paragraph that holds only a stub <br>', () => {
+    const root = makeRoot('<p><br></p>');
+    caretAtStart(root.querySelector('p')!);
+    insertHr(ctxOf(root));
+    expect(root.innerHTML).toBe('<p><br></p><hr><p><br></p>');
+  });
+
   it('falls back to appending at the root if no block ancestor exists', () => {
     const root = makeRoot('plain');
     const r = document.createRange();

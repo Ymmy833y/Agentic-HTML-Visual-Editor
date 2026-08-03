@@ -108,6 +108,35 @@ describe('toggleList — toggle off', () => {
     toggleList('ul', ctxOf(root));
     expect(root.innerHTML).toBe('<ul><li>a</li></ul><p>b</p>');
   });
+
+  it('carries list attributes (except id) to the tail of a split', () => {
+    const root = makeRoot(
+      '<ul class="x" id="menu"><li>a</li><li>b</li><li>c</li></ul>',
+    );
+    caretInText(root.querySelectorAll('li')[1]);
+    toggleList('ul', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<ul class="x" id="menu"><li>a</li></ul><p>b</p><ul class="x"><li>c</li></ul>',
+    );
+  });
+
+  it('continues the ordered numbering on the tail, closing the unwrapped gap', () => {
+    const root = makeRoot('<ol start="3"><li>a</li><li>b</li><li>c</li></ol>');
+    caretInText(root.querySelectorAll('li')[1]);
+    toggleList('ol', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<ol start="3"><li>a</li></ol><p>b</p><ol start="4"><li>c</li></ol>',
+    );
+  });
+
+  it('keeps the countdown consistent when a reversed item is toggled off', () => {
+    const root = makeRoot('<ol reversed=""><li>a</li><li>b</li><li>c</li></ol>');
+    caretInText(root.querySelectorAll('li')[1]);
+    toggleList('ol', ctxOf(root));
+    expect(root.innerHTML).toBe(
+      '<ol reversed="" start="2"><li>a</li></ol><p>b</p><ol reversed=""><li>c</li></ol>',
+    );
+  });
 });
 
 describe('toggleList — switch type', () => {
@@ -210,6 +239,15 @@ describe('dedentListItem', () => {
     caretInText(root.querySelectorAll('li')[1]);
     expect(dedentListItem(ctxOf(root))).toBe(true);
     expect(root.innerHTML).toBe('<ul><li>a</li></ul><p>b</p><ul><li>c</li></ul>');
+  });
+
+  it('continues ordered numbering when a top-level middle item is dedented', () => {
+    const root = makeRoot('<ol start="3"><li>a</li><li>b</li><li>c</li></ol>');
+    caretInText(root.querySelectorAll('li')[1]);
+    expect(dedentListItem(ctxOf(root))).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<ol start="3"><li>a</li></ol><p>b</p><ol start="4"><li>c</li></ol>',
+    );
   });
 
   it('returns false when the caret is not in a list item', () => {
