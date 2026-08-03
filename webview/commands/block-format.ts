@@ -2,7 +2,7 @@
 // rules, and create/transform lists. Operate on the nearest block ancestor of
 // the caret.
 
-import { blockOrBareCell, findAncestor, findBlockAncestor, findListContainer, isBlockEmpty } from '../shared/dom-utils';
+import { blockOrBareCell, findAncestor, findBlockAncestor, findListContainer, isBlockEmpty, isBlockEmptyOrStubBr, isInsignificantTail } from '../shared/dom-utils';
 import { BLOCK_TAGS, QUOTE_PLACEHOLDER_ATTR } from '../shared/constants';
 import type { CommandContext } from '../shared/command-context';
 import type { AlertType } from '../shared/alert-types';
@@ -546,6 +546,158 @@ export function setAlertType(type: AlertType | null, ctx: CommandContext): void 
 }
 
 /**
+ * Whether inserting a block below block also drops block itself. Ordinary
+ * blocks keep the long-standing "empty means no children and no text" rule, so
+ * an insertion from a <p><br></p> still leaves the paragraph in place. A list
+ * item is judged empty even when it only holds the stub <br> that a fresh item
+ * always carries (see convertToList below and the Enter handler in
+ * editor-core), because leaving it behind shows a stray bullet — and, once no
+ * <li> remains, an empty <ul>/<ol> shell.
+ */
+function dropsSourceBlock(block: HTMLElement): boolean {
+  return block.tagName === 'LI' ? isBlockEmptyOrStubBr(block) : isBlockEmpty(block);
+}
+
+/**
+ * Build the tail half for splitting list: a new list of the same type that the
+ * caller fills with everything from the split point on. The tail is still the
+ * same list to the user, so it keeps the list's attributes — except id, which
+ * must stay unique in the document — and, for ordered lists, a start that
+ * continues the numbering. headLis is the number of items the head half keeps
+ * (a dropped or unwrapped item leaves no number behind, closing its gap), so
+ * the tail starts right after them.
+ */
+function createListTail(
+  list: HTMLElement,
+  headLis: number,
+  tailNodes: Node[],
+): HTMLElement {
+  const tail = document.createElement(list.tagName);
+  for (const attr of Array.from(list.attributes)) {
+    if (attr.name.toLowerCase() === 'id') continue;
+    tail.setAttribute(attr.name, attr.value);
+  }
+  if (list.tagName === 'OL') {
+    const parsed = Number.parseInt(list.getAttribute('start') ?? '', 10);
+    const explicitStart = Number.isNaN(parsed) ? null : parsed;
+    if (!list.hasAttribute('reversed')) {
+      const tailStart = (explicitStart ?? 1) + headLis;
+      // 1 is the default, so spelling it out would only add noise — and the
+      // attribute copy above may have brought over a start that no longer
+      // applies, which is why this drops it rather than leaving it alone.
+      if (tailStart === 1) tail.removeAttribute('start');
+      else tail.setAttribute('start', String(tailStart));
+    } else {
+      // A reversed list counts DOWN, by default from its own item count, so
+      // the split changes both halves' defaults. Keeping the numbers of the
+      // items both halves keep therefore means making the starts explicit: the
+      // head keeps the number its first item shows, the tail continues right
+      // below the head's last kept item. A half whose new default already
+      // matches gets no attribute (which also clears the start the copy above
+      // brought).
+      const tailLis = tailNodes.filter(
+        (n) => n instanceof Element && n.tagName === 'LI',
+      ).length;
+      const start = explicitStart ?? headLis + tailLis;
+      if (explicitStart === null && start !== headLis) {
+        list.setAttribute('start', String(start));
+      }
+      const tailStart = start - headLis;
+      if (tailStart === tailLis) tail.removeAttribute('start');
+      else tail.setAttribute('start', String(tailStart));
+    }
+  }
+  for (const n of tailNodes) tail.appendChild(n);
+  return tail;
+}
+
+/**
+ * Split list before splitBefore so a block can land between the halves.
+ * The whitespace between pretty-printed items is not content: when nothing
+ * meaningful follows the split point, the block simply goes after the list.
+ * Anything meaningful — further items, but also a list nested directly under
+ * the list, which hand-written HTML does — moves into a {@link createListTail}
+ * inserted after the head. droppedLis is how many head items the caller is
+ * about to remove; they must not be counted when the tail's numbering
+ * continues from the head. Returns where the block must land.
+ */
+function splitListAt(
+  list: HTMLElement,
+  splitBefore: Node | null,
+  droppedLis: number,
+): { parent: Node; before: Node | null } {
+  const trailing: Node[] = [];
+  for (let n: Node | null = splitBefore; n; n = n.nextSibling) trailing.push(n);
+  if (trailing.some((n) => !isInsignificantTail(n))) {
+    let headLis = -droppedLis;
+    for (let n: Node | null = list.firstChild; n && n !== splitBefore; n = n.nextSibling) {
+      if (n instanceof Element && n.tagName === 'LI') headLis++;
+    }
+    const tail = createListTail(list, headLis, trailing);
+    list.parentNode!.insertBefore(tail, list.nextSibling);
+  }
+  return { parent: list.parentNode!, before: list.nextSibling };
+}
+
+/**
+ * Where a block inserted "below" block must land, splitting lists first when
+ * that is what it takes. For an ordinary block the point is simply after it,
+ * among its siblings. A list item is different: its siblings live inside a
+ * UL/OL where only <li> children are valid, so the list is split after the
+ * item and the insertion point is between the two halves, at the list's parent
+ * level. Hand-written HTML also nests lists directly under lists, so when that
+ * parent level is itself a UL/OL the split repeats outward until the insertion
+ * point leaves list containers entirely. dropsSource reports whether the caret
+ * item is about to be removed, so the tail's numbering matches what the head
+ * actually keeps.
+ */
+function splitListForBlockInsertion(
+  block: HTMLElement,
+  dropsSource: boolean,
+): { parent: Node; before: Node | null } {
+  const list = block.parentElement;
+  if (
+    block.tagName !== 'LI' ||
+    !list || !list.parentNode ||
+    (list.tagName !== 'UL' && list.tagName !== 'OL')
+  ) {
+    return { parent: block.parentNode!, before: block.nextSibling };
+  }
+  let point = splitListAt(list, block.nextSibling, dropsSource ? 1 : 0);
+  while (
+    point.parent instanceof HTMLElement &&
+    (point.parent.tagName === 'UL' || point.parent.tagName === 'OL') &&
+    point.parent.parentNode
+  ) {
+    point = splitListAt(point.parent, point.before, 0);
+  }
+  return point;
+}
+
+/**
+ * Drop the block the caret left behind, mirroring the long-standing "removes
+ * the original block if it is empty" behaviour. A list item additionally takes
+ * its list along once nothing significant remains in it — walking further up
+ * through lists nested directly under lists — so an insertion from the only
+ * item never leaves empty <ul>/<ol> shells behind. "No <li> left" alone is not
+ * the right test: a nested list still holding items must keep its parent alive
+ * rather than be deleted with it. Only ever called when
+ * {@link dropsSourceBlock} agreed, so the split above stays consistent with it.
+ */
+function removeSourceBlock(block: HTMLElement): void {
+  let container = block.parentElement;
+  block.remove();
+  while (
+    container && (container.tagName === 'UL' || container.tagName === 'OL') &&
+    Array.from(container.childNodes).every(isInsignificantTail)
+  ) {
+    const parent: HTMLElement | null = container.parentElement;
+    container.remove();
+    container = parent;
+  }
+}
+
+/**
  * Insert a collapsible `<details>` (with a `<summary>` title and an empty body
  * paragraph) below the current block. Inserted open so the body is immediately
  * visible/editable; the summary text is selected so typing overwrites the
@@ -569,8 +721,10 @@ export function insertDetails(ctx: CommandContext): void {
   details.appendChild(body);
 
   if (block && block.parentNode) {
-    block.parentNode.insertBefore(details, block.nextSibling);
-    if (isBlockEmpty(block)) block.remove();
+    const dropsSource = dropsSourceBlock(block);
+    const { parent, before } = splitListForBlockInsertion(block, dropsSource);
+    parent.insertBefore(details, before);
+    if (dropsSource) removeSourceBlock(block);
   } else {
     ctx.root.appendChild(details);
   }
@@ -595,9 +749,11 @@ export function insertHr(ctx: CommandContext): void {
   p.appendChild(document.createElement('br'));
 
   if (block && block.parentNode) {
-    block.parentNode.insertBefore(hr, block.nextSibling);
-    hr.parentNode!.insertBefore(p, hr.nextSibling);
-    if (isBlockEmpty(block)) block.remove();
+    const dropsSource = dropsSourceBlock(block);
+    const { parent, before } = splitListForBlockInsertion(block, dropsSource);
+    parent.insertBefore(hr, before);
+    parent.insertBefore(p, hr.nextSibling);
+    if (dropsSource) removeSourceBlock(block);
   } else {
     ctx.root.appendChild(hr);
     ctx.root.appendChild(p);
@@ -723,8 +879,10 @@ function toggleListOff(
   }
 
   if (after.length > 0) {
-    const tail = document.createElement(list.tagName);
-    for (const li of after) tail.appendChild(li);
+    // The tail carries the list's attributes and continues its numbering; the
+    // unwrapped items stop being numbered, so their gap closes (firstIdx is
+    // exactly the LI count the head keeps).
+    const tail = createListTail(list, firstIdx, after);
     parent.insertBefore(frag, anchor);
     parent.insertBefore(tail, anchor);
   } else {
