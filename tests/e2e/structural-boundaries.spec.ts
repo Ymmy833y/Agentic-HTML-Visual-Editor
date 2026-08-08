@@ -3,6 +3,7 @@ import {
   NATIVE_PROBE,
   caretAtEnd,
   caretAtStart,
+  caretInBareTail,
   focusEditor,
   getNativeProbeHtml,
   getRootHtml,
@@ -672,6 +673,153 @@ test.describe('Structural block deletion boundaries', () => {
   });
 });
 
+test.describe('Table deletion boundaries', () => {
+  const tableHtml = '<table><tbody><tr><td><p>cell</p></td></tr></tbody></table>';
+
+  test('Backspace at the start of the paragraph after a table keeps both intact', async ({ page }) => {
+    const html = tableHtml + '<p>para</p>';
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('Delete at the end of the paragraph before a table keeps both intact', async ({ page }) => {
+    const html = '<p>lead</p>' + tableHtml;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root > p');
+
+    await page.keyboard.press('Delete');
+
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('Delete at the end of the last cell keeps the following paragraph out', async ({ page }) => {
+    const html = tableHtml + '<p>para</p>';
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root td > p');
+
+    await page.keyboard.press('Delete');
+
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('Backspace removes an empty paragraph after a table and types in the last cell', async ({ page }) => {
+    await mountEditor(page, tableHtml + '<p><br></p>');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('x');
+
+    expect(await getRootHtml(page)).toBe(
+      '<table><tbody><tr><td><p>cellx</p></td></tr></tbody></table>',
+    );
+  });
+
+  test('Backspace at the start of bare text after a table keeps both intact', async ({ page }) => {
+    // The corrupted shape older builds produced (and hand-written HTML may
+    // contain): text directly under the root, right behind the table.
+    const html = tableHtml + 'para';
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretInBareTail(page);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  // What the protection deliberately does NOT cover: the table's interior. The
+  // climb out of a cell's only block reaches the table (td → tr → tbody →
+  // table), so the guard could just as easily fire here — these are what says
+  // it must not. The native probes below measure why: Chromium refuses to
+  // merge across a cell boundary, so there is nothing to protect from, and the
+  // one in-cell default that does something is worth keeping. These assert the
+  // real editor, which is what a "the default is harmless here" claim needs.
+  test('Backspace at the start of the first cell leaves the document intact', async ({ page }) => {
+    const html = '<p>lead</p>' + tableHtml;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root td > p');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  // The cell-to-cell crossings. A single-cell table has no previous or next
+  // cell, so the cases above never exercise the boundary CLIMB_PROTECTED_TAGS
+  // deliberately leaves unguarded — these do, against the real editor.
+  const GRID = '<table><tbody><tr><td><p>a</p></td><td><p>b</p></td></tr>'
+    + '<tr><td><p>c</p></td><td><p>d</p></td></tr></tbody></table>';
+
+  test('Backspace at the start of a second cell leaves the table intact', async ({ page }) => {
+    await mountEditor(page, GRID);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root td:nth-child(2) > p');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(GRID);
+  });
+
+  test('Delete at the end of a first cell leaves the table intact', async ({ page }) => {
+    await mountEditor(page, GRID);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root td:nth-child(1) > p');
+
+    await page.keyboard.press('Delete');
+
+    expect(await getRootHtml(page)).toBe(GRID);
+  });
+
+  test('Backspace at the start of a second row leaves the rows intact', async ({ page }) => {
+    await mountEditor(page, GRID);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root tr:nth-child(2) > td:nth-child(1) > p');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(GRID);
+  });
+
+  test('typing still works in a cell the guards leave alone', async ({ page }) => {
+    // The other half of "the editor keeps its hands off": consuming those
+    // keystrokes would be invisible here, so this is what says the cell is
+    // still a live editing surface.
+    await mountEditor(page, GRID);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root td:nth-child(2) > p');
+
+    await page.keyboard.type('x');
+
+    expect(await getRootHtml(page)).toBe(GRID.replace('<p>b</p>', '<p>bx</p>'));
+  });
+
+  test('Backspace outdents an empty first list item inside a cell', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<table><tbody><tr><td><ul><li><br></li><li>b</li></ul></td></tr></tbody></table>',
+    );
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root li');
+
+    await page.keyboard.press('Backspace');
+
+    // The item becomes a paragraph and stays inside the cell — nothing crosses
+    // the table boundary, which is why this keystroke must reach the browser.
+    expect(await getRootHtml(page)).toBe(
+      '<table><tbody><tr><td><p><br></p><ul><li>b</li></ul></td></tr></tbody></table>',
+    );
+  });
+});
+
 // What the structural protection is standing in front of. Measured on a bare
 // contenteditable the editor never binds to, because a handler preventDefault()s
 // first on #ahve-root and the assertion would only restate our own behavior.
@@ -679,6 +827,106 @@ test.describe('Structural block deletion boundaries', () => {
 // caret's CONTAINER, not just of the caret's own block: Chromium does not break
 // a list item or a quoted paragraph out of its container.
 test.describe('Chromium structural merge defaults (native probe)', () => {
+  // What TABLE's membership in PROTECTED_STRUCTURAL_TAGS stands in front of:
+  // the default merge does not stop at the table edge, it dissolves the
+  // paragraph into a bare text node directly under the root.
+  test('Backspace after a table unwraps the paragraph into bare root text', async ({ page }) => {
+    await mountNativeProbe(
+      page,
+      '<table><tbody><tr><td>cell</td></tr></tbody></table><p>para</p>',
+    );
+    await caretAtStart(page, `${NATIVE_PROBE} p`);
+
+    await page.keyboard.press('Backspace');
+
+    const html = await getNativeProbeHtml(page);
+    expect(html).not.toContain('<p>');
+    expect(html).toContain('para');
+    expect(await page.locator(`${NATIVE_PROBE} td`).evaluate((n) => n.textContent))
+      .toBe('cell');
+  });
+
+  // The other half of the table rule, and why CLIMB_PROTECTED_TAGS excludes
+  // TABLE: from INSIDE a cell the same default reaches nothing. Chromium will
+  // not merge across a cell boundary, in either direction, so a caret at a
+  // cell's edge is not standing in front of anything. Read together with the
+  // #ahve-root assertions above — a probe is not styled like the editor, so it
+  // can only be evidence about the browser, never proof the editor is safe.
+  const CELL_TABLE = '<table><tbody><tr><td><p>cell</p></td></tr></tbody></table>';
+
+  test('Backspace at the start of a first cell does nothing at all', async ({ page }) => {
+    const html = '<p>lead</p>' + CELL_TABLE;
+    await mountNativeProbe(page, html);
+    await caretAtStart(page, `${NATIVE_PROBE} td > p`);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getNativeProbeHtml(page)).toBe(html);
+  });
+
+  test('Delete at the end of a last cell does not pull the next block in', async ({ page }) => {
+    const html = CELL_TABLE + '<p>para</p>';
+    await mountNativeProbe(page, html);
+    await caretAtEnd(page, `${NATIVE_PROBE} td > p`);
+
+    await page.keyboard.press('Delete');
+
+    expect(await getNativeProbeHtml(page)).toBe(html);
+  });
+
+  test('Backspace at an empty first list item in a cell outdents it inside the cell', async ({ page }) => {
+    // The one in-cell default worth keeping: it produces a paragraph beside
+    // the remaining list, and nothing leaves the cell.
+    await mountNativeProbe(
+      page,
+      '<table><tbody><tr><td><ul><li><br></li><li>b</li></ul></td></tr></tbody></table>',
+    );
+    await caretAtStart(page, `${NATIVE_PROBE} li`);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getNativeProbeHtml(page)).toBe(
+      '<table><tbody><tr><td><p><br></p><ul><li>b</li></ul></td></tr></tbody></table>',
+    );
+  });
+
+  // The cell-to-cell direction, which the single-cell probes above cannot
+  // reach: they have no previous or next cell, so "Chromium refuses to merge
+  // across a cell boundary" was only ever measured where there was no boundary
+  // to cross. This is the case CLIMB_PROTECTED_TAGS deliberately leaves
+  // unguarded, so it is the one that has to be measured rather than assumed.
+  const GRID = '<table><tbody><tr><td><p>a</p></td><td><p>b</p></td></tr>'
+    + '<tr><td><p>c</p></td><td><p>d</p></td></tr></tbody></table>';
+
+  test('Backspace at the start of a second cell does not merge it into the first', async ({ page }) => {
+    await mountNativeProbe(page, GRID);
+    await caretAtStart(page, `${NATIVE_PROBE} td:nth-child(2) > p`);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getNativeProbeHtml(page)).toBe(GRID);
+  });
+
+  test('Delete at the end of a first cell does not pull the second cell in', async ({ page }) => {
+    await mountNativeProbe(page, GRID);
+    await caretAtEnd(page, `${NATIVE_PROBE} td:nth-child(1) > p`);
+
+    await page.keyboard.press('Delete');
+
+    expect(await getNativeProbeHtml(page)).toBe(GRID);
+  });
+
+  test('Backspace at the start of a second row does not merge the rows', async ({ page }) => {
+    // A deeper crossing than the cell pair (td → tr → td), and the one that
+    // would restructure the table rather than just a cell if it fired.
+    await mountNativeProbe(page, GRID);
+    await caretAtStart(page, `${NATIVE_PROBE} tr:nth-child(2) > td:nth-child(1) > p`);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getNativeProbeHtml(page)).toBe(GRID);
+  });
+
   test('Backspace at the first list item merges it into the previous pre', async ({ page }) => {
     await mountNativeProbe(page, '<pre><code>code</code></pre><ul><li>a</li></ul>');
     await caretAtStart(page, `${NATIVE_PROBE} li`);

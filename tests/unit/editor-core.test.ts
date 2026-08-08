@@ -4748,3 +4748,681 @@ describe('setupEditor: typing inside vs outside a comment', () => {
     expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(false);
   });
 });
+
+describe('setupEditor: editing an effectively empty document', () => {
+  it('wraps the first typed character in a paragraph', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>a</p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Type text');
+    const sel = window.getSelection()!;
+    expect(sel.isCollapsed).toBe(true);
+    const caret = sel.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p')!.firstChild);
+    expect(caret.startOffset).toBe(1);
+  });
+
+  it('treats a whitespace-only root as empty and keeps its text nodes', () => {
+    const root = makeRoot('\n  ');
+    setupEditor(root, () => {});
+    caretAtStart(root.firstChild!); // caret inside the whitespace text node
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelector('p')!.textContent).toBe('a');
+    expect(root.textContent).toBe('a\n  ');
+  });
+
+  it('drops a stray root-level <br> placeholder when materializing', () => {
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p>');
+  });
+
+  it('turns Enter in an empty document into the canonical paragraph pair', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p><p><br></p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Insert paragraph');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.children[1]);
+    expect(caret.startOffset).toBe(0);
+  });
+
+  // Shift+Enter is the fifth entry point into an empty root, alongside typing,
+  // Enter, IME composition and paste. Without a handler the browser default
+  // writes the break as a bare root-level <br> — the very shape the other four
+  // now avoid. The rendered result (does the caret really land on line 2?) is
+  // measured in tests/e2e/empty-document.spec.ts; what jsdom can say is which
+  // nodes the handler builds and that the keystroke is consumed.
+  it('puts a Shift+Enter line break inside a paragraph', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(true);
+    // Two breaks: the line the keystroke asked for, plus the stub that gives
+    // the second line a box. No bare <br> under the root, which is the point.
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+    expect(root.querySelector(':scope > br')).toBeNull();
+    expect(onCommandEdit).toHaveBeenCalledWith('Insert paragraph');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p'));
+    expect(caret.startOffset).toBe(1);
+  });
+
+  it('leaves the trailing break unmarked so the next native one has a line box', () => {
+    // The stub is Chromium's own placeholder convention, and Chromium collapses
+    // it when text is typed. Marking it with QUOTE_PLACEHOLDER_ATTR instead
+    // made a SECOND Shift+Enter a no-op: that one is a native edit, so nothing
+    // rebuilds the placeholder and removeQuotePlaceholders (which runs on every
+    // input event) swept the line box Chromium had just added. Both halves are
+    // measured against a real browser in tests/e2e/empty-document.spec.ts.
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertLineBreak');
+    root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertLineBreak' }));
+
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+  });
+
+  it('drops a stray root-level <br> when Shift+Enter materializes', () => {
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+  });
+
+  it('leaves Shift+Enter in an existing bare inline run to the browser', () => {
+    // Same rule as typing: a bare run in an existing document is a supported
+    // shape, so the keystroke must not rewrite it into a paragraph.
+    const root = makeRoot('hello');
+    setupEditor(root, () => {});
+    caretAtEnd(root.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('hello');
+  });
+
+  it('leaves Shift+Enter inside an existing paragraph to the browser', () => {
+    const root = makeRoot('<p>x</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>x</p>');
+  });
+
+  it('materializes a paragraph when an IME composition starts in an empty root', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+
+    expect(root.innerHTML).toBe('<p><br></p>');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p'));
+    expect(caret.startOffset).toBe(0);
+  });
+
+  it('rolls the materialized paragraph back when the composition commits nothing', () => {
+    // Cancelling the IME (Escape) fires compositionend with empty data. The
+    // document must return to its pre-composition shape: without the rollback
+    // an empty document would save as <p><br></p> although nothing was typed.
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><br></p>');
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.collapsed).toBe(true);
+    expect(caret.startContainer).toBe(root);
+  });
+
+  it('re-reports the rolled-back document to the history channel', () => {
+    // The browser reports a running composition through input events, so the
+    // history layer has already been handed a snapshot that includes the
+    // paragraph materialized at compositionstart. The rollback happens after
+    // that and outside the input path; unless the document is reported again,
+    // the pending transaction keeps a paragraph the user never made and undo
+    // would restore it.
+    const root = makeRoot('');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    root.dispatchEvent(
+      new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'に' }),
+    );
+    expect(reported).toEqual(['<p><br></p>']);
+
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('');
+    // Same grouping as the composition's own input events, so the pending
+    // transaction is overwritten rather than a second one opened.
+    expect(reported).toEqual(['<p><br></p>', '']);
+  });
+
+  it('reports nothing extra when the composition commits text', () => {
+    // The mirror: a committed composition changed the document for real, so
+    // the input events already describe it and there is nothing to re-report.
+    const root = makeRoot('');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    root.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(
+      new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: '日本語' }),
+    );
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(reported).toEqual(['<p>日本語</p>']);
+  });
+
+  it('keeps the materialized paragraph when the composition commits text', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    // The browser inserts the committed text into the paragraph in place of
+    // the stub before compositionend fires.
+    root.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(root.innerHTML).toBe('<p>日本語</p>');
+  });
+
+  it('leaves typing into an existing bare inline run to the browser', () => {
+    // Bare runs in existing documents are a supported shape; mere typing must
+    // not rewrite them into paragraphs.
+    const root = makeRoot('hello');
+    setupEditor(root, () => {});
+    caretAtStart(root.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('hello');
+  });
+
+  it('leaves typing inside an existing paragraph to the browser', () => {
+    const root = makeRoot('<p>x</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>x</p>');
+  });
+});
+
+describe('setupEditor: protects table boundaries', () => {
+  const tableHtml =
+    '<table><tbody><tr><td><p>cell</p></td></tr></tbody></table>';
+
+  it('prevents Backspace at the start of the block after a table', () => {
+    const html = tableHtml + '<p>para</p>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Delete at the end of the block before a table', () => {
+    const html = '<p>lead</p>' + tableHtml;
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  // The protection is the table's OUTER edge, not its interior. A caret inside
+  // a cell is left to the browser, because Chromium refuses to merge across a
+  // cell boundary in either direction — every case below is a plain no-op for
+  // it, and the one in-cell default that does something (outdenting an empty
+  // first list item) stays inside the cell. Both halves are measured in
+  // tests/e2e/structural-boundaries.spec.ts, on a native probe AND against the
+  // real editor root. Consuming these keystrokes here would edit nothing and
+  // would take the outdent away, so what these assert is that the editor keeps
+  // its hands off: no preventDefault, no recorded edit.
+  it('leaves Backspace at the start of the first cell to the browser', () => {
+    const html = '<p>lead</p>' + tableHtml;
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('td > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('leaves Delete at the end of the last cell to the browser', () => {
+    // The mirror of the first-cell case, and a different branch: the climb out
+    // of td/tr/tbody/table is what used to carry the protection inwards, so
+    // the forward direction has to be asserted on its own.
+    const html = tableHtml + '<p>para</p>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('td > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('leaves an empty first list item in a cell to the browser so it can outdent', () => {
+    // The climb here is li → ul → td → tr → tbody → table, so a table that
+    // protected through the climb would consume this keystroke and the item
+    // could never be outdented with Backspace.
+    const html =
+      '<table><tbody><tr><td><ul><li><br></li><li>b</li></ul></td></tr></tbody></table>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('still protects a details the climb leaves, so the narrowing is table-only', () => {
+    // The counterpart of the table rule: DETAILS/SUMMARY/PRE keep protecting
+    // through a climb. Without this, dropping TABLE from the climb set could
+    // be widened to the whole set without a test noticing.
+    const html = '<p>lead</p><details open=""><summary>s</summary><ul><li>a</li></ul></details>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects a bare text run sitting directly after a table', () => {
+    // The corrupted shape older builds produced (and hand-written HTML may
+    // contain): text directly under the root, right behind the table.
+    const html = tableHtml + 'para';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.lastChild!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('drops an empty block after a table and lands the caret in the last cell', () => {
+    const root = makeRoot(tableHtml + '<p><br></p>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    const cellText = root.querySelector('td > p')!.firstChild as Text;
+    expect(caret.startContainer).toBe(cellText);
+    expect(caret.startOffset).toBe(cellText.length);
+  });
+
+  it('drops an empty block before a table and lands the caret in the first cell', () => {
+    // The forward mirror of the case above. It is the same branch with the
+    // other caret placement (placeAtEnd false), which no other test reaches:
+    // the details/pre pair covers the OTHER branch, and TABLE is not a block
+    // tag, so it can never be the caret's own block.
+    const root = makeRoot('<p><br></p>' + tableHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('td > p')!.firstChild);
+    expect(caret.startOffset).toBe(0);
+  });
+
+  it('blocks Backspace at the start of the first list item after a table', () => {
+    // The climb leaves the <ul> and faces the table, so the protection applies
+    // through the container exactly as it does for a pre/details neighbour.
+    const html = tableHtml + '<ul><li>a</li></ul>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('drops an empty first list item after a table and lands the caret in the last cell', () => {
+    // The counterpart of the case above, and the one that CHANGES with TABLE
+    // in PROTECTED_STRUCTURAL_TAGS: the empty item is now removed as an
+    // intentional edit instead of being left to the browser's outdent. The
+    // same thing already happens beside a <pre>/<details>, so this pins the
+    // consistency — and it is deliberately the opposite of the in-cell case
+    // ("leaves an empty first list item in a cell to the browser so it can
+    // outdent"), where nothing crosses the table's outer edge.
+    const root = makeRoot(tableHtml + '<ul><li><br></li><li>b</li></ul>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml + '<ul><li>b</li></ul>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    const cellText = root.querySelector('td > p')!.firstChild as Text;
+    expect(caret.startContainer).toBe(cellText);
+    expect(caret.startOffset).toBe(cellText.length);
+  });
+
+  it('removes the list too when its only item was the empty one', () => {
+    // removeEmptiedContainers unwinds the <ul> the climb stepped out of, so no
+    // invisible empty list is left behind after the table.
+    const root = makeRoot(tableHtml + '<ul><li><br></li></ul>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+  });
+
+  it('still merges two ordinary paragraphs across a Backspace', () => {
+    const root = makeRoot('<p>one</p><p>two</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.children[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>onetwo</p>');
+  });
+});
+
+describe('setupEditor: an abandoned composition restores the root exactly', () => {
+  const start = (root: HTMLElement): void => {
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+  };
+  const abandon = (root: HTMLElement): void => {
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+  };
+
+  it('puts back the <br> placeholder it displaced', () => {
+    // `<body><br></body>` is a shape a .html file on disk carries, and it is
+    // what Chromium leaves behind in an emptied editable. Materializing the
+    // paragraph drops that <br> (the paragraph provides the line box), so a
+    // composition the user abandons has to bring it back — otherwise an
+    // untouched document silently saves as empty.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    expect(root.innerHTML).toBe('<p><br></p>');
+    abandon(root);
+
+    expect(root.innerHTML).toBe('<br>');
+  });
+
+  it('does not report the untouched document to the history channel', () => {
+    // Without the restore the rollback reported an empty document here, so the
+    // pending transaction committed the lost <br> as a real edit that undo
+    // would then have to put back.
+    const root = makeRoot('<br>');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(reported).toEqual(['<br>']);
+  });
+
+  it('keeps breaks in place when they are interleaved with whitespace', () => {
+    const html = '\n  <br>\n  ';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('keeps two adjacent breaks in their original order', () => {
+    // Each dropped break is anchored on the next SURVIVING sibling, so a pair
+    // sharing one anchor has to be restored in document order.
+    const root = makeRoot('<br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe('<br><br>');
+  });
+
+  it('leaves an empty root empty', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe('');
+  });
+
+  it('does not resurrect the break when the composition commits text', () => {
+    // The mirror: a committed composition is a real edit, so the paragraph
+    // stays and the placeholder it replaced must NOT come back beside it.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    root.querySelector('p')!.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(root.innerHTML).toBe('<p>日本語</p>');
+  });
+
+  it('still drops the break for good when the user actually types', () => {
+    // insertText is not rolled back, so the placeholder stays gone.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p>');
+  });
+});
+
+describe('setupEditor: what counts as an empty document', () => {
+  /** Put a collapsed caret directly on the root at a child index. */
+  const caretAtRootIndex = (root: HTMLElement, index: number): void => {
+    const range = document.createRange();
+    range.setStart(root, index);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+
+  it('drops only the break the paragraph stands in for', () => {
+    // Root-level breaks are blank lines the reader can see. Taking them all out
+    // deleted content on the very first keystroke, and only for typing — the
+    // composition rollback put them back, so the two paths disagreed.
+    const root = makeRoot('<br><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p><br><br>');
+  });
+
+  it('puts the paragraph where the caret was, not where an index lands after the removal', () => {
+    // The insertion point is resolved as a NODE before the break is taken out.
+    // Read as an index afterwards it named a different child, so a caret on the
+    // second line produced a paragraph on the first.
+    const root = makeRoot('<br><br>');
+    setupEditor(root, () => {});
+    caretAtRootIndex(root, 1);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<br><p>a</p>');
+  });
+
+  it('leaves a document holding an image to the browser', () => {
+    // An <img> is childless and not a block tag, so the "caret is at the edge of
+    // its block" predicate calls it insignificant — a document showing a picture
+    // would have counted as empty and had its breaks deleted around it.
+    const root = makeRoot('<img src="x"><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<img src="x"><br><br>');
+  });
+
+  it('leaves a document holding a rule to the browser', () => {
+    const root = makeRoot('<hr>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<hr>');
+  });
+
+  it('leaves a document holding an empty table to the browser', () => {
+    // Same trap one level deeper: every node on the way down is childless or a
+    // non-block, so the whole table answered "insignificant".
+    const html = '<table><tbody><tr><td></td></tr></tbody></table>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('still treats whitespace and a lone break as empty', () => {
+    const root = makeRoot('\n  <br>\n  ');
+    setupEditor(root, () => {});
+    caretAtRootIndex(root, 1); // on the break itself
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('\n  <p>a</p>\n  ');
+  });
+
+  it('rolls an abandoned composition back over the untouched breaks', () => {
+    // The rollback stays exact now that only one break ever leaves.
+    const root = makeRoot('<br><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><br></p><br><br>');
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('<br><br><br>');
+  });
+
+  it('does not materialize anything for a composition in an image-only document', () => {
+    const root = makeRoot('<img src="x">');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+
+    expect(root.innerHTML).toBe('<img src="x">');
+  });
+});

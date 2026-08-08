@@ -1,11 +1,13 @@
-// Deletion at the edge of a structural block (<details>/<summary>/<pre>).
+// Deletion at the edge of a structural block (<details>/<summary>/<pre>/<table>).
 //
 // Chromium does not safely no-op at these boundaries: crossing a details/summary
-// boundary can discard the details body, and crossing a pre boundary moves text
-// inside the <pre> but outside its <code> wrapper. There is no unambiguous flat
-// merge for either shape, so the browser default is blocked. The one deletion
-// that IS meaningful there — dropping the empty block left behind when exiting a
-// code block — is performed here instead.
+// boundary can discard the details body, crossing a pre boundary moves text
+// inside the <pre> but outside its <code> wrapper, and crossing a table boundary
+// dissolves the adjacent paragraph into a bare text node directly under the
+// root. There is no unambiguous flat merge for any of these shapes, so the
+// browser default is blocked. The one deletion that IS meaningful there —
+// dropping the empty block left behind when exiting a code block (or an empty
+// paragraph beside a details/table) — is performed here instead.
 //
 // The native defaults these two entry points stand in front of are measured in
 // tests/e2e/structural-boundaries.spec.ts (native probe).
@@ -26,7 +28,46 @@ import {
 } from '../shared/dom-utils';
 import { isCaretAtPreEdge, isEmptyPrePlaceholder } from './code-block';
 
-const PROTECTED_STRUCTURAL_TAGS = new Set(['DETAILS', 'SUMMARY', 'PRE']);
+// TABLE is protected for the same reason as the others: Chromium's default
+// merge at a table edge does not stop at the boundary — Backspace at the start
+// of the block after a table unwraps that block into a bare text node under
+// the root (measured on a native probe in
+// tests/e2e/structural-boundaries.spec.ts).
+//
+// This set also feeds {@link handleEmptyBlockAtStructuralBoundary}, so the
+// deliberate edit it performs now applies beside a table too: an empty block
+// at the table's outer edge is DROPPED and the caret moves into the nearest
+// cell, including an empty first <li> the climb reaches the table from. That
+// is the same trade already made beside a <pre>/<details>, and the opposite of
+// what happens INSIDE a cell, where the browser's outdent is left alone. Both
+// halves are pinned in tests/unit/editor-core.test.ts.
+const PROTECTED_STRUCTURAL_TAGS = new Set(['DETAILS', 'SUMMARY', 'PRE', 'TABLE']);
+
+// The subset whose protection also carries through a CLIMB — a caret whose own
+// block sits at the edge of a container nested inside the structure, so the
+// deletion would leave that container before reaching the structural edge.
+//
+// TABLE is deliberately absent, and that is not a subtlety of the climb: the
+// climb out of a cell's only block does reach the table (through TD/TR/TBODY),
+// which is exactly why the distinction has to be stated here rather than left
+// implicit. Chromium simply refuses to merge across a cell boundary in either
+// direction, so an in-cell caret never reaches the table's outer edge by
+// default — Backspace at the start of a first cell, Delete at the end of a
+// last cell, and every crossing between cells are all plain no-ops. Inheriting
+// the table's protection there would consume keystrokes that edit nothing, and
+// would swallow the one in-cell default that IS meaningful: outdenting an
+// empty first list item into a paragraph, which stays inside the cell. All of
+// these are measured in tests/e2e/structural-boundaries.spec.ts, both on a
+// native probe and against the real editor root.
+//
+// The cell-to-cell crossings need a table that HAS a second cell, so they are
+// measured on a 2x2 grid rather than the single-cell table the outer-edge cases
+// use: Backspace at the start of a second cell, Delete at the end of a first
+// one, and Backspace at the start of a second row. A single-cell table has no
+// boundary to cross, so it can say nothing about this exclusion.
+const CLIMB_PROTECTED_TAGS = new Set(
+  Array.from(PROTECTED_STRUCTURAL_TAGS).filter((tag) => tag !== 'TABLE'),
+);
 
 // Tags that can hold a collapsed caret once a structural block turns out to
 // carry no text. Derived from BLOCK_TAGS so a new block tag is never missed
@@ -183,7 +224,7 @@ export function isProtectedStructuralBoundary(
   // steps out of protects it directly. See the native probes in
   // tests/e2e/structural-boundaries.spec.ts.
   const { neighbour, crossed } = climbToBoundaryNeighbour(block, root, direction);
-  if (crossed.some((el) => PROTECTED_STRUCTURAL_TAGS.has(el.tagName))) return true;
+  if (crossed.some((el) => CLIMB_PROTECTED_TAGS.has(el.tagName))) return true;
   return neighbour !== null && isProtectedStructuralElement(neighbour);
 }
 

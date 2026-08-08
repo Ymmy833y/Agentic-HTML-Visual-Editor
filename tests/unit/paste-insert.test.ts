@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { insertFragmentAtCursor } from '../../webview/features/clipboard/insert';
-import { caretAtEnd, clearDom, makeRoot } from './helpers/selection';
+import { caretAtEnd, caretAtStart, clearDom, makeRoot } from './helpers/selection';
 
 afterEach(clearDom);
 
@@ -85,5 +85,71 @@ describe('insertFragmentAtCursor', () => {
       '<p>This is sample text.</p>' +
         '<p><span style="font-size: 1.25em; font-weight: 600;">Level 3 heading</span></p>',
     );
+  });
+});
+
+// A fresh .html opened straight in the WYSIWYG view has no block for the
+// insertion to anchor to, so inline clipboard content landed directly under the
+// root. Typing, Enter and IME composition all materialize the canonical
+// paragraph first (see core/editor-core); paste is the remaining entry point,
+// and without it the document's initial shape depended on which one the user
+// happened to use.
+describe('insertFragmentAtCursor — an effectively empty document', () => {
+  it('wraps pasted inline content in a paragraph', () => {
+    const root = makeRoot('');
+    caretAtStart(root);
+
+    insertFragmentAtCursor(root, fragment('pasted'));
+
+    expect(root.innerHTML).toBe('<p>pasted</p>');
+  });
+
+  it('does not leave the paragraph placeholder beside the pasted text', () => {
+    const root = makeRoot('');
+    caretAtStart(root);
+
+    insertFragmentAtCursor(root, fragment('<strong>bold</strong>'));
+
+    expect(root.innerHTML).toBe('<p><strong>bold</strong></p>');
+    expect(root.querySelector('br')).toBeNull();
+  });
+
+  it('leaves no empty paragraph behind when the clipboard carries blocks', () => {
+    const root = makeRoot('');
+    caretAtStart(root);
+
+    insertFragmentAtCursor(root, fragment('<h2>Heading</h2><p>body</p>'));
+
+    expect(root.innerHTML).toBe('<h2>Heading</h2><p>body</p>');
+  });
+
+  it('treats a whitespace-and-break document as empty too', () => {
+    const root = makeRoot('<br>');
+    caretAtStart(root);
+
+    insertFragmentAtCursor(root, fragment('pasted'));
+
+    expect(root.innerHTML).toBe('<p>pasted</p>');
+  });
+
+  it('leaves an existing bare root-level run alone', () => {
+    // Bare runs in an existing document are a supported shape; pasting into one
+    // must not rewrite it into a paragraph.
+    const root = makeRoot('hello');
+    caretAtEnd(root.firstChild!);
+
+    insertFragmentAtCursor(root, fragment(' there'));
+
+    expect(root.innerHTML).toBe('hello there');
+  });
+
+  it('leaves a document holding an image to the ordinary path', () => {
+    const root = makeRoot('<img src="a.png" alt="a">');
+    caretAtStart(root);
+
+    insertFragmentAtCursor(root, fragment('pasted'));
+
+    expect(root.querySelector('p')).toBeNull();
+    expect(root.querySelector('img')).not.toBeNull();
   });
 });

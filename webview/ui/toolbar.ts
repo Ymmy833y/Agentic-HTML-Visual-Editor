@@ -2,7 +2,7 @@
 // command and then notifies the caller so the resulting edit can be
 // serialized and pushed back to the extension host.
 
-import { clearFormatting, isRangeCovered, toggleInline } from '../commands/inline-format';
+import { clearFormatting, collectSegments, segmentsCovered, toggleInline } from '../commands/inline-format';
 import { insertDetails, insertHr, setAlertType, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
 import { findInlineAncestor, getCurrentAlertType, getCurrentBlockTag, getNearestListType } from '../commands/query';
 import type { CommandContext } from '../shared/command-context';
@@ -186,8 +186,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
     e.preventDefault();
   });
 
-  // Sync toolbar active states whenever the cursor moves inside the editor.
-  document.addEventListener('selectionchange', () => {
+  const syncActiveStates = (): void => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
@@ -201,10 +200,15 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
 
     // For a collapsed cursor use ancestor check; for a range require all text
     // to carry the style (matches the toggle semantic: active ↔ "will remove").
+    // Segmented once for all four buttons rather than once per button: the walk
+    // descends into every structural child the range touches and asks a subtree
+    // query per inline node, so it is proportional to the selection, not to the
+    // root's child count.
+    const segments = range.collapsed ? null : collectSegments(range, root);
     const covered = (tagName: string): boolean =>
-      range.collapsed
+      segments === null
         ? !!findInlineAncestor(node, tagName, root)
-        : isRangeCovered(range, tagName, root);
+        : segmentsCovered(segments, tagName, root);
 
     boldBtn.classList.toggle('ahve-tb-active', covered('STRONG'));
     italicBtn.classList.toggle('ahve-tb-active', covered('EM'));
@@ -217,6 +221,30 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
     olBtn.classList.toggle('ahve-tb-active', listType === 'ol');
     bar.querySelector<HTMLElement>('.ahve-tb-link')
       ?.classList.toggle('ahve-tb-active', !!findInlineAncestor(node, 'A', root));
+  };
+
+  // Sync toolbar active states whenever the cursor moves inside the editor,
+  // coalesced onto one animation frame.
+  //
+  // selectionchange fires for every mouse move of a drag and every arrow
+  // keypress, while the read above walks every node the selection touches and
+  // runs a subtree query per inline node — so a drag across a long document
+  // paid that walk dozens of times per second to paint at most one set of
+  // button states. The frame is the smallest interval any of it could become
+  // visible in, so nothing is lost by collapsing the burst into it.
+  //
+  // Only the LAST event of a frame matters: each run reads the live selection
+  // rather than the event it was scheduled by, so an intermediate selection has
+  // nothing to contribute and a leading-edge run would only show a state the
+  // user never stopped at. Trailing edge it is — the toolbar always ends up
+  // describing the selection the document actually holds.
+  let syncFrame: number | null = null;
+  document.addEventListener('selectionchange', () => {
+    if (syncFrame !== null) return;
+    syncFrame = window.requestAnimationFrame(() => {
+      syncFrame = null;
+      syncActiveStates();
+    });
   });
 
   return {
