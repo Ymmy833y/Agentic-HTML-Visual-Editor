@@ -36,6 +36,19 @@ export const BLOCK_TAGS = new Set([
 ]);
 
 /**
+ * The root-level children a bare inline run may never absorb: a block, list,
+ * table, or other structural element. {@link isRootBlockBoundary} in
+ * shared/dom-utils is the predicate over this set; the set itself is exported
+ * because commands/inline-format builds a CSS selector from it to ask "does
+ * this block hold anything the segment walk has to descend into?" in one
+ * native query.
+ */
+export const ROOT_BLOCK_BOUNDARY_TAGS: ReadonlySet<string> = new Set([
+  ...BLOCK_TAGS,
+  'UL', 'OL', 'TABLE', 'HR', 'FIGURE',
+]);
+
+/**
  * Uppercase tag names of the inline formats the editor can toggle. Shared by
  * the inline-format command and editor-core (Enter format inheritance).
  */

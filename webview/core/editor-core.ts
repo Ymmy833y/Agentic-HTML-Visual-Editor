@@ -25,8 +25,10 @@ import {
   findBareBlockquoteLine,
   findBareBlockquoteRun,
   findBareRootRun,
+  materializeEmptyRootParagraph,
   toggleList,
 } from '../commands/block-format';
+import type { MaterializedParagraph } from '../commands/block-format';
 import { alertTypeFromShortcut } from '../shared/alert-types';
 import { findTrailingEmptyCodeLine } from '../commands/code-block';
 import {
@@ -154,6 +156,12 @@ export function setupEditor(
   // it, so the presentational-tag normalizer and the comment-boundary insertText
   // handler both stand down until compositionend.
   let composing = false;
+  // What was materialized at compositionstart in an effectively empty root —
+  // the paragraph and the <br> placeholders it displaced — tracked so a
+  // composition that commits nothing can be rolled back whole. Without the
+  // rollback, cancelling the IME would keep the structural change and an empty
+  // document would save as <p><br></p>.
+  let composedEmptyRoot: MaterializedParagraph | null = null;
 
   // Comment leading-edge state. The browser normalises the inside-start caret to
   // the outside, so the caret position alone cannot say "type inside". ArrowRight
@@ -193,6 +201,13 @@ export function setupEditor(
     // "type inside" intent (it is meaningful only for the immediate next char).
     if (e.inputType !== 'insertText') boundary.pendingInside = null;
     if (e.inputType === 'insertParagraph') {
+      // Enter in an effectively empty document gets the canonical paragraph
+      // pair; the browser default would edit the bare root directly.
+      if (handleEmptyRootEnter(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
       // A blank trailing line is the escape hatch from a code block. Chromium
       // represents code-block line breaks with <br> nodes while existing HTML
       // may contain literal newlines, so the handler supports both forms.
@@ -257,6 +272,16 @@ export function setupEditor(
         return;
       }
     }
+    if (e.inputType === 'insertLineBreak') {
+      // Shift+Enter is the fifth way into an effectively empty document, and it
+      // reaches the same browser default the other four now stand in front of:
+      // the break becomes a bare root-level <br> with no block around it.
+      if (handleEmptyRootLineBreak(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
+    }
     if (e.inputType === 'insertText' && e.data === ' ') {
       if (handleHeadingShortcut(root)) {
         e.preventDefault();
@@ -285,6 +310,15 @@ export function setupEditor(
       typeof e.data === 'string' &&
       e.data.length > 0
     ) {
+      // Typing into an effectively empty root would leave the character as a
+      // bare text node directly under the root, where the list commands and
+      // Ctrl+A formatting have no block to anchor to. Materialize the
+      // canonical paragraph and perform the insertion inside it instead.
+      if (handleEmptyRootInsertText(root, e.data)) {
+        e.preventDefault();
+        recordHandledEdit('Type text');
+        return;
+      }
       if (handleBoundaryInsert(root, boundary, e.data)) {
         e.preventDefault();
         recordHandledEdit('Type text');
@@ -338,9 +372,11 @@ export function setupEditor(
       }
       // Chromium does not safely no-op at semantic block boundaries. In
       // particular, crossing a details/summary boundary can discard the
-      // details body, and crossing a pre boundary can move text outside its
-      // code wrapper. There is no unambiguous merge for these structures, so
-      // keep both sides intact and consume the key without recording an edit.
+      // details body, crossing a pre boundary can move text outside its code
+      // wrapper, and crossing a table boundary dissolves the adjacent block
+      // into a bare text node under the root. There is no unambiguous merge
+      // for these structures, so keep both sides intact and consume the key
+      // without recording an edit.
       if (isProtectedStructuralBoundary(root, deletion.direction)) {
         e.preventDefault();
         return;
@@ -431,11 +467,36 @@ export function setupEditor(
     // IME composes at the (normalised, outside) caret, so a leading-edge inside
     // intent cannot be honoured for it; drop it rather than mis-route the commit.
     boundary.pendingInside = null;
+    // A composition that begins in an effectively empty root would commit its
+    // text as a bare text node under the root. insertCompositionText is not
+    // cancelable, so the paragraph is materialized here, before the browser
+    // inserts any composition text into it.
+    composedEmptyRoot = materializeEmptyRootParagraph(root);
   });
-  root.addEventListener('compositionend', () => {
+  root.addEventListener('compositionend', (e: CompositionEvent) => {
     composing = false;
+    // A composition that committed nothing (cancelled, or emptied before
+    // confirming) reports empty data here and leaves the materialized
+    // paragraph as the untouched stub; remove it so the document returns to
+    // its pre-composition shape instead of keeping an edit the user never made.
+    let rolledBack = false;
+    if (composedEmptyRoot) {
+      if (!e.data) {
+        rolledBack = rollbackEmptyRootParagraph(root, composedEmptyRoot);
+      }
+      composedEmptyRoot = null;
+    }
     normalizePresentationalTags(root);
     scheduleChange();
+    // The browser reports a running composition through input events, so the
+    // history layer already holds a snapshot that includes the paragraph
+    // materialized at compositionstart. The rollback above happens afterwards
+    // and outside that path, so hand the rolled-back document to the same
+    // channel: recordNative overwrites the pending transaction's "after" with
+    // what the document really contains, which now equals its "before" and is
+    // therefore committed as nothing at all. Without this the transaction would
+    // keep — and undo/redo would restore — a paragraph the user never made.
+    if (rolledBack) onNativeEdit?.('insertCompositionText');
   });
 
   root.addEventListener('input', (event: Event) => {
@@ -462,6 +523,145 @@ export function setupEditor(
       onCommandEdit?.(label);
     },
   };
+}
+
+/**
+ * insertText in an effectively empty root: put the character in a fresh
+ * paragraph rather than letting the browser default leave it as a bare text
+ * node under the root. Returns whether it handled the insertion.
+ */
+function handleEmptyRootInsertText(root: HTMLElement, data: string): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const p = materialized.paragraph;
+
+  const text = document.createTextNode(data);
+  const stub = p.querySelector('br');
+  if (stub) stub.replaceWith(text);
+  else p.appendChild(text);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    caret.setStart(text, text.length);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Enter in an effectively empty root: an empty first line plus the fresh
+ * paragraph the caret continues on — the same two blocks Enter produces in an
+ * empty paragraph — instead of the browser default editing the bare root.
+ */
+function handleEmptyRootEnter(root: HTMLElement): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const first = materialized.paragraph;
+
+  const second = document.createElement('p');
+  second.appendChild(document.createElement('br'));
+  first.after(second);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    caret.setStart(second, 0);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Shift+Enter in an effectively empty root: the break goes INSIDE a fresh
+ * paragraph rather than becoming the bare root-level <br> the browser default
+ * leaves there. Two breaks, not one — the first is the line the keystroke asked
+ * for, and the paragraph's own stub becomes the placeholder that gives the
+ * second line a box for the caret to sit in. That is the shape Chromium
+ * produces for Shift+Enter in an empty paragraph, and it is what makes the
+ * keystroke visible at all: a paragraph holding a single <br> renders one line,
+ * so the caret would have nowhere to go.
+ *
+ * The stub is left UNMARKED, unlike the bare-blockquote break next door. A
+ * trailing <br> at the end of a block is Chromium's own placeholder convention,
+ * and it collapses one when text is typed on that line — measured in
+ * tests/e2e/empty-document.spec.ts, where typing after this keystroke leaves
+ * `<p><br>xy</p>` and not a paragraph carrying a break the user never asked
+ * for. Marking it with {@link QUOTE_PLACEHOLDER_ATTR} instead made a SECOND
+ * Shift+Enter a no-op: that one is a native edit, so nothing rebuilds the
+ * placeholder, and removeQuotePlaceholders swept away the very line box
+ * Chromium had just added.
+ */
+function handleEmptyRootLineBreak(root: HTMLElement): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const p = materialized.paragraph;
+
+  p.insertBefore(document.createElement('br'), p.firstChild);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    // Between the two breaks: the start of the second line.
+    caret.setStart(p, 1);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Undo {@link materializeEmptyRootParagraph} once the composition it was made
+ * for turns out to have committed nothing. Only the untouched stub is removed
+ * — any content that reached the paragraph keeps it, whatever the event data
+ * said — the <br> placeholder the materialization stood in for is put back where
+ * it was, and the caret returns to the root-level spot the paragraph occupied.
+ *
+ * Restoring the break is what makes this a true rollback rather than a
+ * near-miss: `<body><br></body>` is a shape a .html file on disk carries, and
+ * dropping that break for an abandoned composition changed a document the user
+ * never typed into — a change the history channel below would then commit.
+ *
+ * Returns whether the paragraph was actually removed, so the caller can tell
+ * the history layer that the document no longer holds what the composition's
+ * input events reported.
+ */
+function rollbackEmptyRootParagraph(
+  root: HTMLElement,
+  materialized: MaterializedParagraph,
+): boolean {
+  const { paragraph, droppedBreak } = materialized;
+  if (paragraph.parentNode !== root) return false;
+  if (!Array.from(paragraph.childNodes).every(isInsignificantTail)) return false;
+
+  const selection = window.getSelection();
+  const caretWasInside =
+    selection !== null &&
+    selection.rangeCount > 0 &&
+    paragraph.contains(selection.getRangeAt(0).startContainer);
+  const index = Array.from(root.childNodes).indexOf(paragraph);
+  paragraph.remove();
+  // An anchor that has since left the root leaves the break at the end rather
+  // than throwing — the composition path never moves one, but the rollback must
+  // not be the thing that fails.
+  if (droppedBreak) {
+    const { node, anchor } = droppedBreak;
+    root.insertBefore(node, anchor && anchor.parentNode === root ? anchor : null);
+  }
+
+  if (caretWasInside && selection) {
+    const caret = document.createRange();
+    caret.setStart(root, Math.min(index, root.childNodes.length));
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
 }
 
 /**

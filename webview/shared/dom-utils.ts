@@ -2,7 +2,7 @@
 // These were previously copy-pasted into commands.ts, table-commands.ts,
 // editor-core.ts, and paste-sanitize.ts.
 
-import { BLOCK_TAGS } from './constants';
+import { BLOCK_TAGS, ROOT_BLOCK_BOUNDARY_TAGS } from './constants';
 import type { DeleteDirection } from './constants';
 
 /** Return the nearest ancestor element with the given (uppercase) tagName, inside stopAt. */
@@ -40,6 +40,17 @@ export function findBlockAncestor(node: Node, stopAt: Element): HTMLElement | nu
     cur = cur.parentNode;
   }
   return null;
+}
+
+/**
+ * Whether a node delimits bare inline runs: a block, list, table, or other
+ * structural element that a run must never absorb ({@link
+ * ROOT_BLOCK_BOUNDARY_TAGS}). Used by commands/block-format to bound a bare
+ * root-level run, and by commands/inline-format's segment collection, which
+ * needs the same verdict when a selection touches bare root-level content.
+ */
+export function isRootBlockBoundary(node: Node): boolean {
+  return node instanceof Element && ROOT_BLOCK_BOUNDARY_TAGS.has(node.tagName);
 }
 
 /**

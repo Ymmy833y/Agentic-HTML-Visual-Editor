@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
   caretAtEnd,
+  caretAtStart,
   focusEditor,
   getMessages,
   getRootHtml,
@@ -387,6 +388,104 @@ test.describe('Copy / paste round-trip', () => {
     expect(html).not.toContain('<strong>');
     expect(html).not.toContain('<em>');
     expect(html).toContain('BOLD and italic');
+  });
+});
+
+// Pasting into a fresh .html opened straight in the WYSIWYG view. There is no
+// block for the insertion to anchor to, so the content used to land directly
+// under the root — while typing, Enter and IME composition all materialize the
+// canonical paragraph (tests/e2e/empty-document.spec.ts). These press the real
+// keys against the real clipboard, which is the only way to say which paste
+// flavour Chromium actually delivers and whether our handler sees it at all.
+test.describe('Pasting into an empty document', () => {
+  test('rich-text paste is wrapped in a paragraph', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(page, '');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.evaluate(async () => {
+      const blob = new ClipboardItem({
+        'text/html': new Blob(['<strong>bold</strong> tail'], { type: 'text/html' }),
+        'text/plain': new Blob(['bold tail'], { type: 'text/plain' }),
+      });
+      await navigator.clipboard.write([blob]);
+    });
+
+    await page.keyboard.press('Control+v');
+
+    expect(await getRootHtml(page)).toBe('<p><strong>bold</strong> tail</p>');
+  });
+
+  test('a block-carrying paste leaves no empty paragraph behind', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(page, '');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.evaluate(async () => {
+      const blob = new ClipboardItem({
+        'text/html': new Blob(['<h2>Heading</h2><p>body</p>'], { type: 'text/html' }),
+        'text/plain': new Blob(['Heading\nbody'], { type: 'text/plain' }),
+      });
+      await navigator.clipboard.write([blob]);
+    });
+
+    await page.keyboard.press('Control+v');
+
+    expect(await getRootHtml(page)).toBe('<h2>Heading</h2><p>body</p>');
+  });
+
+  test('the paragraph a paste creates supports the list command', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(page, '');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.evaluate(async () => {
+      const blob = new ClipboardItem({
+        'text/html': new Blob(['item'], { type: 'text/html' }),
+        'text/plain': new Blob(['item'], { type: 'text/plain' }),
+      });
+      await navigator.clipboard.write([blob]);
+    });
+
+    await page.keyboard.press('Control+v');
+    await page.locator('#ahve-tb-ul').click();
+
+    expect(await getRootHtml(page)).toBe('<ul><li>item</li></ul>');
+  });
+
+  // What a clipboard carrying ONLY text/plain does. main.ts hands that flavour
+  // to the browser (its multi-line splitting is better than anything we would
+  // write), so this measures the shape the editor accepts rather than one it
+  // produces — and pins it, because a bare root-level run is a supported shape
+  // only as long as the commands keep handling it.
+  test('a plain-text-only paste is left to the browser', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'clipboard API is Chromium-only in CI');
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    await mountEditor(page, '');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.evaluate(async () => {
+      await navigator.clipboard.writeText('plain');
+    });
+
+    await page.keyboard.press('Control+v');
+
+    // Whatever Chromium produces here, the run has to stay reachable by the
+    // commands: the list button is what a user reaches for next.
+    await expect(page.locator('#ahve-root')).toHaveText('plain');
+    await page.locator('#ahve-tb-ul').click();
+    expect(await getRootHtml(page)).toBe('<ul><li>plain</li></ul>');
   });
 });
 

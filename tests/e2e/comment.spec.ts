@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
+  caretAtStart,
   focusEditor,
+  getRootHtml,
   mountEditor,
   saveAndGetHtml,
   selectTextInside,
@@ -1153,5 +1155,379 @@ test.describe('Comment display text selection', () => {
     await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('selectable body text');
     await expect(popup.locator('.ahve-cp-reply-row textarea.ahve-cp-reply-input')).toHaveCount(0);
     expect((await selectionIn(page, REPLY_DISPLAY)).inside).toBe(false);
+  });
+});
+
+// Inline formatting over a comment that sits in a BARE root-level run — text
+// directly under <body> with no block wrapper. The run is delimited by
+// root-level blocks only, so it walks straight through the comment, and the
+// segmentation has to split it there or the contenteditable=false body ends up
+// inside the inline wrapper. The unit tests build those selections
+// programmatically; only Chromium can say what Ctrl+A and Shift+Arrow really
+// produce around a contenteditable=false subtree, which is the one thing a
+// programmatic Range cannot stand in for.
+test.describe('Inline formatting around a comment in bare root-level text', () => {
+  const BODY = '<comment-body contenteditable="false">note</comment-body>';
+  const COMMENT = `<comment id="c-1">tgt${BODY}</comment>`;
+
+  /** The invariant behind every case here, asserted the same way each time. */
+  async function expectCommentIntact(page: Page): Promise<void> {
+    await expect(page.locator('#ahve-root strong comment-body')).toHaveCount(0);
+    await expect(page.locator('#ahve-root strong comment')).toHaveCount(0);
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('note');
+    await expect(page.locator('#ahve-root comment')).toHaveAttribute('id', 'c-1');
+  }
+
+  test('Ctrl+A then Ctrl+B formats around and inside the comment, never the body', async ({ page }) => {
+    await mountEditor(page, `pre${COMMENT}post`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(
+      `<strong>pre</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment><strong>post</strong>`,
+    );
+  });
+
+  test('Ctrl+B twice over the whole document leaves it as it started', async ({ page }) => {
+    const html = `pre${COMMENT}post`;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('a Shift+Arrow selection dragged across the comment keeps the body out', async ({ page }) => {
+    // The other way a selection reaches this shape, and the one that actually
+    // crosses the comment's inline boundaries key by key. Plain ArrowRight is
+    // intercepted by the comment boundary handler; a shifted arrow is not, so
+    // this is Chromium extending a selection over a contenteditable=false
+    // subtree — the case a programmatic Range cannot reproduce.
+    await mountEditor(page, `pre${COMMENT}post`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    for (let i = 0; i < 9; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    // Something was formatted — otherwise the invariant above passes vacuously.
+    await expect(page.locator('#ahve-root strong')).not.toHaveCount(0);
+  });
+
+  test('a whole-document selection with a block beside the run keeps the body out', async ({ page }) => {
+    // The run is the END side here, so it is the clip against the block that
+    // decides how much of it each side owns.
+    await mountEditor(page, `<p>x</p>pre${COMMENT}post`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(
+      '<p><strong>x</strong></p><strong>pre</strong>'
+      + `<comment id="c-1"><strong>tgt</strong>${BODY}</comment><strong>post</strong>`,
+    );
+  });
+});
+
+// Inline formatting over a comment that lives INSIDE a block. The unit tests
+// build these selections programmatically, but what Chromium actually reports
+// for a selection that reaches a contenteditable=false subtree — and where
+// Ctrl+A puts its boundaries — is the one thing a programmatic Range cannot
+// stand in for. These are the two shapes the block-level segmentation exists
+// for: a comment the selection merely passes OVER (a block covered whole), and
+// one the selection ends INSIDE.
+test.describe('Inline formatting around a comment inside a block', () => {
+  const BODY = '<comment-body contenteditable="false">note</comment-body>';
+  const COMMENT = `<comment id="c-1">tgt${BODY}</comment>`;
+
+  /** The invariant behind every case here, asserted the same way each time. */
+  async function expectCommentIntact(page: Page): Promise<void> {
+    await expect(page.locator('#ahve-root strong comment-body')).toHaveCount(0);
+    await expect(page.locator('#ahve-root strong comment')).toHaveCount(0);
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('note');
+    await expect(page.locator('#ahve-root comment')).toHaveAttribute('id', 'c-1');
+  }
+
+  test('Ctrl+A then Ctrl+B splits a middle block at the comment it holds', async ({ page }) => {
+    // The block is covered whole, so it used to contribute ONE flat segment over
+    // all its children — and the wrapper took the comment and its
+    // contenteditable=false body with it, straight into the saved file.
+    await mountEditor(page, `<p>a</p><p>b${COMMENT}c</p><p>d</p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(
+      '<p><strong>a</strong></p>'
+      + `<p><strong>b</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment>`
+      + '<strong>c</strong></p>'
+      + '<p><strong>d</strong></p>',
+    );
+  });
+
+  test('Ctrl+A then Ctrl+B splits the FIRST block at the comment it holds', async ({ page }) => {
+    // The other entry point into the same flat segment: the start side ran from
+    // the selection start to the end of its own block's children.
+    await mountEditor(page, `<p>a${COMMENT}b</p><p>d</p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(
+      `<p><strong>a</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment>`
+      + '<strong>b</strong></p>'
+      + '<p><strong>d</strong></p>',
+    );
+  });
+
+  test('Ctrl+B twice over such a document leaves it as it started', async ({ page }) => {
+    const html = `<p>a</p><p>b${COMMENT}c</p><p>d</p>`;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('a Shift+Arrow selection dragged from an earlier block into the comment', async ({ page }) => {
+    // The selection that actually crosses the comment's inline boundaries key by
+    // key, and the one whose end position only Chromium can report: a shifted
+    // arrow is not intercepted by the comment boundary handler, so this is the
+    // browser extending a selection over a contenteditable=false subtree.
+    await mountEditor(page, `<p>a</p><p>b${COMMENT}c</p><p>z</p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    // Something was formatted — otherwise the invariant above passes vacuously.
+    await expect(page.locator('#ahve-root strong')).not.toHaveCount(0);
+    // ...and the block past the selection was left alone.
+    await expect(page.locator('#ahve-root > p:last-child')).toHaveText('z');
+    expect(await getRootHtml(page)).toContain('<p>z</p>');
+  });
+
+  test('a Shift+Arrow selection that starts and ends in the comment\'s own block', async ({ page }) => {
+    // The ordinary gesture — select a phrase, press Ctrl+B — and the one the
+    // whole-document cases above cannot stand in for: both boundaries stay in
+    // the same block, which is the shape the segmentation used to take verbatim
+    // and wrap whole. Only Chromium can say how far a shifted arrow travels
+    // across a contenteditable=false subtree, so the keys are what selects here.
+    await mountEditor(page, `<p>b${COMMENT}c</p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    // 'b' + the comment's 'tgt' + 'c' — the hidden body is not on the visual
+    // line, so it costs no keystrokes.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    // The comment's own target text was reached, so the selection really did
+    // cross the boundaries rather than stopping in front of them.
+    await expect(page.locator('#ahve-root comment > strong')).toHaveCount(1);
+    expect(await getRootHtml(page)).toBe(
+      `<p><strong>b</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment>`
+      + '<strong>c</strong></p>',
+    );
+  });
+});
+
+// A comment that sits INSIDE an inline wrapper rather than directly in its
+// block — the shape two ordinary commands produce in sequence: bold a phrase,
+// then comment a word inside it. The segmentation used to absorb the wrapper
+// whole, so the <comment> and its contenteditable=false body went into the new
+// inline tag and reached the saved file. The unit tests build the wrapper as a
+// fixture; these press the keys, which is the only way to say that Ctrl+A really
+// does put both boundaries where the walk has to enter the wrapper from outside.
+test.describe('Inline formatting around a comment inside an inline wrapper', () => {
+  const BODY = '<comment-body contenteditable="false">note</comment-body>';
+  const COMMENT = `<comment id="c-1">tgt${BODY}</comment>`;
+
+  /** The invariant behind every case here, asserted the same way each time. */
+  async function expectCommentIntact(page: Page, tag: string): Promise<void> {
+    await expect(page.locator(`#ahve-root ${tag} comment-body`)).toHaveCount(0);
+    await expect(page.locator(`#ahve-root ${tag} comment`)).toHaveCount(0);
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('note');
+    await expect(page.locator('#ahve-root comment')).toHaveAttribute('id', 'c-1');
+  }
+
+  test('Ctrl+A then Ctrl+B enters an <em> holding a comment instead of wrapping it', async ({ page }) => {
+    await mountEditor(page, `<p><em>a${COMMENT}b</em></p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page, 'strong');
+    expect(await getRootHtml(page)).toBe(
+      `<p><em><strong>a</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment>`
+      + '<strong>b</strong></em></p>',
+    );
+  });
+
+  test('the same for a link, whose href survives', async ({ page }) => {
+    await mountEditor(page, `<p><a href="https://example.com/">a${COMMENT}b</a></p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page, 'strong');
+    await expect(page.locator('#ahve-root a')).toHaveAttribute('href', 'https://example.com/');
+  });
+
+  test('Ctrl+B twice over such a document leaves it as it started', async ({ page }) => {
+    const html = `<p><em>a${COMMENT}b</em></p>`;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page, 'strong');
+    expect(await getRootHtml(page)).toBe(html);
+  });
+
+  test('a Shift+Arrow selection dragged across the wrapped comment', async ({ page }) => {
+    // The gesture that crosses the comment's boundaries key by key while the
+    // wrapper encloses both sides — a shifted arrow is not intercepted by the
+    // comment boundary handler, so this is Chromium extending the selection
+    // over a contenteditable=false subtree inside an inline element.
+    await mountEditor(page, `<p><em>a${COMMENT}b</em></p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    // 'a' + the comment's 'tgt' + 'b' — the hidden body costs no keystrokes.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page, 'strong');
+    await expect(page.locator('#ahve-root comment > strong')).toHaveCount(1);
+    await expect(page.locator('#ahve-root em')).toHaveCount(1);
+  });
+});
+
+// REMOVING an inline tag that already encloses a comment — the direction the
+// cases above cannot reach, because a round trip only ever removes the wrappers
+// its own first pass built, and each of those sits inside a single segment. Here
+// the wrapper is in the document before the keys are pressed: the shape a .html
+// file carries, and the one two ordinary commands produce (bold a phrase, then
+// comment a word inside it). The removal used to extract across the comment's
+// edge and leave TWO <comment id="c-1"> elements behind, one empty. Chromium is
+// what says where Ctrl+A and a shifted arrow really put the boundaries around a
+// contenteditable=false subtree, which is why this is not only a unit test.
+test.describe('Removing an inline format that encloses a comment', () => {
+  const BODY = '<comment-body contenteditable="false">note</comment-body>';
+  const COMMENT = `<comment id="c-1">tgt${BODY}</comment>`;
+
+  /** Exactly one comment, whole, with its body still in it. */
+  async function expectCommentIntact(page: Page): Promise<void> {
+    await expect(page.locator('#ahve-root comment')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveCount(1);
+    await expect(page.locator('#ahve-root comment > comment-body')).toHaveText('note');
+    await expect(page.locator('#ahve-root comment')).toHaveAttribute('id', 'c-1');
+  }
+
+  test('Ctrl+A then Ctrl+B takes the bold off without duplicating the comment', async ({ page }) => {
+    const html = `<p><strong>pre${COMMENT}post</strong></p>`;
+    await mountEditor(page, html);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    await expect(page.locator('#ahve-root strong')).toHaveCount(0);
+    expect(await getRootHtml(page)).toBe(`<p>pre${COMMENT}post</p>`);
+  });
+
+  test('the same in a bare root-level run', async ({ page }) => {
+    await mountEditor(page, `<em>pre${COMMENT}post</em>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+i');
+
+    await expectCommentIntact(page);
+    await expect(page.locator('#ahve-root em')).toHaveCount(0);
+    expect(await getRootHtml(page)).toBe(`pre${COMMENT}post`);
+  });
+
+  test('a Shift+Arrow selection inside the wrapper removes only what it covers', async ({ page }) => {
+    // The wrapper has to be SPLIT at the comment for this to be expressible at
+    // all: the text past the selection stays bold while the comment's own
+    // target loses it. A shifted arrow is not intercepted by the comment
+    // boundary handler, so the selection really is Chromium's.
+    await mountEditor(page, `<p><strong>pre${COMMENT}post</strong></p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    // 'pre' + the comment's 'tgt' — the hidden body costs no keystrokes.
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    await expect(page.locator('#ahve-root comment strong')).toHaveCount(0);
+    await expect(page.locator('#ahve-root strong')).toHaveText('post');
+  });
+
+  test('Ctrl+B twice returns the document to the shape it started in', async ({ page }) => {
+    // Removing distributes the wrapper over the runs the comment splits, so
+    // applying again has to land on exactly those runs — and produce the same
+    // shape a plain Ctrl+A Ctrl+B produces on an unformatted document.
+    await mountEditor(page, `<p><strong>pre${COMMENT}post</strong></p>`);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+b');
+    await page.keyboard.press('Control+b');
+
+    await expectCommentIntact(page);
+    await expect(page.locator('#ahve-root strong comment')).toHaveCount(0);
+    await expect(page.locator('#ahve-root strong comment-body')).toHaveCount(0);
+    expect(await getRootHtml(page)).toBe(
+      `<p><strong>pre</strong><comment id="c-1"><strong>tgt</strong>${BODY}</comment>`
+      + '<strong>post</strong></p>',
+    );
   });
 });

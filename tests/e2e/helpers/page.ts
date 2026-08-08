@@ -226,6 +226,24 @@ export async function caretAtStart(page: Page, selector: string): Promise<void> 
   }, selector);
 }
 
+/**
+ * Collapse the caret into the start of the bare text node that is the editor
+ * root's last child — the shape existing HTML carries when text sits directly
+ * under <body>, with no block wrapper. {@link caretAtStart} cannot express it:
+ * it takes a selector, and a bare text node has no element to name.
+ */
+export async function caretInBareTail(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const text = document.querySelector('#ahve-root')!.lastChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+}
+
 /** Focus the editor root (needed before dispatching keyboard input). */
 export async function focusEditor(page: Page): Promise<void> {
   await page.locator('#ahve-root').focus();

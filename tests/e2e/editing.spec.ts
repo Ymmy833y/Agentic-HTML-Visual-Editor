@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import {
   caretAtEnd,
+  caretAtStart,
+  caretInBareTail,
   focusEditor,
   getRootHtml,
   mountEditor,
@@ -243,6 +245,109 @@ test.describe('Toolbar active state', () => {
     });
     await page.waitForTimeout(50);
     await expect(page.locator('.ahve-tb-link')).toHaveClass(/ahve-tb-active/);
+  });
+
+  // The two cases above both land on the segmentation's verbatim fast path (one
+  // block, nothing structural inside it), so they say nothing about the shape
+  // the button state is actually read from: a selection SPLIT into several
+  // segments. Those exist because a whole-document selection reaches text the
+  // command cannot wrap in one go — a table's cells, a list's items — and while
+  // the toolbar asked about the raw range instead, the button and the command
+  // disagreed about the very same selection. Driven with the real keys because
+  // Ctrl+A is what puts both boundaries on the editor root, which is the
+  // position no programmatic range in this file reproduces.
+  test('Bold button follows a whole-document selection that spans a table', async ({ page }) => {
+    const table = '<table><tbody><tr><td>x</td></tr></tbody></table>';
+    await mountEditor(page, table + 'para');
+    await focusEditor(page);
+    await caretInBareTail(page);
+
+    await page.keyboard.press('Control+a');
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).not.toHaveClass(/ahve-tb-active/);
+
+    await page.keyboard.press('Control+b');
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).toHaveClass(/ahve-tb-active/);
+
+    // Active must mean "will remove": the same key takes it back off, and the
+    // button follows it back down.
+    await page.keyboard.press('Control+b');
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).not.toHaveClass(/ahve-tb-active/);
+    expect(await getRootHtml(page)).toBe(table + 'para');
+  });
+
+  test('Bold button counts a list item the selection reaches into', async ({ page }) => {
+    // The nested half: the item's text is inside the selection, so a button
+    // that could not see past the list container reported "applied" for a
+    // document the next Ctrl+B is about to bold rather than un-bold.
+    await mountEditor(page, '<p><strong>a</strong></p><ul><li>b</li></ul>');
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p');
+
+    await page.keyboard.press('Control+a');
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).not.toHaveClass(/ahve-tb-active/);
+
+    await page.keyboard.press('Control+b');
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).toHaveClass(/ahve-tb-active/);
+    await expect(page.locator('#ahve-root li strong')).toHaveCount(1);
+  });
+
+  // The refresh is coalesced onto one animation frame, because selectionchange
+  // fires for every mouse move of a drag while the coverage read walks every
+  // node the selection touches. Coalescing is only safe on the TRAILING edge:
+  // a leading-edge throttle would paint the first selection of the burst and
+  // then ignore the one the user actually stopped on. These drive a burst of
+  // selection changes inside a single frame — every one of them fires the
+  // event, only the last describes the document — and pin both directions so
+  // neither can pass by the button simply never changing.
+  /**
+   * Twenty selections over one run of `<p><strong>bold</strong> plain</p>`
+   * followed by a single one over the other, all in one synchronous turn so
+   * they share a frame. `landOnBold` picks which run the burst ENDS on.
+   */
+  async function burstThenLand(page: Page, landOnBold: boolean): Promise<void> {
+    await page.evaluate((onBold) => {
+      const p = document.querySelector('#ahve-root > p')!;
+      const boldText = p.querySelector('strong')!.firstChild!;
+      const plainText = p.lastChild!;
+      const sel = window.getSelection()!;
+      const select = (node: Node, start: number, end: number): void => {
+        const r = document.createRange();
+        r.setStart(node, start);
+        r.setEnd(node, end);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      };
+      const overBold = (): void => select(boldText, 0, 4);
+      const overPlain = (): void => select(plainText, 1, 6);
+
+      for (let i = 0; i < 20; i++) (onBold ? overPlain : overBold)();
+      (onBold ? overBold : overPlain)();
+    }, landOnBold);
+  }
+
+  test('the active state follows the LAST selection of a burst, not the first', async ({ page }) => {
+    await mountEditor(page, '<p><strong>bold</strong> plain</p>');
+    await focusEditor(page);
+
+    await burstThenLand(page, false);
+
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).not.toHaveClass(/ahve-tb-active/);
+  });
+
+  test('...and the same holds when the burst lands ON the formatted run', async ({ page }) => {
+    await mountEditor(page, '<p><strong>bold</strong> plain</p>');
+    await focusEditor(page);
+
+    await burstThenLand(page, true);
+
+    await page.waitForTimeout(50);
+    await expect(page.locator('#ahve-tb-bold')).toHaveClass(/ahve-tb-active/);
   });
 });
 
