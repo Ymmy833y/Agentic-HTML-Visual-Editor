@@ -4,6 +4,27 @@
 // UL/OL/TABLE/etc.; paste-sanitize works in lowercase and adds TD/TH).
 
 /**
+ * Which way a deletion travels from the caret. Shared by editor-core's
+ * beforeinput routing and the <pre> edge test in commands/code-block.
+ */
+export type DeleteDirection = 'backward' | 'forward';
+
+/**
+ * How much a deletion removes. The browser reports this through the
+ * `deleteContent*` / `deleteWord*` / `delete{Soft,Hard}Line*` input types; the
+ * comment handlers need it to reproduce the right amount themselves.
+ *
+ * The two line granularities are kept apart because only one of them can be
+ * reproduced safely. A HARD line is the block, so clipping a deletion to the
+ * caret's own text node can only ever remove less than the browser would. A SOFT
+ * line is a VISUAL line, whose extent comes from layout — in a wrapped paragraph
+ * the caret's text node spans several of them, so the same clipping removes
+ * whole lines the user never asked for. Soft-line deletions are therefore
+ * blocked rather than reproduced wherever they are unsafe.
+ */
+export type DeleteGranularity = 'character' | 'word' | 'soft-line' | 'hard-line';
+
+/**
  * Uppercase tag names treated as block-level containers when walking up the
  * tree to find the enclosing block. Single source of truth shared by the
  * editing commands and editor-core.
@@ -12,6 +33,19 @@ export const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'BLOCKQUOTE', 'PRE', 'DIV', 'LI',
   'DETAILS', 'SUMMARY',
+]);
+
+/**
+ * The root-level children a bare inline run may never absorb: a block, list,
+ * table, or other structural element. {@link isRootBlockBoundary} in
+ * shared/dom-utils is the predicate over this set; the set itself is exported
+ * because commands/inline-format builds a CSS selector from it to ask "does
+ * this block hold anything the segment walk has to descend into?" in one
+ * native query.
+ */
+export const ROOT_BLOCK_BOUNDARY_TAGS: ReadonlySet<string> = new Set([
+  ...BLOCK_TAGS,
+  'UL', 'OL', 'TABLE', 'HR', 'FIGURE',
 ]);
 
 /**

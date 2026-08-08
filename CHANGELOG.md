@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-08-08
+
+### Fixed
+
+- Keep `<details>`, `<pre>`, and `<table>` structures whole when Backspace/Delete crosses their boundary, instead of letting the browser default discard a details body, move text inside the `<pre>` but outside its `<code>` wrapper, or dissolve the block beside a table into bare unwrapped text; the one edit that is meaningful at such an edge — dropping the empty block left behind and moving the caret into the neighbouring structure (a closed details' summary, a table's nearest cell) — is performed explicitly
+- Keep inline comment annotations whole for deletions around them at every granularity, including word-wise `Ctrl+Backspace` / `Ctrl+Delete`: the hidden `<comment-body>` / `<comment-reply>` metadata is no longer mistaken for "the next thing to delete", and the deletion is reproduced over visible characters only
+- Select body and reply text in the comment popup by dragging across it, so a note can be copied; a plain click still opens it for editing, and the empty-body placeholder still opens the editor on any press
+- Split the surrounding list when a horizontal rule or a `<details>` is inserted from inside a list item, instead of nesting it where only `<li>` is valid; an ordered list continues its numbering below the split (honoring `start` and `reversed`), and an item left empty — along with a list shell left with no items — is removed
+- Apply inline formatting (`Ctrl+B` / `Ctrl+I` / clear formatting) correctly over selections that span nested structure — comments, inline wrappers, code blocks, tables, and bare root-level text: a comment's hidden body and replies are never formatted, comments are never split or duplicated, applying the same format twice returns the document to the shape it started in, and the selection survives the toggle
+- Convert lists from selections that span nested structure: a whole-document (`Ctrl+A`) selection now converts every block it holds, including root-level text not yet wrapped in a block, while leaving tables, `<details>`, code blocks, horizontal rules, and blockquotes it merely spans where they are; a conversion adjacent to an existing list of the same type merges into it, keeping that list's attributes and numbering
+- Edit a document that is still empty: typing, Enter, Shift+Enter, IME composition, and paste each materialize a real paragraph rather than writing bare nodes directly under the root, and the toolbar's block-type and list commands now work on a document with no children at all; a composition that commits nothing rolls that paragraph back, so undo/redo has no phantom edit to restore
+
+### Changed
+
+- Compute the toolbar's active states from the segments the selection actually covers, so bold/italic/strikethrough/inline code follow a selection that spans tables, lists, and comments, and coalesce the recomputation onto one animation frame so a long drag no longer repeats the walk for every `selectionchange`
+
+### Security
+
+- Update overridden transitive dependencies: `brace-expansion` (2.1.4 / 5.0.9, covering the DoS advisory), `undici` 7.29.0, and `js-yaml` 4.3.1, plus `postcss` and `nanoid` in the lockfile
+
 ## [0.1.8] - 2026-07-23
 
 ### Fixed

@@ -1174,6 +1174,618 @@ describe('setupEditor: deletion skips comment metadata (visible chars only)', ()
     expect(comment.nextSibling!.textContent).toBe('ng'); // following text untouched
   });
 
+  // Inside a comment's target the deletion is clipped to that text node, so it
+  // keeps its word/hard-line granularity without the metadata ever being in
+  // range. Clipping is only ever a reduction against what the browser would
+  // remove, which is what makes it safe — and a hard line IS the block this text
+  // node lives in, so the reduction holds. (The soft-line mirror is below.)
+  it.each([
+    'deleteWordBackward',
+    'deleteHardLineBackward',
+  ])('%s inside a comment target stays within the target', (inputType) => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.firstChild!, 2);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe(''); // whole word "di" removed
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(comment.nextSibling!.textContent).toBe('ng'); // never crosses out
+  });
+
+  // Regression: a SOFT line is a visual line, and its extent comes from layout
+  // this code cannot see. Clipping it to the caret's text node the way the hard
+  // line above is clipped would stop being a reduction the moment that node
+  // wraps — in a long paragraph it would wipe several visual lines the user
+  // never asked for. So the keystroke is consumed and NOTHING is edited, the
+  // same trade deleteEntireSoftLine makes. jsdom has no line boxes, so the
+  // over-deletion itself is not observable here; what this pins down is that we
+  // no longer reproduce the deletion at all.
+  it.each([
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+  ])('%s inside a comment target is blocked, not reproduced', (inputType) => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.firstChild!, 1); // "d|i" — a hazard in both directions
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe('di'); // untouched
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(root.innerHTML).toBe(SAMPLE); // nothing at all was edited
+  });
+
+  it('deleteWordBackward inside a target removes only the last word', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">two words<comment-body>note</comment-body></comment>x</p>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    caret(comment.firstChild!, 9);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe('two ');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('note');
+  });
+
+  it('leaves deleteWordBackward far from an adjacent comment to the browser', () => {
+    const root = makeRoot(
+      '<p>See <comment id="c1">this<comment-body>note</comment-body></comment>' +
+        ' for a longer explanation</p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('comment')!.nextSibling!;
+    caret(text, text.textContent!.length);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(text.textContent).toBe(' for a longer explanation');
+  });
+
+  // Regression: Chromium treats "Hea" + <comment>di</comment> + "ng" as ONE
+  // word, so an unguarded Ctrl+Backspace anywhere in "ng" deletes the whole run
+  // — comment element and contenteditable=false body included. There is no word
+  // boundary between the caret and the comment, so we must handle it ourselves.
+  it.each([1, 2])(
+    'handles deleteWordBackward at offset %i of the text right after a comment',
+    (offset) => {
+      const root = makeRoot(SAMPLE);
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const ng = comment.nextSibling as Text;
+      caret(ng, offset);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.firstChild!.textContent).toBe('di');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+      expect(ng.data).toBe('ng'.slice(offset));
+    },
+  );
+
+  // The same hazard one inline wrapper out: bolding "ng" leaves the caret's
+  // text node without a comment sibling at all, yet Chromium still reads
+  // "Hea"+"di"+"ng" as one word and cuts through the comment. The danger zone
+  // therefore has to be resolved through inline wrappers, not by siblings.
+  it.each([1, 2])(
+    'handles deleteWordBackward at offset %i of wrapped text right after a comment',
+    (offset) => {
+      const root = makeRoot(
+        '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>' +
+          '<strong>ng</strong></h2>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const ng = root.querySelector('strong')!.firstChild as Text;
+      caret(ng, offset);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.firstChild!.textContent).toBe('di');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+      expect(ng.data).toBe('ng'.slice(offset));
+    },
+  );
+
+  // A caret at an element boundary (what selectNodeContents + collapse and a
+  // click at the edge of a styled run both produce) resolves onto the adjacent
+  // text node, so the word guard has to reach it there too.
+  it('handles deleteWordBackward from an element-level caret after a comment', () => {
+    const root = makeRoot(
+      '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>' +
+        '<strong>ng</strong></h2>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const strong = root.querySelector('strong')!;
+    caretAtEnd(strong);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(strong.textContent).toBe('');
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('handles deleteWordForward from an element-level caret before a comment', () => {
+    const root = makeRoot(
+      '<h2><em>Hea</em><comment id="c1">di<comment-body>Comment</comment-body>' +
+        '</comment>ng</h2>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const em = root.querySelector('em')!;
+    caretAtStart(em);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(em.textContent).toBe('');
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  // The mirror of the two cases above: the caret sits at the wrapper's INNER
+  // edge, so the wrapper's own child list has nothing beside it and the comment
+  // is only reachable by stepping OUT of the wrapper. Measured on a native
+  // probe, an unguarded Ctrl+Backspace here leaves `<p><strong>ng</strong></p>`
+  // — "Hea", the <comment> and its contenteditable=false body all gone.
+  //
+  // Once the caret resolves through the wrapper it lands on the same path as
+  // the unwrapped `Hea<comment>di</comment>|ng`: the caret is OUTSIDE the
+  // comment, so the keystroke shrinks the target by exactly one visible
+  // character whatever the granularity, rather than swallowing a whole word of
+  // annotated text. Wrapping the neighbouring text must not change that.
+  it.each(['text', 'element'])(
+    'handles deleteWordBackward from a %s caret at the inner start of a wrapper',
+    (level) => {
+      const root = makeRoot(
+        '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>' +
+          '<strong>ng</strong></h2>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const strong = root.querySelector('strong')!;
+      if (level === 'text') caret(strong.firstChild as Text, 0);
+      else caretAtStart(strong);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+      expect(comment.firstChild!.textContent).toBe('d'); // one visible char only
+      expect(strong.textContent).toBe('ng'); // deletion travels away from "ng"
+    },
+  );
+
+  it.each(['text', 'element'])(
+    'handles deleteWordForward from a %s caret at the inner end of a wrapper',
+    (level) => {
+      const root = makeRoot(
+        '<h2><em>Hea</em><comment id="c1">di<comment-body>Comment</comment-body>' +
+          '</comment>ng</h2>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const em = root.querySelector('em')!;
+      if (level === 'text') caret(em.firstChild as Text, 3);
+      else caretAtEnd(em);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+      expect(comment.firstChild!.textContent).toBe('i'); // one visible char only
+      expect(em.textContent).toBe('Hea'); // deletion travels away from "Hea"
+    },
+  );
+
+  // The wrapped result must match the unwrapped one exactly — that equality is
+  // the property the guard is for, and it is what a native probe shows the
+  // browser default breaking.
+  it('gives a wrapped caret the same outcome as the unwrapped equivalent', () => {
+    const run = (html: string, select: (root: HTMLElement) => void): string => {
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      select(root);
+      dispatchBeforeInput(root, 'deleteWordBackward');
+      return root.querySelector('comment')!.firstChild!.textContent!;
+    };
+
+    const plain = run(
+      '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>ng</h2>',
+      (root) => caret(root.querySelector('comment')!.nextSibling as Text, 0),
+    );
+    const wrapped = run(
+      '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>' +
+        '<strong>ng</strong></h2>',
+      (root) => caret(root.querySelector('strong')!.firstChild as Text, 0),
+    );
+
+    expect(wrapped).toBe(plain);
+  });
+
+  // Documents opened from disk (and pasted HTML) carry inline tags this editor's
+  // own toolbar never emits — paste-sanitize keeps them and copy.ts preserves
+  // them explicitly. Chromium reads through every one of them, so the wrapper
+  // set must not be limited to the toolbar's own formats.
+  //
+  // renderer.ts sanitizes with a DENY list (FORBIDDEN_TAGS), so the set of
+  // inline tags that can reach the editor is open-ended: <font> and <abbr> are
+  // never produced here, <font> is named explicitly by paste-sanitize's
+  // UNWRAPPABLE_IF_BARE (and survives whenever it still carries an attribute),
+  // and neither appears in any toolbar format list. An allow list of known
+  // wrappers silently hands these back to Chromium, which eats the comment.
+  it.each(['u', 'mark', 'sup', 'del', 'b', 'font', 'abbr', 'q', 'cite', 'kbd', 'ins'])(
+    'handles deleteWordBackward through an imported <%s> wrapper',
+    (tag) => {
+      const root = makeRoot(
+        `<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment><${tag}>ng</${tag}></h2>`,
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const ng = root.querySelector(tag)!.firstChild as Text;
+      caret(ng, 1);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.firstChild!.textContent).toBe('di');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+      expect(ng.data).toBe('g');
+    },
+  );
+
+  // The other side of the deny list: it must keep everything a deletion really
+  // does stop at. A replaced element renders, so it ends the word the same way
+  // a character does and the comment beyond it is out of reach — treating it
+  // as a transparent wrapper would take deletions away from the browser for no
+  // reason.
+  it.each(['img', 'br'])(
+    'leaves deleteWordBackward stopped by a <%s> to the browser',
+    (tag) => {
+      const root = makeRoot(
+        '<p><comment id="c1">x<comment-body>note</comment-body></comment>' +
+          `<${tag}>ng</p>`,
+      );
+      setupEditor(root, () => {});
+      const ng = root.querySelector('p')!.lastChild as Text;
+      caret(ng, 1);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(ng.data).toBe('ng');
+    },
+  );
+
+  // Stepping out of a wrapper must stop at the block: a caret at the start of a
+  // block has no inline predecessor, and reaching into the previous block would
+  // let a deletion act across a boundary the merge handlers own.
+  it('does not step out of the block when resolving a caret at block start', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body>note</comment-body></comment></p>' +
+        '<p><strong>second</strong></p>',
+    );
+    setupEditor(root, () => {});
+    const strong = root.querySelectorAll('p')[1].querySelector('strong')!;
+    caret(strong.firstChild as Text, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    // The block-merge handler owns this position, not the comment guard: the
+    // blocks are joined and the comment travels along by reference, intact.
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    expect(root.querySelector('strong')!.textContent).toBe('second');
+  });
+
+  // Widening the danger zone must not swallow deletions the browser performs
+  // safely: a word boundary inside the wrapped text still stops the native
+  // range short of the comment.
+  it('leaves a wrapped deleteWordBackward with a word boundary to the browser', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body>note</comment-body></comment>' +
+        '<strong> for a longer explanation</strong></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('strong')!.firstChild as Text;
+    caret(text, text.data.length);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(text.data).toBe(' for a longer explanation');
+  });
+
+  // Regression: the wrapper may sit BETWEEN the caret and the comment, not only
+  // around the caret. "Hea" + "di" + "n" + "g" is still one word to Chromium, so
+  // stopping the search at the first non-comment sibling handed the keystroke
+  // back to the browser and lost the body.
+  it('handles deleteWordBackward when a wrapper separates the caret from the comment', () => {
+    const root = makeRoot(
+      '<h2>Hea<comment id="c1">di<comment-body>Comment</comment-body></comment>' +
+        '<strong>n</strong>g</h2>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const g = root.querySelector('h2')!.lastChild as Text;
+    caret(g, 1);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(g.data).toBe('');
+  });
+
+  // Deleting the last character inside a <strong> leaves the wrapper behind as
+  // an empty shell, and handleFormattedEnter deliberately builds the same shape.
+  // Such a shell paints nothing, so Chromium's deletion reads straight past it
+  // to the comment — the caret resolution has to do the same, or the keystroke
+  // falls through to the browser default that destroys the annotation.
+  describe('an empty inline wrapper is not a barrier', () => {
+    it('handles Backspace when an empty wrapper separates the caret from the comment', () => {
+      const root = makeRoot(
+        '<p><comment id="c1">ab<comment-body>Comment</comment-body></comment>' +
+          '<strong></strong>c</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(root.querySelector('p')!.lastChild!, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.firstChild!.textContent).toBe('a');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    });
+
+    it('handles deleteWordBackward when an empty wrapper separates the caret from the comment', () => {
+      const root = makeRoot(
+        '<p><comment id="c1">ab<comment-body>Comment</comment-body></comment>' +
+          '<strong></strong>c</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(root.querySelector('p')!.lastChild!, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      // One character at a time even at word granularity: the caret is outside
+      // the comment, so a keystroke must not swallow the whole annotated word.
+      expect(comment.firstChild!.textContent).toBe('a');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    });
+
+    it('handles deleteWordForward when an empty wrapper separates the caret from the comment', () => {
+      const root = makeRoot(
+        '<p>c<strong></strong><comment id="c1">ab' +
+          '<comment-body>Comment</comment-body></comment></p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(root.querySelector('p')!.firstChild!, 1);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(comment.firstChild!.textContent).toBe('b');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    });
+
+    it('reads through a nested empty wrapper chain', () => {
+      const root = makeRoot(
+        '<p><comment id="c1">ab<comment-body>Comment</comment-body></comment>' +
+          '<strong><em></em></strong>c</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(root.querySelector('p')!.lastChild!, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(comment.firstChild!.textContent).toBe('a');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    });
+
+    // A wrapper that still holds text is a barrier, and the character before the
+    // caret is that text — not the comment's target.
+    it('still stops at a wrapper that holds text', () => {
+      const root = makeRoot(
+        '<p><comment id="c1">ab<comment-body>Comment</comment-body></comment>' +
+          '<strong>x</strong>c</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(root.querySelector('p')!.lastChild!, 0);
+
+      dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(comment.firstChild!.textContent).toBe('ab');
+      expect(root.querySelector('strong')!.textContent).toBe('');
+    });
+
+    // Editing leaves zero-length text nodes behind too, and they paint nothing
+    // for exactly the same reason. Built by hand: a parser never emits one.
+    it('reads through an empty text node beside the comment', () => {
+      const root = makeRoot(
+        '<p><comment id="c1">ab<comment-body>Comment</comment-body></comment>c</p>',
+      );
+      setupEditor(root, () => {});
+      const paragraph = root.querySelector('p')!;
+      const comment = root.querySelector('comment')!;
+      const tail = paragraph.lastChild!;
+      paragraph.insertBefore(document.createTextNode(''), tail);
+      caret(tail, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(comment.firstChild!.textContent).toBe('a');
+      expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    });
+
+    // The empty wrapper may also be the comment's own emptied target, with the
+    // caret left in the empty text node beside it. Reported as "the node the
+    // caret faces", the wrapper owns no comment and the keystroke goes to the
+    // browser default — with the caret pressed against the contenteditable=false
+    // metadata. Skipping it reaches the emptied-from-inside handler instead, so
+    // the annotation is dropped rather than left invisible and unremovable
+    // (serialize.ts deliberately never prunes an empty comment).
+    it('drops a comment emptied down to a wrapper beside the caret', () => {
+      const root = makeRoot(
+        '<p>x<comment id="c1"><em></em><comment-body>Comment</comment-body></comment>y</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      const emptied = document.createTextNode('');
+      comment.insertBefore(emptied, comment.querySelector('comment-body'));
+      caret(emptied, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(0);
+      expect(root.querySelector('p')!.textContent).toBe('xy');
+    });
+  });
+
+  it('handles deleteWordForward when a wrapper separates the caret from the comment', () => {
+    const root = makeRoot(
+      '<h2>H<em>ea</em><comment id="c1">di<comment-body>Comment</comment-body>' +
+        '</comment>ng</h2>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const h = root.querySelector('h2')!.firstChild as Text;
+    caret(h, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll('comment')).toHaveLength(1);
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+    expect(h.data).toBe('');
+  });
+
+  // Reaching through wrappers must still stop at a real word boundary: the
+  // whitespace in " and " ends the native deletion well before the comment.
+  it('leaves a wrapper-separated deleteWordBackward with a word boundary to the browser', () => {
+    const root = makeRoot(
+      '<p><comment id="c1">x<comment-body>note</comment-body></comment>' +
+        ' and <strong>more</strong></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('strong')!.firstChild as Text;
+    caret(text, text.data.length);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(text.data).toBe('more');
+  });
+
+  // A line deletion spans the whole line, so a comment sitting in that line is
+  // always inside the native range however far away it is.
+  it('deleteHardLineBackward next to a comment is clipped to the caret text node', () => {
+    const root = makeRoot(
+      '<p>See <comment id="c1">this<comment-body>note</comment-body></comment>' +
+        ' for a longer explanation</p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('comment')!.nextSibling as Text;
+    caret(text, text.data.length);
+
+    const evt = dispatchBeforeInput(root, 'deleteHardLineBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(text.data).toBe('');
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+  });
+
+  // The soft-line mirror: this is exactly the text node that would wrap across
+  // several visual lines in a real editor, so clipping it would delete far more
+  // than the keystroke asked for. Blocked instead.
+  it('deleteSoftLineBackward next to a comment leaves the text alone', () => {
+    const root = makeRoot(
+      '<p>See <comment id="c1">this<comment-body>note</comment-body></comment>' +
+        ' for a longer explanation</p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('comment')!.nextSibling as Text;
+    caret(text, text.data.length);
+
+    const evt = dispatchBeforeInput(root, 'deleteSoftLineBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(text.data).toBe(' for a longer explanation');
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+  });
+
+  // The block-level rule, not a text-node one: a comment anywhere in the
+  // caret's block puts it in reach of a line deletion, so the caret need not be
+  // beside it. Far from any comment the browser still owns the keystroke —
+  // covered by the last case here.
+  it.each([
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+  ])('%s is blocked anywhere in a block that carries a comment', (inputType) => {
+    const root = makeRoot(
+      '<p>plain words here<comment id="c1">x<comment-body>note</comment-body></comment></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild as Text;
+    caret(text, 6); // "plain |words here" — a word boundary away from the comment
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(text.data).toBe('plain words here');
+  });
+
+  it.each([
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+  ])('%s in a comment-free block is left to the browser', (inputType) => {
+    const root = makeRoot(
+      '<p>no annotation here</p>' +
+        '<p><comment id="c1">x<comment-body>note</comment-body></comment></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild as Text;
+    caret(text, 5);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(text.data).toBe('no annotation here');
+  });
+
   it('Delete just before a comment shrinks its first target char, keeping body', () => {
     const root = makeRoot(SAMPLE);
     setupEditor(root, () => {});
@@ -1184,6 +1796,125 @@ describe('setupEditor: deletion skips comment metadata (visible chars only)', ()
     dispatchBeforeInput(root, 'deleteContentForward');
     expect(comment.firstChild!.textContent).toBe('i'); // "di" -> "i"
     expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it.each([
+    'deleteWordForward',
+    'deleteHardLineForward',
+  ])('%s at a comment boundary deletes one visible character safely', (inputType) => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const hea = root.querySelector('h2')!.firstChild!;
+    caret(hea, hea.textContent!.length);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(comment.firstChild!.textContent).toBe('i');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('leaves deleteWordForward far from an adjacent comment to the browser', () => {
+    const root = makeRoot(
+      '<p>explanation before <comment id="c1">this' +
+        '<comment-body>note</comment-body></comment></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild!;
+    caret(text, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(text.textContent).toBe('explanation before ');
+  });
+
+  // Mirror of the backward regression: no word boundary between the caret and
+  // the comment ahead of it, so the native range would swallow the metadata.
+  it('handles deleteWordForward in text pinned against the comment ahead', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const hea = root.querySelector('h2')!.firstChild as Text;
+    caret(hea, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(hea.data).toBe(''); // "Hea" removed, nothing beyond it
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  // Wrapped mirror: italicising "Hea" hides the comment behind an <em>, and the
+  // forward word deletion would run through it into the metadata.
+  it('handles deleteWordForward in wrapped text pinned against the comment ahead', () => {
+    const root = makeRoot(
+      '<h2><em>Hea</em><comment id="c1">di<comment-body>Comment</comment-body>' +
+        '</comment>ng</h2>',
+    );
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const hea = root.querySelector('em')!.firstChild as Text;
+    caret(hea, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(hea.data).toBe(''); // "Hea" removed, nothing beyond it
+    expect(comment.firstChild!.textContent).toBe('di');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  // The caret at offset 0 renders at the same spot as the comment's trailing
+  // edge, so the browser resolves its range on the comment's side even though
+  // the deletion travels away from it.
+  it('handles deleteWordForward at offset 0 of the text right after a comment', () => {
+    const root = makeRoot(SAMPLE);
+    setupEditor(root, () => {});
+    const comment = root.querySelector('comment')!;
+    const ng = comment.nextSibling as Text;
+    caret(ng, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(ng.data).toBe('');
+    expect(comment.querySelector('comment-body')!.textContent).toBe('Comment');
+  });
+
+  it('deleteHardLineForward next to a comment is clipped to the caret text node', () => {
+    const root = makeRoot(
+      '<p>explanation before <comment id="c1">this' +
+        '<comment-body>note</comment-body></comment></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild as Text;
+    caret(text, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteHardLineForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(text.data).toBe('');
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+  });
+
+  /** Mirror of the backward soft-line case: blocked rather than clipped. */
+  it('deleteSoftLineForward next to a comment leaves the text alone', () => {
+    const root = makeRoot(
+      '<p>explanation before <comment id="c1">this' +
+        '<comment-body>note</comment-body></comment></p>',
+    );
+    setupEditor(root, () => {});
+    const text = root.querySelector('p')!.firstChild as Text;
+    caret(text, 0);
+
+    const evt = dispatchBeforeInput(root, 'deleteSoftLineForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(text.data).toBe('explanation before ');
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
   });
 
   it('Delete on text right after a comment removes its first char without harming the body', () => {
@@ -1205,6 +1936,657 @@ describe('setupEditor: deletion skips comment metadata (visible chars only)', ()
 
     const evt = dispatchBeforeInput(root, 'deleteContentForward');
     expect(evt.defaultPrevented).toBe(false);
+  });
+
+  // The mirror of "a wrapper sits between the caret and the comment": here the
+  // wrapper is AROUND the comment, so the text the deletion reaches is outside
+  // it. Commenting the tail of a bold run produces exactly this — inline-format
+  // segments at comment boundaries, so <strong> ends up holding the <comment> —
+  // which makes it reachable from the toolbar, not only from imported HTML. A
+  // lookup that only walks the comment's own sibling list answers "nothing
+  // after it" and hands the keystroke to the browser default, pressed against
+  // the display:none, contenteditable=false metadata.
+  describe('a comment at an inline wrapper edge', () => {
+    const NOTE =
+      '<comment id="c1">ng<comment-body contenteditable="false">note</comment-body></comment>';
+
+    it('Delete at the target end of a wrapped comment removes the text after the wrapper', () => {
+      const root = makeRoot(`<p><strong>Hea${NOTE}</strong> more</p>`);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('p')!.lastChild!.textContent).toBe('more');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+      expect(target.data).toBe('ng');
+    });
+
+    it('Delete at the trailing edge of a wrapped comment removes the text after the wrapper', () => {
+      const root = makeRoot(`<p><strong>Hea${NOTE}</strong> more</p>`);
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(comment, comment.childNodes.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('p')!.lastChild!.textContent).toBe('more');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    it('reads out through a nested wrapper chain', () => {
+      const root = makeRoot(`<p><em><strong>Hea${NOTE}</strong></em>tail</p>`);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('p')!.lastChild!.textContent).toBe('ail');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    // The climb stops at the block. Text in the NEXT block is not the character
+    // this keystroke removes — that is a block merge the merge handlers own —
+    // so the lookup must return null here rather than reaching across and
+    // deleting a character out of the following paragraph.
+    it('does not reach into the next block for the character to delete', () => {
+      const root = makeRoot(`<p><strong>Hea${NOTE}</strong></p><p>tail</p>`);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(root.querySelectorAll('p')[1].textContent).toBe('tail');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    // The backward mirror already worked (facingLeaf descends into the
+    // wrapper); it is asserted here so a change to one direction cannot quietly
+    // regress the other.
+    it('Backspace after the wrapper shrinks the wrapped comment target', () => {
+      const root = makeRoot(`<p><strong>Hea${NOTE}</strong>tail</p>`);
+      setupEditor(root, () => {});
+      caret(root.querySelector('p')!.lastChild!, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('comment')!.firstChild!.textContent).toBe('n');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+  });
+
+  // The other way out of the caret's block. Above, the lookup runs off the END
+  // of the block and a merge handler may still own the keystroke; here a BLOCK
+  // sits in the comment's own container, so the caret's line ends at it while
+  // the container goes on. Reading through it deletes a character out of a
+  // paragraph the caret was never in, and declining hands the keystroke to the
+  // browser default with the caret pressed against the contenteditable=false
+  // metadata — so the keystroke is consumed instead, and (like the structural
+  // guards) records no edit.
+  //
+  // Every shape below is a <comment> with a block sibling. renderer.ts installs
+  // body content verbatim, so a .html file from disk carries these straight
+  // into the view.
+  describe('a comment whose own container holds a block', () => {
+    const NOTE =
+      '<comment id="c1">note' +
+      '<comment-body contenteditable="false">body</comment-body></comment>';
+
+    it.each([
+      ['at the root', `${NOTE}<p>tail</p>`, ':scope > p'],
+      ['in a quote', `<blockquote>${NOTE}<p>tail</p></blockquote>`, 'blockquote > p'],
+      ['in a div', `<div>${NOTE}<p>tail</p></div>`, 'div > p'],
+      ['before a list', `<div>${NOTE}<ul><li>tail</li></ul></div>`, 'li'],
+    ])('Delete at the target end %s consumes the key and leaves the next block alone',
+      (_name, html, tailSelector) => {
+        const root = makeRoot(html);
+        const onCommandEdit = vi.fn();
+        setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+        const target = root.querySelector('comment')!.firstChild as Text;
+        caret(target, target.data.length);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+        expect(root.querySelector(tailSelector)!.textContent).toBe('tail');
+        expect(onCommandEdit).not.toHaveBeenCalled();
+      });
+
+    // The same position reached from the comment's trailing edge (past the
+    // display:none metadata), which resolves the spot through the other
+    // visibleTextBeyondComment call site.
+    it('Delete at the trailing edge consumes the key too', () => {
+      const html = `<blockquote>${NOTE}<p>tail</p></blockquote>`;
+      const root = makeRoot(html);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      const comment = root.querySelector('comment')!;
+      caret(comment, comment.childNodes.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(onCommandEdit).not.toHaveBeenCalled();
+    });
+
+    // The leading-edge mirror. The block sits BEFORE the comment in the same
+    // container, so the caret's line begins at the comment while the container
+    // goes on. The inline-flow walk stops at the <comment> and never sees the
+    // comment's own siblings, the enclosing container is not at its own start,
+    // and a <comment> is not a block any merge handler will take — so every
+    // guard used to decline and the keystroke reached the browser default with
+    // the annotation inside its range.
+    it.each([
+      ['at the root', `<p>tail</p>${NOTE}`, ':scope > p'],
+      ['in a quote', `<blockquote><p>tail</p>${NOTE}</blockquote>`, 'blockquote > p'],
+      ['in a div', `<div><p>tail</p>${NOTE}</div>`, 'div > p'],
+      ['after a list', `<div><ul><li>tail</li></ul>${NOTE}</div>`, 'li'],
+    ])('Backspace at the target start %s consumes the key and leaves the previous block alone',
+      (_name, html, tailSelector) => {
+        const root = makeRoot(html);
+        const onCommandEdit = vi.fn();
+        setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+        const target = root.querySelector('comment')!.firstChild as Text;
+        caret(target, 0);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+        expect(root.querySelector(tailSelector)!.textContent).toBe('tail');
+        expect(onCommandEdit).not.toHaveBeenCalled();
+      });
+
+    // Word granularity reaches further than a character, so the leading-edge
+    // guard must no more depend on it than its trailing-edge twin does.
+    it.each([
+      'deleteWordBackward',
+      'deleteHardLineBackward',
+    ])('%s at the target start is consumed too', (inputType) => {
+      const html = `<blockquote><p>a long tail</p>${NOTE}</blockquote>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+
+      const evt = dispatchBeforeInput(root, inputType);
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // The same leading edge reached through an inline wrapper: the walk has to
+    // climb out of the <em> before the sibling block comes into view.
+    it('Backspace at a target start inside an inline wrapper is consumed too', () => {
+      const html = `<blockquote><p>tail</p><em>${NOTE}</em></blockquote>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // An element-level caret at the comment's own offset 0 renders at the same
+    // spot and has to answer the same way; it is where ArrowLeft and a click on
+    // the comment's left edge can both leave the caret.
+    it('Backspace at an element-level caret inside the comment is consumed too', () => {
+      const html = `<blockquote><p>tail</p>${NOTE}</blockquote>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('comment')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // Non-regression for the leading edge: with ordinary inline text before the
+    // comment the browser default is safe (the e2e sweep measures every such
+    // position), so the keystroke must still be handed back. Consuming it here
+    // would make Backspace do nothing in the commonest shape there is.
+    it('declines when visible text precedes the comment inline', () => {
+      const html = `<p>Hea${NOTE}ng</p>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // The other exit must NOT be consumed either: when the comment simply
+    // begins its own block, the keystroke is a block-boundary deletion the
+    // merge handler owns and performs safely by moving nodes.
+    it('leaves a comment at the start of its own block to the block merge', () => {
+      const root = makeRoot(`<p>tail</p><p>${NOTE}x</p>`);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(`<p>tail${NOTE}x</p>`);
+      expect(root.querySelector('comment-body')!.textContent).toBe('body');
+      expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    });
+
+    // The other exit must NOT be consumed: when the block simply ends after the
+    // comment, the keystroke is a block-boundary deletion that the rest of the
+    // chain owns, so this handler declines exactly as it did before. Consuming
+    // it here would take the keystroke away from the merge handlers.
+    it('declines instead when the block simply ends after the comment', () => {
+      const html = `<p>Hea${NOTE}</p><p>tail</p>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // A <br> renders no text of its own, so it is stepped over exactly as
+    // before: the character after it is still the one this keystroke removes.
+    it('still reads through a br to the text after it', () => {
+      const root = makeRoot(`<p>Hea${NOTE}<br>tail</p>`);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('p')!.lastChild!.textContent).toBe('ail');
+      expect(root.querySelector('comment-body')!.textContent).toBe('body');
+    });
+
+    // A following <comment> is the one non-wrapper still worth descending into:
+    // its target text really is the next visible character.
+    it('still deletes into a following comment target', () => {
+      const second =
+        '<comment id="c2">xy<comment-body contenteditable="false">two</comment-body></comment>';
+      const root = makeRoot(`<p>Hea${NOTE}${second}</p>`);
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('#c2')!.firstChild!.textContent).toBe('y');
+      expect(root.querySelectorAll('comment-body')).toHaveLength(2);
+    });
+  });
+
+  // Foreign content is where an uppercase deny list silently fails: tagName is
+  // only uppercased for HTML-namespace elements, so <svg> reports 'svg' (and
+  // its children 'text'/'title'/'desc'). Read as an inline wrapper, the scan
+  // walks INTO the graphic, finds the comment on the far side of it, and then
+  // deletes a character out of the SVG's own text — content the user never put
+  // a caret in and cannot see change. renderer.ts keeps <svg> (its deny list is
+  // script/iframe/style/…), so an imported .html carries this shape straight in.
+  describe('an inline <svg> stops the deletion scan', () => {
+    const NOTE = '<comment id="c1">x<comment-body>note</comment-body></comment>';
+    const GRAPHIC = '<svg><text>abc</text></svg>';
+
+    it.each([
+      'deleteContentBackward',
+      'deleteWordBackward',
+    ])('%s after an svg separating the caret from a comment is left alone', (inputType) => {
+      const root = makeRoot(`<p>${NOTE}${GRAPHIC}d</p>`);
+      setupEditor(root, () => {});
+      caret(root.querySelector('p')!.lastChild!, 0); // "|d"
+
+      const evt = dispatchBeforeInput(root, inputType);
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.querySelector('svg')!.textContent).toBe('abc');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    it.each([
+      'deleteContentForward',
+      'deleteWordForward',
+    ])('%s before an svg separating the caret from a comment is left alone', (inputType) => {
+      const root = makeRoot(`<p>d${GRAPHIC}${NOTE}</p>`);
+      setupEditor(root, () => {});
+      caret(root.querySelector('p')!.firstChild!, 1); // "d|"
+
+      const evt = dispatchBeforeInput(root, inputType);
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.querySelector('svg')!.textContent).toBe('abc');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    // The guard must not overshoot: a caret inside the graphic's own text is
+    // still the browser's business, and must not reach out to the comment.
+    it('leaves a deletion inside the svg text to the browser', () => {
+      const root = makeRoot(`<p>${NOTE}${GRAPHIC}d</p>`);
+      setupEditor(root, () => {});
+      caret(root.querySelector('svg')!.firstChild!.firstChild!, 2); // "ab|c"
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.querySelector('svg')!.textContent).toBe('abc');
+    });
+  });
+
+  // Regression: character deletion removes a fixed amount, and deleteData counts
+  // UTF-16 code units. Taking exactly 1 splits an emoji into a lone surrogate,
+  // which is then serialized and saved; a code-point rule instead splits a
+  // combining sequence or a ZWJ emoji. Every shape below is inside the comment
+  // danger zone, so the browser default never gets to do it correctly for us.
+  describe('character deletion keeps grapheme clusters whole', () => {
+    const WAVE = '\u{1F44B}'; // U+1F44B, a surrogate pair in UTF-16
+
+    it('Backspace removes a whole emoji next to a comment', () => {
+      const root = makeRoot(
+        `<p>Hi ${WAVE}<comment id="c1">x<comment-body>note</comment-body></comment></p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('p')!.firstChild as Text;
+      caret(text, text.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe('Hi ');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    // The wrapper is what makes this reachable at all: before the inline-flow
+    // scan, a <strong> hid the comment and the browser handled the keystroke.
+    it('Backspace removes a whole emoji when a wrapper separates it from the comment', () => {
+      const root = makeRoot(
+        `<p><strong>Hi ${WAVE}</strong>` +
+          '<comment id="c1">x<comment-body>note</comment-body></comment></p>',
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('strong')!.firstChild as Text;
+      caret(text, text.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe('Hi ');
+    });
+
+    it('Delete removes a whole emoji next to a comment', () => {
+      const root = makeRoot(
+        `<p><comment id="c1">x<comment-body>note</comment-body></comment>${WAVE} hi</p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('comment')!.nextSibling as Text;
+      caret(text, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe(' hi');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    // The fixed-length paths that shrink a comment's target from outside it run
+    // through the same clamp.
+    it('Backspace from outside removes a whole emoji at the target end', () => {
+      const root = makeRoot(
+        `<p>a<comment id="c1">t${WAVE}<comment-body>note</comment-body></comment>b</p>`,
+      );
+      setupEditor(root, () => {});
+      const after = root.querySelector('comment')!.nextSibling as Text;
+      caret(after, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('comment')!.firstChild!.textContent).toBe('t');
+    });
+
+    it('Delete from outside removes a whole emoji at the target start', () => {
+      const root = makeRoot(
+        `<p>a<comment id="c1">${WAVE}t<comment-body>note</comment-body></comment>b</p>`,
+      );
+      setupEditor(root, () => {});
+      const before = root.querySelector('p')!.firstChild as Text;
+      caret(before, 1);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('comment')!.firstChild!.textContent).toBe('t');
+    });
+
+    it('still removes one plain character at a time', () => {
+      const root = makeRoot(
+        '<p>Hi<comment id="c1">x<comment-body>note</comment-body></comment></p>',
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('p')!.firstChild as Text;
+      caret(text, 2);
+
+      dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(text.data).toBe('H');
+    });
+
+    // A code-point rule is not enough either: these render as ONE character
+    // each, and the browser's own Backspace removes the whole cluster. Taking
+    // it apart leaves a dangling accent or a joiner the user never typed.
+    // Written with explicit escapes: a combining mark and a joiner are
+    // invisible in an editor, and a source file that silently normalised them
+    // away would turn these into single code points and pass for free.
+    const ACUTE_E = '\u0065\u0301'; // 'e' + COMBINING ACUTE ACCENT
+    const ACCENTED = `caf${ACUTE_E}`;
+    const FAMILY = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467}'; // ZWJ sequence
+
+    it('Backspace removes a whole combining sequence next to a comment', () => {
+      const root = makeRoot(
+        `<p>${ACCENTED}<comment id="c1">x<comment-body>note</comment-body></comment></p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('p')!.firstChild as Text;
+      caret(text, text.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe('caf');
+      expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    });
+
+    it('Delete removes a whole combining sequence next to a comment', () => {
+      const root = makeRoot(
+        `<p><comment id="c1">x<comment-body>note</comment-body></comment>${ACUTE_E}b</p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('comment')!.nextSibling as Text;
+      caret(text, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe('b');
+    });
+
+    it('Backspace removes a whole ZWJ emoji sequence next to a comment', () => {
+      const root = makeRoot(
+        `<p>Hi ${FAMILY}<comment id="c1">x<comment-body>note</comment-body></comment></p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('p')!.firstChild as Text;
+      caret(text, text.data.length);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe('Hi ');
+    });
+
+    it('Delete removes a whole ZWJ emoji sequence next to a comment', () => {
+      const root = makeRoot(
+        `<p><comment id="c1">x<comment-body>note</comment-body></comment>${FAMILY} hi</p>`,
+      );
+      setupEditor(root, () => {});
+      const text = root.querySelector('comment')!.nextSibling as Text;
+      caret(text, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(text.data).toBe(' hi');
+    });
+
+    // The fixed-length paths that shrink a comment's target from outside it run
+    // through the same clamp, so they get the cluster rule too.
+    it('Backspace from outside removes a whole cluster at the target end', () => {
+      const root = makeRoot(
+        `<p>a<comment id="c1">t${FAMILY}<comment-body>note</comment-body></comment>b</p>`,
+      );
+      setupEditor(root, () => {});
+      caret(root.querySelector('comment')!.nextSibling!, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelector('comment')!.firstChild!.textContent).toBe('t');
+    });
+  });
+
+  // A word or hard-line deletion inside a comment's target can empty it in a
+  // single keystroke, leaving a comment that renders as nothing. The caret then
+  // has no inline neighbour to resolve from, so the browser default would run
+  // pressed against the contenteditable=false metadata. The next Backspace must
+  // remove the comment instead — the same second step the outside-in path takes.
+  // (Soft line cannot get here: it is blocked before any edit happens.)
+  describe('a comment emptied from the inside', () => {
+    function emptyTargetFromInside(root: HTMLElement): void {
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, target.data.length);
+      dispatchBeforeInput(root, 'deleteHardLineBackward');
+      expect(target.data).toBe('');
+    }
+
+    it('survives the keystroke that empties it, then goes on the next one', () => {
+      const root = makeRoot(
+        '<p>a <comment id="c1">xy<comment-body>note</comment-body></comment> b</p>',
+      );
+      setupEditor(root, () => {});
+
+      emptyTargetFromInside(root);
+      // One keystroke never destroys an annotation: the comment is still there.
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(0);
+      expect(root.querySelector('p')!.textContent).toBe('a  b');
+    });
+
+    it('is not removed while its target still holds text', () => {
+      const root = makeRoot(
+        '<p>a <comment id="c1">xy<comment-body>note</comment-body></comment> b</p>',
+      );
+      setupEditor(root, () => {});
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(target.data).toBe('xy');
+    });
+
+    // Forward is the exact mirror. Without it the next Delete eats the
+    // character AFTER the comment instead, leaving an element that renders as
+    // nothing, cannot be reached again, and is never pruned on serialize
+    // (serialize.ts keeps every <comment> on purpose) — so it survives the
+    // save as an invisible annotation in the file.
+    function emptyTargetForward(root: HTMLElement): void {
+      const target = root.querySelector('comment')!.firstChild as Text;
+      caret(target, 0);
+      dispatchBeforeInput(root, 'deleteHardLineForward');
+      expect(target.data).toBe('');
+    }
+
+    it('survives the keystroke that empties it forward, then goes on the next one', () => {
+      const root = makeRoot(
+        '<p>a <comment id="c1">xy<comment-body>note</comment-body></comment> b</p>',
+      );
+      setupEditor(root, () => {});
+
+      emptyTargetForward(root);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(0);
+      // The following text is untouched: the keystroke spent itself on the
+      // comment, exactly as the backward mirror spends it.
+      expect(root.querySelector('p')!.textContent).toBe('a  b');
+    });
+
+    // The dangerous variant: with nothing visible after the comment there is no
+    // character to fall back on, so before the mirror existed the keystroke
+    // reached the browser default with the caret pressed against the
+    // contenteditable=false metadata.
+    it('is removed by a forward Delete even with no visible text after it', () => {
+      const root = makeRoot(
+        '<h2>Hea<comment id="c1">di<comment-body>note</comment-body></comment></h2>',
+      );
+      setupEditor(root, () => {});
+
+      emptyTargetForward(root);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(0);
+      expect(root.querySelector('h2')!.textContent).toBe('Hea');
+    });
+
+    it('is not removed forward while its target still holds text', () => {
+      const root = makeRoot(
+        '<p>a <comment id="c1">xy<comment-body>note</comment-body></comment> b</p>',
+      );
+      setupEditor(root, () => {});
+      const comment = root.querySelector('comment')!;
+      caret(comment.firstChild as Text, 2); // target end, still holding "xy"
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      // The trailing-edge rule still applies: skip the metadata, eat the first
+      // visible character after the comment.
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.querySelectorAll('comment')).toHaveLength(1);
+      expect(comment.firstChild!.textContent).toBe('xy');
+      expect(root.querySelector('p')!.lastChild!.textContent).toBe('b');
+    });
   });
 });
 
@@ -1270,6 +2652,320 @@ describe('setupEditor: Backspace/Delete merges adjacent blocks', () => {
     // Caret sits between the original "foo" and the moved "bar".
     expect(sel.anchorNode).toBe(ps[0]);
     expect(sel.anchorOffset).toBe(1);
+  });
+
+  it('safely merges comment blocks for deleteWordBackward at a block boundary', () => {
+    const root = makeRoot(
+      '<p>a<comment id="c1">t<comment-body>note</comment-body></comment></p>' +
+        '<p>second</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('p')[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    expect(root.querySelector('p')!.textContent).toBe('atnotesecond');
+  });
+
+  it('safely merges comment blocks for deleteWordForward at a block boundary', () => {
+    const root = makeRoot(
+      '<p>first</p><p><comment id="c1">t' +
+        '<comment-body>note</comment-body></comment>b</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(root.querySelector('comment-body')!.textContent).toBe('note');
+    expect(root.querySelector('p')!.textContent).toBe('firsttnoteb');
+  });
+
+  // Word/line deletion at a block edge takes the same safe merge as character
+  // deletion. Chromium deletes no word there — it only performs the destructive
+  // default merge — so there is no native granularity to preserve, and a comment
+  // anywhere in either block would lose its metadata if we handed it back.
+  it('safely merges for deleteWordBackward when the comment is away from the join', () => {
+    const root = makeRoot(
+      '<p>Note <comment id="c1">x<comment-body>b</comment-body></comment>' +
+        ' and a long tail of words</p><p>second</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('p')[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(root.querySelector('comment')!.getAttribute('id')).toBe('c1');
+    expect(root.querySelector('comment-body')!.textContent).toBe('b');
+  });
+
+  it('safely merges for deleteWordForward when the comment is away from the join', () => {
+    const root = makeRoot(
+      '<p>first</p><p>words before <comment id="c1">x' +
+        '<comment-body>b</comment-body></comment> and a long tail</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(root.querySelector('comment')!.getAttribute('id')).toBe('c1');
+    expect(root.querySelector('comment-body')!.textContent).toBe('b');
+  });
+
+  // The safe merge above needs BOTH sides to be mergeable leaf blocks. A list,
+  // a table, or a quote holding nested blocks is neither, so the keystroke used
+  // to fall through to Chromium — whose word range crosses the block boundary
+  // and strips the contenteditable=false <comment-body> it finds there. These
+  // pin down that such a join is blocked instead of handed over.
+  describe('a block join the safe merge cannot take over', () => {
+    const listNeighbour =
+      '<ul><li>Note <comment id="c1">x<comment-body>b</comment-body></comment>' +
+      ' and a long tail of words</li></ul>';
+    const quoteNeighbour =
+      '<blockquote><p><comment id="c1">x<comment-body>b</comment-body></comment>' +
+      ' quoted words</p></blockquote>';
+
+    function expectIntact(root: HTMLElement, html: string, evt: InputEvent): void {
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(root.querySelector('comment-body')!.textContent).toBe('b');
+    }
+
+    it.each(['deleteWordBackward', 'deleteSoftLineBackward'])(
+      '%s blocks a join into a list carrying a comment',
+      (inputType) => {
+        const html = `${listNeighbour}<p>second</p>`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtStart(root.querySelector(':scope > p')!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, inputType));
+      },
+    );
+
+    it.each(['deleteWordForward', 'deleteSoftLineForward'])(
+      '%s blocks a join into a list carrying a comment',
+      (inputType) => {
+        const html = `<p>first</p>${listNeighbour}`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtEnd(root.querySelector(':scope > p')!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, inputType));
+      },
+    );
+
+    // The caret's OWN block is the one the merge declines here: an <li> is
+    // never mergeable, so the climb out of the list is what finds the join.
+    it('blocks deleteWordBackward from a first list item into a commented paragraph', () => {
+      const html =
+        '<p>Note <comment id="c1">x<comment-body>b</comment-body></comment> tail</p>' +
+        '<ul><li>item</li></ul>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('li')!);
+
+      expectIntact(root, html, dispatchBeforeInput(root, 'deleteWordBackward'));
+    });
+
+    it('blocks deleteWordBackward into a quote whose nested block carries a comment', () => {
+      const html = `${quoteNeighbour}<p>second</p>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector(':scope > p')!);
+
+      expectIntact(root, html, dispatchBeforeInput(root, 'deleteWordBackward'));
+    });
+
+    // Character granularity is blocked here too. It was once exempt, on the
+    // reasoning that a character deletion only acts on what is immediately
+    // beside the caret — but that stops being true at a block boundary, where
+    // the browser resolves its range from layout and reaches the metadata in the
+    // next block. Measured: plain Delete at this join strips the comment's body
+    // (tests/e2e/comment-delete-sweep.spec.ts, "Delete at a join with a
+    // commented list keeps the comment").
+    it('blocks deleteContentBackward at the same join', () => {
+      const html = `${listNeighbour}<p>second</p>`;
+      const root = makeRoot(html);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtStart(root.querySelector(':scope > p')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(onCommandEdit).not.toHaveBeenCalled();
+    });
+
+    // The mirror that keeps the guard from over-blocking: no comment in the
+    // neighbour means no reason to withhold the native word deletion.
+    it('leaves deleteWordBackward before a comment-free list to the browser', () => {
+      const html = '<ul><li>a long tail of words</li></ul><p>second</p>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector(':scope > p')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('leaves deleteWordBackward in mid-block text to the browser', () => {
+      const html = `${listNeighbour}<p>second words</p>`;
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector(':scope > p')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteWordBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // The same joins, with the caret in a bare inline run instead of a block.
+    // renderer.ts installs body content verbatim, so a .html file from disk can
+    // put text straight beside a list — and then there is no block ancestor for
+    // the edge test to ask about, which made this guard answer "no join here"
+    // and hand the keystroke to the browser. The structural guard grew a bare-
+    // run reading for exactly this shape (see the "bare inline runs have no
+    // block to ask" describe below); these are its comment-side mirror.
+    describe('the join a bare inline run faces', () => {
+      it('blocks deleteWordForward from bare root text into a commented list', () => {
+        const html = `text${listNeighbour}`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtEnd(root.firstChild!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, 'deleteWordForward'));
+      });
+
+      it('blocks deleteWordBackward from bare root text after a commented list', () => {
+        const html = `${listNeighbour}text`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtStart(root.lastChild!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, 'deleteWordBackward'));
+      });
+
+      // The block ancestor exists here but reaches straight past the list: the
+      // <div> IS the container, so its own start sits before the <ul> and the
+      // block-level test reports "not at a boundary" while the run sits
+      // directly against it.
+      it('blocks deleteWordBackward from a bare run beside a commented list in a div', () => {
+        const html = `<div>${listNeighbour}text</div>`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtStart(root.querySelector('div')!.lastChild!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, 'deleteWordBackward'));
+      });
+
+      // Hard line rather than soft: a soft-line deletion in a bare run never
+      // reaches this guard at all, because commentInCaretBlock() has no block
+      // to scan and blocks the keystroke on the whole root first.
+      it('blocks deleteHardLineForward from bare root text into a commented list', () => {
+        const html = `text${listNeighbour}`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtEnd(root.firstChild!);
+
+        expectIntact(root, html, dispatchBeforeInput(root, 'deleteHardLineForward'));
+      });
+
+      // Character granularity keeps its native behavior at a bare-run join too:
+      // it only ever acts on what is immediately beside the caret, which the
+      // comment handlers already own.
+      // Character granularity gets the same treatment as the block-level join
+      // above: no granularity is exempt once the deletion faces a boundary.
+      it('blocks deleteContentForward at the same bare-run join', () => {
+        const html = `text${listNeighbour}`;
+        const root = makeRoot(html);
+        const onCommandEdit = vi.fn();
+        setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+        caretAtEnd(root.firstChild!);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+        expect(onCommandEdit).not.toHaveBeenCalled();
+      });
+
+      it('leaves a bare run facing a comment-free list to the browser', () => {
+        const html = 'text<ul><li>a long tail of words</li></ul>';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAtEnd(root.firstChild!);
+
+        const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+        expect(evt.defaultPrevented).toBe(false);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      // Only the run's EDGE faces the join. Mid-run the deletion stays inside
+      // the run, so withholding it would cost the user a word for nothing.
+      it('leaves a mid-run caret to the browser', () => {
+        const html = `some text${listNeighbour}`;
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        const text = root.firstChild as Text;
+        const range = document.createRange();
+        range.setStart(text, 2);
+        range.collapse(true);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const evt = dispatchBeforeInput(root, 'deleteWordForward');
+
+        expect(evt.defaultPrevented).toBe(false);
+        expect(root.innerHTML).toBe(html);
+      });
+    });
+  });
+
+  it.each([
+    'deleteWordBackward',
+    'deleteSoftLineBackward',
+    'deleteHardLineBackward',
+  ])('%s at a comment-free block join takes the safe merge', (inputType) => {
+    const root = makeRoot('<p>a long tail of words</p><p>second</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('p')[1]);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>a long tail of wordssecond</p>');
+  });
+
+  it.each([
+    'deleteWordForward',
+    'deleteSoftLineForward',
+    'deleteHardLineForward',
+  ])('%s at a comment-free block join takes the safe merge', (inputType) => {
+    const root = makeRoot('<p>first</p><p>words before a long tail</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>firstwords before a long tail</p>');
   });
 
   it('drops an empty previous block and keeps the current block type', () => {
@@ -1370,12 +3066,1422 @@ describe('setupEditor: Backspace/Delete merges adjacent blocks', () => {
   });
 });
 
+describe('setupEditor: protects structural block boundaries', () => {
+  const detailsHtml =
+    '<p>lead</p><details><summary>Title</summary>' +
+    '<p>Hidden body</p></details><p>tail</p>';
+
+  it('prevents Backspace at the start of a summary without recording an edit', () => {
+    const root = makeRoot(detailsHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('summary')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Delete at the end of a summary without recording an edit', () => {
+    const root = makeRoot(detailsHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('summary')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Backspace immediately after details without recording an edit', () => {
+    const root = makeRoot(detailsHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p:last-child')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Delete immediately before details without recording an edit', () => {
+    const root = makeRoot(detailsHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector(':scope > p:first-child')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Delete before details when an HTML comment separates the blocks', () => {
+    const html =
+      '<p>lead</p><!-- section --><details open=""><summary>Title</summary>' +
+      '<p>Hidden body</p></details>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('prevents Backspace after details when an HTML comment separates the blocks', () => {
+    const html =
+      '<details open=""><summary>Title</summary><p>body</p></details>' +
+      '<!-- section --><p>tail</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('prevents Backspace immediately after a pre block', () => {
+    const html = '<pre><code>code</code></pre><p>para</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('leaves Delete before hr next to pre to the browser', () => {
+    const html = '<p>lead</p><hr><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('leaves Backspace after hr next to pre to the browser', () => {
+    const html = '<pre><code>code</code></pre><hr><p>tail</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('leaves list-item Backspace inside details to the browser', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>' +
+        '<ul><li>a</li><li>b</li></ul></details>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelectorAll('li')[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('leaves nested list-item Backspace inside details to the browser', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>' +
+        '<ul><li>a<ul><li>b</li></ul></li></ul></details>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('ul ul li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('protects the first list-item Backspace from crossing into summary', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><ul><li>a</li></ul></details>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it('protects Delete at the end of the details body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><p>body</p></details><p>tail</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('details > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it('protects Delete at the end of a list at the details closing boundary', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><ul><li>a</li></ul></details>' +
+        '<p>tail</p>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it('removes an empty paragraph after pre and records an edit', () => {
+    const root = makeRoot('<pre><code>code</code></pre><p><br></p>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+  });
+
+  it('Delete at pre end removes an adjacent empty paragraph', () => {
+    const root = makeRoot('<pre><code>code</code></pre><p><br></p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('pre')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+  });
+
+  it('Delete in an empty paragraph before pre removes it and places the caret at code start', () => {
+    const root = makeRoot('<p><br></p><pre><code>code</code></pre>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+    expect(selection.anchorNode).toBe(root.querySelector('code')!.firstChild);
+    expect(selection.anchorOffset).toBe(0);
+  });
+
+  it('Backspace at pre start removes a preceding empty paragraph and keeps the caret at code start', () => {
+    const root = makeRoot('<p><br></p><pre><code>code</code></pre>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+    expect(selection.anchorNode).toBe(root.querySelector('code')!.firstChild);
+    expect(selection.anchorOffset).toBe(0);
+  });
+
+  it('removes an empty pre placeholder and records an edit', () => {
+    const root = makeRoot('<p>lead</p><pre><code><br></code></pre>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>lead</p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+  });
+
+  it.each(['<br>', ''])(
+    'keeps a trailing empty pre for forward Delete with code content %j',
+    (codeContent) => {
+      const html = `<p>lead</p><pre><code>${codeContent}</code></pre>`;
+      const root = makeRoot(html);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtEnd(root.querySelector('code')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(onCommandEdit).not.toHaveBeenCalled();
+    },
+  );
+
+  // The caret BEFORE the placeholder <br> is the shape Chromium leaves behind
+  // when a code block's last character is deleted, and isCaretAtPreEdge counts
+  // that <br> as content — so the forward edge test reports "not at a boundary"
+  // there. Where the empty-pre drop can still act it does (the tests above and
+  // below); where it declines, the placeholder rule has to keep the keystroke
+  // away from the default that merges the neighbour INTO the pre.
+  it.each([
+    ['whose neighbour takes no caret', '<pre><code><br></code></pre><hr>'],
+    ['with nothing after it', '<p>lead</p><pre><code><br></code></pre>'],
+    ['that is the only details body',
+      '<details open=""><summary>Title</summary><pre><code><br></code></pre></details>'],
+  ])('consumes forward Delete in an empty pre %s', (_name, html) => {
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  // The placeholder rule must not swallow the drop itself: with a neighbour the
+  // caret can land in, the empty pre still goes and the caret moves on.
+  it('still removes an empty pre whose neighbour can hold the caret', () => {
+    const root = makeRoot('<pre><code><br></code></pre><p>text</p>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>text</p>');
+    expect(selection.anchorNode).toBe(root.querySelector('p')!.firstChild);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+  });
+
+  it('creates an editable paragraph after a void element when removing an empty pre', () => {
+    const root = makeRoot('<hr><pre><code><br></code></pre>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<hr><p><br></p>');
+    expect(selection.anchorNode).toBe(root.querySelector('p'));
+    expect(selection.anchorOffset).toBe(0);
+  });
+
+  it('replaces an empty pre in place instead of merging across significant root text', () => {
+    const root = makeRoot('<p>lead</p>text<pre><code><br></code></pre>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>lead</p>text<p><br></p>');
+    expect(selection.anchorNode).toBe(root.querySelector(':scope > p:last-child'));
+    expect(selection.anchorOffset).toBe(0);
+  });
+
+  it('does not treat an HTML comment inside pre as an empty placeholder', () => {
+    const html = '<pre><code><!-- TODO: fill in --></code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    const code = root.querySelector('code')!;
+    const range = document.createRange();
+    range.setStart(code, code.childNodes.length);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects Backspace before code text preceded by an HTML comment', () => {
+    const html =
+      '<p>lead</p><pre><code><!-- prettier-ignore -->const x = 1;</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    const text = root.querySelector('code')!.lastChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('allows Backspace to delete a leading newline inside pre', () => {
+    const root = makeRoot('<pre><code>\nabc</code></pre>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('code')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 1);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('allows Backspace to delete indentation inside pre', () => {
+    const root = makeRoot('<pre><code>  abc</code></pre>');
+    setupEditor(root, () => {});
+    const text = root.querySelector('code')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 2);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+  });
+
+  it('removes an empty paragraph after details and records an edit', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><p>body</p></details><p><br></p>',
+    );
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<details open=""><summary>Title</summary><p>body</p></details>',
+    );
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+  });
+
+  // A closed details renders only its summary, so the caret must land there
+  // rather than in the (display:none) body it would be invisible in.
+  it('places the caret in the summary when the details is closed', () => {
+    const root = makeRoot(
+      '<details><summary>Title</summary><p>body</p></details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<details><summary>Title</summary><p>body</p></details>');
+    expect(selection.anchorNode).toBe(root.querySelector('summary')!.firstChild);
+    expect(selection.anchorOffset).toBe('Title'.length);
+  });
+
+  // Resolving only one level would stop at the outer details' body — which is
+  // itself a collapsed details — and drop the caret in ITS hidden body. The
+  // hand-over rule has to be applied repeatedly, not once.
+  it('places the caret in a nested closed details summary, not its hidden body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Outer</summary>' +
+        '<details><summary>Inner</summary><p>hidden</p></details>' +
+        '</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    const innerSummary = root.querySelectorAll('summary')[1];
+    expect(evt.defaultPrevented).toBe(true);
+    expect(selection.anchorNode).toBe(innerSummary.firstChild);
+    expect(selection.anchorOffset).toBe('Inner'.length);
+  });
+
+  // An open nested details is visible, so the walk keeps descending into it.
+  it('places the caret in a nested open details body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Outer</summary>' +
+        '<details open=""><summary>Inner</summary><p>shown</p></details>' +
+        '</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(selection.anchorNode).toBe(root.querySelector('details details p')!.firstChild);
+    expect(selection.anchorOffset).toBe('shown'.length);
+  });
+
+  // structuralCaretTarget's descent stops at the first target that is neither
+  // <pre> nor <details>, so ONE ordinary container between the body and a
+  // nested collapsed details puts the hidden text back within reach of the text
+  // walk — which knows nothing about `open`. Same failure as the nested case
+  // above, one wrapper out, and the reason the rule is applied at placement.
+  it.each([
+    ['a div', '<div><details><summary>Inner</summary><p>hidden</p></details></div>'],
+    ['a list', '<ul><li><details><summary>Inner</summary><p>hidden</p></details></li></ul>'],
+    [
+      'a quote',
+      '<blockquote><details><summary>Inner</summary><p>hidden</p></details></blockquote>',
+    ],
+  ])('places the caret in a closed details summary behind %s', (_name, body) => {
+    const root = makeRoot(
+      `<details open=""><summary>Outer</summary>${body}</details><p><br></p>`,
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    const innerSummary = root.querySelectorAll('summary')[1];
+    expect(evt.defaultPrevented).toBe(true);
+    expect(selection.anchorNode).toBe(innerSummary.firstChild);
+    expect(selection.anchorOffset).toBe('Inner'.length);
+  });
+
+  // The empty-host branch of the same placement. With no text anywhere the
+  // choice falls to querySelectorAll, which is flat and so reaches into the
+  // collapsed details on its own — the recursion that covers the text walk does
+  // nothing here, hence the separate ancestor test.
+  it('skips a hidden host when the details body behind a wrapper holds no text', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Outer</summary>' +
+        '<div><details><summary></summary><p><br></p></details></div>' +
+        '</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    const innerSummary = root.querySelectorAll('summary')[1];
+    expect(evt.defaultPrevented).toBe(true);
+    expect(innerSummary.contains(selection.anchorNode)).toBe(true);
+  });
+
+  // A details body need not be wrapped in a block: renderer.ts installs body
+  // content verbatim, so a .html file from disk can put bare text straight
+  // after the </summary>. An element-only lookup cannot see that text, and
+  // reading "no element body" as "no body" handed the caret back to the
+  // summary — backwards, past content the reader can see, with the next typed
+  // character landing in the title.
+  it('places the caret at the end of a bare-text details body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>body</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<details open=""><summary>Title</summary>body</details>');
+    expect(selection.anchorNode).toBe(root.querySelector('details')!.lastChild);
+    expect(selection.anchorOffset).toBe('body'.length);
+  });
+
+  // The mirror: the caret is already in the bare body, and the empty block it
+  // drops sits AFTER the details. Same placement, reached through the other
+  // branch of handleEmptyBlockAtStructuralBoundary.
+  it('keeps the caret in a bare-text details body when Delete drops the block after it', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>body</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('details')!.lastChild!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<details open=""><summary>Title</summary>body</details>');
+    expect(selection.anchorNode).toBe(root.querySelector('details')!.lastChild);
+    expect(selection.anchorOffset).toBe('body'.length);
+  });
+
+  // Bare text AFTER the last body block is still the visible end of the body,
+  // so the element-only lookup was wrong even when an element body exists.
+  it('places the caret in the trailing bare text of a mixed details body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><p>first</p>tail</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p:last-child')!);
+
+    dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(selection.anchorNode).toBe(root.querySelector('details')!.lastChild);
+    expect(selection.anchorOffset).toBe('tail'.length);
+  });
+
+  // A CLOSED details renders only its summary, so the bare body is exactly as
+  // invisible as a wrapped one. The new childNodes lookup must not reach it.
+  it('still hands over to the summary when a bare-text details body is collapsed', () => {
+    const root = makeRoot('<details><summary>Title</summary>body</details><p><br></p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(selection.anchorNode).toBe(root.querySelector('summary')!.firstChild);
+    expect(selection.anchorOffset).toBe('Title'.length);
+  });
+
+  // Whitespace between tags is formatting noise, not a body. Reading it as one
+  // would stop the descent at the details and leave the caret before the
+  // summary rather than at its end.
+  it('ignores whitespace after the summary when choosing the details body', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>\n</details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(selection.anchorNode).toBe(root.querySelector('summary')!.firstChild);
+    expect(selection.anchorOffset).toBe('Title'.length);
+  });
+
+  // The body's last child holds no editable text and is no editable host
+  // either, so placement falls back to the summary instead of giving up.
+  it('falls back to the summary when the details body ends in a void element', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary><hr></details><p><br></p>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<details open=""><summary>Title</summary><hr></details>');
+    expect(root.querySelector('summary')!.contains(selection.anchorNode)).toBe(true);
+  });
+
+  // A locked body is a place the caret can be *put* but not typed in, so it is
+  // no better a landing spot than the void element above. renderer.ts keeps
+  // both the <div> and its contenteditable attribute, so a .html file opened
+  // from disk can hold exactly this shape.
+  //
+  // This case is the reason the lock is read from the ATTRIBUTE: jsdom does not
+  // implement the `contentEditable` property (it answers undefined), so a
+  // property test would pass this file while doing nothing, and the assertions
+  // below would be a false green.
+  it('falls back to the summary when the details body is contenteditable=false', () => {
+    const html =
+      '<details open=""><summary>Title</summary>' +
+      '<div contenteditable="false">locked</div></details>';
+    const root = makeRoot(`${html}<p><br></p>`);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p:last-child')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(root.querySelector('summary')!.contains(selection.anchorNode)).toBe(true);
+    // Never inside the locked subtree, where typing would go nowhere.
+    expect(root.querySelector('div[contenteditable]')!.contains(selection.anchorNode))
+      .toBe(false);
+  });
+
+  // The lock is inherited: a block inside a locked container is no more
+  // typeable than the container itself, so the descendant scan has to look at
+  // each candidate's ancestors and not only at the candidate. Here the only
+  // host inside the body is an unlocked <p> under a locked <div>.
+  it('falls back to the summary when the only body host sits under a lock', () => {
+    const html =
+      '<details open=""><summary>Title</summary>' +
+      '<div contenteditable="false"><p><br></p></div></details>';
+    const root = makeRoot(`${html}<p><br></p>`);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector(':scope > p:last-child')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(root.querySelector('summary')!.contains(selection.anchorNode)).toBe(true);
+  });
+
+  it('keeps an empty details body when Backspace follows summary', () => {
+    const html = '<details open=""><summary>Title</summary><p><br></p></details>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('details > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('removes an empty paragraph after pre inside details', () => {
+    const root = makeRoot(
+      '<details open=""><summary>Title</summary>' +
+        '<pre><code>code</code></pre><p><br></p></details>',
+    );
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('details > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(
+      '<details open=""><summary>Title</summary><pre><code>code</code></pre></details>',
+    );
+  });
+
+  // The protection climbs out of a container to reach its structural
+  // neighbour, so the empty-block drop has to climb too. Without it the
+  // keystroke is consumed and nothing happens at all, while the identical bare
+  // <p><br></p> in the same position is removed.
+  describe('an empty block at the edge of a container', () => {
+    it('removes an empty list item and the list it emptied after pre', () => {
+      const root = makeRoot('<pre><code>code</code></pre><ul><li><br></li></ul>');
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtStart(root.querySelector('li')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      const selection = window.getSelection()!;
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+      expect(selection.anchorNode).toBe(root.querySelector('code')!.firstChild);
+      expect(selection.anchorOffset).toBe('code'.length);
+      expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    });
+
+    // The unwind stops at the first container that still holds something, so
+    // the rest of the list survives the same keystroke.
+    it('removes only the empty first item of a list after pre', () => {
+      const root = makeRoot(
+        '<pre><code>code</code></pre><ul><li><br></li><li>b</li></ul>',
+      );
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('li')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe('<pre><code>code</code></pre><ul><li>b</li></ul>');
+    });
+
+    it('removes an empty quoted paragraph and its blockquote before pre', () => {
+      const root = makeRoot(
+        '<blockquote><p><br></p></blockquote><pre><code>code</code></pre>',
+      );
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('blockquote p')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      const selection = window.getSelection()!;
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe('<pre><code>code</code></pre>');
+      expect(selection.anchorNode).toBe(root.querySelector('code')!.firstChild);
+      expect(selection.anchorOffset).toBe(0);
+    });
+
+    // A container the drop may NOT unwind: removing the empty paragraph would
+    // take the cell, the row, and the whole table with it. The drop declines
+    // and the keystroke falls back to the structural protection.
+    it('leaves a table alone when the empty paragraph is its only cell content', () => {
+      const html =
+        '<pre><code>code</code></pre>' +
+        '<table><tbody><tr><td><p><br></p></td></tr></tbody></table>';
+      const root = makeRoot(html);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtStart(root.querySelector('td > p')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(onCommandEdit).not.toHaveBeenCalled();
+    });
+
+    // The climb reaches the summary through the list, so the details-body rule
+    // has to reach through it as well: dropping the item would leave the
+    // details with no body, exactly as dropping a bare empty <p> there would.
+    it('keeps an empty list item that is the whole details body', () => {
+      const html =
+        '<details open=""><summary>Title</summary><ul><li><br></li></ul></details>';
+      const root = makeRoot(html);
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtStart(root.querySelector('li')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+      expect(onCommandEdit).not.toHaveBeenCalled();
+    });
+
+    // The mirror branch stays sibling-only: the block that would go here sits
+    // BEYOND the climb, so unwinding to it would delete a block outside the
+    // structure the caret is in — Delete at the end of a bodyless details'
+    // summary must not reach the paragraph after the details.
+    it('does not reach past a details to drop the empty paragraph after it', () => {
+      const html = '<details open=""><summary>Title</summary></details><p><br></p>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('summary')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+  });
+
+  it('does not remove an empty paragraph across significant root text', () => {
+    const html = '<pre><code>code</code></pre>text<p><br></p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects the forward boundary immediately before pre', () => {
+    const html = '<p>para</p><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects Backspace at the start of pre', () => {
+    const html = '<p>para</p><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('pre')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it.each([
+    'deleteWordBackward',
+    'deleteSoftLineBackward',
+    'deleteHardLineBackward',
+  ])('protects a summary boundary for %s', (inputType) => {
+    const root = makeRoot(detailsHtml);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('summary')!);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+  });
+
+  it.each([
+    'deleteWordForward',
+    'deleteSoftLineForward',
+    'deleteHardLineForward',
+  ])('protects a details boundary for %s', (inputType) => {
+    const root = makeRoot(detailsHtml);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector(':scope > p:first-child')!);
+
+    const evt = dispatchBeforeInput(root, inputType);
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(detailsHtml);
+  });
+
+  // An empty pre may not merge across the summary either: dropping it would
+  // leave a details with no body at all. It degrades to an empty paragraph in
+  // place, which is the same shape the empty-body case already guarantees.
+  it.each([
+    ['<pre><code><br></code></pre>', 'code'],
+    ['<pre><br></pre>', 'pre'],
+  ])(
+    'degrades %s to a paragraph when it is the only details body',
+    (preHtml, caretSelector) => {
+      const root = makeRoot(
+        `<details open=""><summary>Title</summary>${preHtml}</details>`,
+      );
+      const onCommandEdit = vi.fn();
+      setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+      caretAtStart(root.querySelector(caretSelector)!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(
+        '<details open=""><summary>Title</summary><p><br></p></details>',
+      );
+      expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    },
+  );
+
+  it('keeps an empty pre that is the only details body on forward Delete', () => {
+    const html =
+      '<details open=""><summary>Title</summary><pre><code><br></code></pre></details>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  // A <br> between blocks is content, not formatting noise: skipping it would
+  // stretch the pre's protection over the <br> and make it undeletable from
+  // both sides.
+  it('leaves Backspace after a br next to pre to the browser', () => {
+    const html = '<pre><code>code</code></pre><br><p>tail</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('leaves Delete before a br next to pre to the browser', () => {
+    const html = '<p>lead</p><br><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  // The protection reaches a structural neighbour of the LIST/QUOTE, not only
+  // of the caret's own block. Chromium does not break the item out of its
+  // container there — it merges it into the pre/details (see the matching
+  // native probes in tests/e2e/structural-boundaries.spec.ts).
+  it('protects the first list-item Backspace from crossing into a root-level pre', () => {
+    const html = '<pre><code>code</code></pre><ul><li>a</li></ul>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects the first quoted paragraph Backspace from crossing into details', () => {
+    const html =
+      '<details open=""><summary>Title</summary><p>body</p></details>' +
+      '<blockquote><p>x</p></blockquote>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('blockquote > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects the last list-item Delete from crossing into a root-level pre', () => {
+    const html = '<ul><li>a</li></ul><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  // Inline content with no wrapping block. findBlockAncestor answers null under
+  // the root, the cell itself in a table, and the CONTAINER inside details —
+  // whose own start sits before the summary — so a boundary test that only asks
+  // the caret's block walks past all three. Existing HTML puts text there (see
+  // findBareRootRun in commands/block-format), and Chromium's merge across the
+  // boundary is the same destructive one probed in
+  // tests/e2e/structural-boundaries.spec.ts.
+  describe('bare inline runs have no block to ask', () => {
+    it('protects Backspace in bare root text after pre', () => {
+      const html = '<pre><code>code</code></pre>text';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects Delete in bare root text before details', () => {
+      const html = 'text<details open=""><summary>Title</summary><p>body</p></details>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtEnd(root.firstChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects a bare root run reached through an inline wrapper', () => {
+      const html = '<pre><code>code</code></pre><em>text</em>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('em')!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('leaves Backspace in the middle of bare root text to the browser', () => {
+      const html = '<pre><code>code</code></pre>text';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const text = root.lastChild as Text;
+      const range = document.createRange();
+      range.setStart(text, 2);
+      range.collapse(true);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // A <br> stays deletable from either side: skipping it would extend the
+    // pre's protection over the rule and leave it stranded.
+    it('leaves Backspace in bare root text after a br next to pre to the browser', () => {
+      const html = '<pre><code>code</code></pre><br>text';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('leaves bare root text after an ordinary paragraph to the browser', () => {
+      const html = '<p>lead</p>text';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects a bare details body from merging into its summary', () => {
+      const html = '<details open=""><summary>Title</summary>body</details>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('details')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects Delete at the end of a bare details body', () => {
+      const html =
+        '<details open=""><summary>Title</summary>body</details><p>tail</p>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('details')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('leaves the middle of a bare details body to the browser', () => {
+      const html = '<details open=""><summary>Title</summary>body</details>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      const text = root.querySelector('details')!.lastChild as Text;
+      const range = document.createRange();
+      range.setStart(text, 2);
+      range.collapse(true);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // TD/TH are deliberately not block tags, so a fresh cell's inline content
+    // has no block ancestor either.
+    it('protects bare cell text after a pre in the same cell', () => {
+      const html =
+        '<table><tbody><tr><td><pre><code>code</code></pre>text</td></tr></tbody></table>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('td')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // An ordinary block can host a bare run too, and then it has the very
+    // problem the root/cell/details cases have: the block IS the container, so
+    // its own start sits before the <pre> and the block-level edge test reports
+    // "not at a boundary" while the run sits directly against it. Wrapping the
+    // same text in a <p> is protected, so leaving these out made the guard
+    // depend on whether the imported file happened to use a paragraph.
+    it('protects Backspace in bare text after a pre inside a div', () => {
+      const html = '<div><pre><code>code</code></pre>text</div>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('div')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects Delete in bare text before details inside a blockquote', () => {
+      const html =
+        '<blockquote>text<details open=""><summary>Title</summary>' +
+        '<p>body</p></details></blockquote>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtEnd(root.querySelector('blockquote')!.firstChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('protects Backspace in bare text after a pre inside a list item', () => {
+      const html = '<ul><li><pre><code>code</code></pre>text</li></ul>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('li')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    it('leaves bare text after an ordinary paragraph inside a div to the browser', () => {
+      const html = '<div><p>lead</p>text</div>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('div')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(false);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // The bare-run answer is a second, narrower reading of the same keystroke,
+    // so it may only ADD protection. Here the run faces a <br> (deliberately
+    // significant, never skipped) while the caret's block still faces the pre:
+    // if a "no" from the run lookup short-circuited the block test, this
+    // keystroke would hand the destructive default straight back.
+    it('still protects a block-level boundary the run lookup answers no for', () => {
+      const html = '<pre><code>code</code></pre><p><br>text</p>';
+      const root = makeRoot(html);
+      setupEditor(root, () => {});
+      caretAtStart(root.querySelector('p')!.lastChild!);
+
+      const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+      expect(evt.defaultPrevented).toBe(true);
+      expect(root.innerHTML).toBe(html);
+    });
+
+    // An ELEMENT-level caret in the run's host — the caret sitting between the
+    // host's children rather than inside a text node. Every case above places a
+    // text-node caret, and the run-node lookup cannot resolve this one (asked
+    // for the host itself it climbs past it), so without an explicit branch the
+    // whole guard is skipped here and the destructive default runs. This is not
+    // a hypothetical position: removeAnchorlessComment() parks the caret at
+    // exactly `(parent, index)` after dropping an anchorless comment.
+    describe('an element-level caret in the host', () => {
+      function caretAt(container: Node, offset: number): void {
+        const range = document.createRange();
+        range.setStart(container, offset);
+        range.collapse(true);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      it('protects Backspace at the root offset right after a pre', () => {
+        const html = '<pre><code>code</code></pre>text';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root, 1);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      it('protects Delete at the root offset right before details', () => {
+        const html = 'text<details open=""><summary>Title</summary><p>body</p></details>';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root, 1);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      it('protects Backspace at the details offset right after its summary', () => {
+        const html = '<details open=""><summary>Title</summary>body</details>';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root.querySelector('details')!, 1);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      it('protects Backspace at the cell offset right after a pre', () => {
+        const html =
+          '<table><tbody><tr><td><pre><code>code</code></pre>text</td></tr></tbody></table>';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root.querySelector('td')!, 1);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(true);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      // The mirror that keeps the new branch from over-blocking: with the text
+      // run between the caret and the pre, the deletion never reaches it.
+      it('leaves a root offset with text before it to the browser', () => {
+        const html = '<pre><code>code</code></pre>text';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root, 2);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(false);
+        expect(root.innerHTML).toBe(html);
+      });
+
+      it('leaves a root offset after an ordinary paragraph to the browser', () => {
+        const html = '<p>lead</p>text';
+        const root = makeRoot(html);
+        setupEditor(root, () => {});
+        caretAt(root, 1);
+
+        const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+        expect(evt.defaultPrevented).toBe(false);
+        expect(root.innerHTML).toBe(html);
+      });
+    });
+  });
+
+  // An <hr> answers "empty" to isBlockEmptyOrStubBr (no children, no text), so
+  // without a block-tag check the empty-block cleanup deleted a visible rule.
+  it('keeps an hr before pre instead of dropping it as an empty block', () => {
+    const html = '<hr><pre><code>code</code></pre>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('keeps an hr after pre instead of dropping it as an empty block', () => {
+    const html = '<pre><code>code</code></pre><hr>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('code')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  // Chromium empties a code block down to a bare <pre><br></pre>. The placeholder
+  // check must run ahead of the edge test for that shape: isCaretAtPreEdge counts
+  // the <br> as content, so an edge-gated handler would defer to the browser,
+  // which merges the following block INTO the pre and drops its <code>.
+  it('removes a br-only pre on forward Delete and lands on the next block', () => {
+    const root = makeRoot('<pre><br></pre><p>text</p>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('pre')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    const selection = window.getSelection()!;
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>text</p>');
+    expect(selection.anchorNode).toBe(root.querySelector('p')!.firstChild);
+    expect(selection.anchorOffset).toBe(0);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+  });
+});
+
 // The end of a comment's target text (inside the comment) and the position just
 // after </comment> (outside it) render at the same spot because the
 // <comment-body> is display:none. ArrowRight steps the caret outside so the next
 // character is typed after the comment; ArrowLeft steps back inside. A dedicated
 // insertText handler guarantees outside typing lands after </comment> rather
 // than being absorbed back into the comment.
+// `deleteEntireSoftLine` removes the whole visual line in one keystroke, in
+// both directions at once, so it has no row in DELETE_INPUT_TYPES: reproducing
+// it with the backward handlers would delete half of what the user asked for.
+// It still has to be consumed where the browser default would destroy an
+// annotation or a structure, because an unmapped inputType skips every guard.
+// No chord produces it on the platforms the e2e suite runs on (a probe in
+// tests/e2e/comment-delete-sweep.spec.ts measures that), so this synthetic
+// dispatch is its only coverage.
+describe('setupEditor: whole-line deletion', () => {
+  const commentHtml =
+    '<p>Hea<comment id="c-line001">di' +
+    '<comment-body contenteditable="false">note</comment-body></comment>ng</p>';
+
+  it('consumes a whole-line deletion on a line carrying a comment', () => {
+    const root = makeRoot(commentHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteEntireSoftLine');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(commentHtml);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('consumes a whole-line deletion at a protected structural boundary', () => {
+    const html = '<pre><code>code</code></pre><p>para</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteEntireSoftLine');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  // Away from both hazards the browser keeps its own line handling, which this
+  // code cannot reproduce without the line boxes.
+  it('leaves a whole-line deletion on an ordinary line to the browser', () => {
+    const html = '<p>first</p><p>a long tail of words</p>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector(':scope > p:last-child')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteEntireSoftLine');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+});
+
 describe('setupEditor: typing inside vs outside a comment', () => {
   const SAMPLE =
     '<p>Sample <comment id="c1">text' +
@@ -1640,5 +4746,683 @@ describe('setupEditor: typing inside vs outside a comment', () => {
     placeCaret(comment.firstChild!, 1); // back inside the target
     document.dispatchEvent(new Event('selectionchange'));
     expect(comment.hasAttribute('data-ahve-caret-outside')).toBe(false);
+  });
+});
+
+describe('setupEditor: editing an effectively empty document', () => {
+  it('wraps the first typed character in a paragraph', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>a</p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Type text');
+    const sel = window.getSelection()!;
+    expect(sel.isCollapsed).toBe(true);
+    const caret = sel.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p')!.firstChild);
+    expect(caret.startOffset).toBe(1);
+  });
+
+  it('treats a whitespace-only root as empty and keeps its text nodes', () => {
+    const root = makeRoot('\n  ');
+    setupEditor(root, () => {});
+    caretAtStart(root.firstChild!); // caret inside the whitespace text node
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.querySelector('p')!.textContent).toBe('a');
+    expect(root.textContent).toBe('a\n  ');
+  });
+
+  it('drops a stray root-level <br> placeholder when materializing', () => {
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p>');
+  });
+
+  it('turns Enter in an empty document into the canonical paragraph pair', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertParagraph');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p><br></p><p><br></p>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Insert paragraph');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.children[1]);
+    expect(caret.startOffset).toBe(0);
+  });
+
+  // Shift+Enter is the fifth entry point into an empty root, alongside typing,
+  // Enter, IME composition and paste. Without a handler the browser default
+  // writes the break as a bare root-level <br> — the very shape the other four
+  // now avoid. The rendered result (does the caret really land on line 2?) is
+  // measured in tests/e2e/empty-document.spec.ts; what jsdom can say is which
+  // nodes the handler builds and that the keystroke is consumed.
+  it('puts a Shift+Enter line break inside a paragraph', () => {
+    const root = makeRoot('');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(true);
+    // Two breaks: the line the keystroke asked for, plus the stub that gives
+    // the second line a box. No bare <br> under the root, which is the point.
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+    expect(root.querySelector(':scope > br')).toBeNull();
+    expect(onCommandEdit).toHaveBeenCalledWith('Insert paragraph');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p'));
+    expect(caret.startOffset).toBe(1);
+  });
+
+  it('leaves the trailing break unmarked so the next native one has a line box', () => {
+    // The stub is Chromium's own placeholder convention, and Chromium collapses
+    // it when text is typed. Marking it with QUOTE_PLACEHOLDER_ATTR instead
+    // made a SECOND Shift+Enter a no-op: that one is a native edit, so nothing
+    // rebuilds the placeholder and removeQuotePlaceholders (which runs on every
+    // input event) swept the line box Chromium had just added. Both halves are
+    // measured against a real browser in tests/e2e/empty-document.spec.ts.
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertLineBreak');
+    root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertLineBreak' }));
+
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+  });
+
+  it('drops a stray root-level <br> when Shift+Enter materializes', () => {
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(root.innerHTML).toBe('<p><br><br></p>');
+  });
+
+  it('leaves Shift+Enter in an existing bare inline run to the browser', () => {
+    // Same rule as typing: a bare run in an existing document is a supported
+    // shape, so the keystroke must not rewrite it into a paragraph.
+    const root = makeRoot('hello');
+    setupEditor(root, () => {});
+    caretAtEnd(root.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('hello');
+  });
+
+  it('leaves Shift+Enter inside an existing paragraph to the browser', () => {
+    const root = makeRoot('<p>x</p>');
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('p')!.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertLineBreak');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>x</p>');
+  });
+
+  it('materializes a paragraph when an IME composition starts in an empty root', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+
+    expect(root.innerHTML).toBe('<p><br></p>');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('p'));
+    expect(caret.startOffset).toBe(0);
+  });
+
+  it('rolls the materialized paragraph back when the composition commits nothing', () => {
+    // Cancelling the IME (Escape) fires compositionend with empty data. The
+    // document must return to its pre-composition shape: without the rollback
+    // an empty document would save as <p><br></p> although nothing was typed.
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><br></p>');
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.collapsed).toBe(true);
+    expect(caret.startContainer).toBe(root);
+  });
+
+  it('re-reports the rolled-back document to the history channel', () => {
+    // The browser reports a running composition through input events, so the
+    // history layer has already been handed a snapshot that includes the
+    // paragraph materialized at compositionstart. The rollback happens after
+    // that and outside the input path; unless the document is reported again,
+    // the pending transaction keeps a paragraph the user never made and undo
+    // would restore it.
+    const root = makeRoot('');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    root.dispatchEvent(
+      new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'に' }),
+    );
+    expect(reported).toEqual(['<p><br></p>']);
+
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('');
+    // Same grouping as the composition's own input events, so the pending
+    // transaction is overwritten rather than a second one opened.
+    expect(reported).toEqual(['<p><br></p>', '']);
+  });
+
+  it('reports nothing extra when the composition commits text', () => {
+    // The mirror: a committed composition changed the document for real, so
+    // the input events already describe it and there is nothing to re-report.
+    const root = makeRoot('');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    root.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(
+      new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: '日本語' }),
+    );
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(reported).toEqual(['<p>日本語</p>']);
+  });
+
+  it('keeps the materialized paragraph when the composition commits text', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    // The browser inserts the committed text into the paragraph in place of
+    // the stub before compositionend fires.
+    root.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(root.innerHTML).toBe('<p>日本語</p>');
+  });
+
+  it('leaves typing into an existing bare inline run to the browser', () => {
+    // Bare runs in existing documents are a supported shape; mere typing must
+    // not rewrite them into paragraphs.
+    const root = makeRoot('hello');
+    setupEditor(root, () => {});
+    caretAtStart(root.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('hello');
+  });
+
+  it('leaves typing inside an existing paragraph to the browser', () => {
+    const root = makeRoot('<p>x</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('p')!.firstChild!);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<p>x</p>');
+  });
+});
+
+describe('setupEditor: protects table boundaries', () => {
+  const tableHtml =
+    '<table><tbody><tr><td><p>cell</p></td></tr></tbody></table>';
+
+  it('prevents Backspace at the start of the block after a table', () => {
+    const html = tableHtml + '<p>para</p>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('prevents Delete at the end of the block before a table', () => {
+    const html = '<p>lead</p>' + tableHtml;
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  // The protection is the table's OUTER edge, not its interior. A caret inside
+  // a cell is left to the browser, because Chromium refuses to merge across a
+  // cell boundary in either direction — every case below is a plain no-op for
+  // it, and the one in-cell default that does something (outdenting an empty
+  // first list item) stays inside the cell. Both halves are measured in
+  // tests/e2e/structural-boundaries.spec.ts, on a native probe AND against the
+  // real editor root. Consuming these keystrokes here would edit nothing and
+  // would take the outdent away, so what these assert is that the editor keeps
+  // its hands off: no preventDefault, no recorded edit.
+  it('leaves Backspace at the start of the first cell to the browser', () => {
+    const html = '<p>lead</p>' + tableHtml;
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('td > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('leaves Delete at the end of the last cell to the browser', () => {
+    // The mirror of the first-cell case, and a different branch: the climb out
+    // of td/tr/tbody/table is what used to carry the protection inwards, so
+    // the forward direction has to be asserted on its own.
+    const html = tableHtml + '<p>para</p>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtEnd(root.querySelector('td > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('leaves an empty first list item in a cell to the browser so it can outdent', () => {
+    // The climb here is li → ul → td → tr → tbody → table, so a table that
+    // protected through the climb would consume this keystroke and the item
+    // could never be outdented with Backspace.
+    const html =
+      '<table><tbody><tr><td><ul><li><br></li><li>b</li></ul></td></tr></tbody></table>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('still protects a details the climb leaves, so the narrowing is table-only', () => {
+    // The counterpart of the table rule: DETAILS/SUMMARY/PRE keep protecting
+    // through a climb. Without this, dropping TABLE from the climb set could
+    // be widened to the whole set without a test noticing.
+    const html = '<p>lead</p><details open=""><summary>s</summary><ul><li>a</li></ul></details>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtEnd(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('protects a bare text run sitting directly after a table', () => {
+    // The corrupted shape older builds produced (and hand-written HTML may
+    // contain): text directly under the root, right behind the table.
+    const html = tableHtml + 'para';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root.lastChild!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('drops an empty block after a table and lands the caret in the last cell', () => {
+    const root = makeRoot(tableHtml + '<p><br></p>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    const cellText = root.querySelector('td > p')!.firstChild as Text;
+    expect(caret.startContainer).toBe(cellText);
+    expect(caret.startOffset).toBe(cellText.length);
+  });
+
+  it('drops an empty block before a table and lands the caret in the first cell', () => {
+    // The forward mirror of the case above. It is the same branch with the
+    // other caret placement (placeAtEnd false), which no other test reaches:
+    // the details/pre pair covers the OTHER branch, and TABLE is not a block
+    // tag, so it can never be the caret's own block.
+    const root = makeRoot('<p><br></p>' + tableHtml);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector(':scope > p')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentForward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    expect(caret.startContainer).toBe(root.querySelector('td > p')!.firstChild);
+    expect(caret.startOffset).toBe(0);
+  });
+
+  it('blocks Backspace at the start of the first list item after a table', () => {
+    // The climb leaves the <ul> and faces the table, so the protection applies
+    // through the container exactly as it does for a pre/details neighbour.
+    const html = tableHtml + '<ul><li>a</li></ul>';
+    const root = makeRoot(html);
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(html);
+    expect(onCommandEdit).not.toHaveBeenCalled();
+  });
+
+  it('drops an empty first list item after a table and lands the caret in the last cell', () => {
+    // The counterpart of the case above, and the one that CHANGES with TABLE
+    // in PROTECTED_STRUCTURAL_TAGS: the empty item is now removed as an
+    // intentional edit instead of being left to the browser's outdent. The
+    // same thing already happens beside a <pre>/<details>, so this pins the
+    // consistency — and it is deliberately the opposite of the in-cell case
+    // ("leaves an empty first list item in a cell to the browser so it can
+    // outdent"), where nothing crosses the table's outer edge.
+    const root = makeRoot(tableHtml + '<ul><li><br></li><li>b</li></ul>');
+    const onCommandEdit = vi.fn();
+    setupEditor(root, () => {}, undefined, undefined, onCommandEdit);
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml + '<ul><li>b</li></ul>');
+    expect(onCommandEdit).toHaveBeenCalledWith('Delete content');
+    const caret = window.getSelection()!.getRangeAt(0);
+    const cellText = root.querySelector('td > p')!.firstChild as Text;
+    expect(caret.startContainer).toBe(cellText);
+    expect(caret.startOffset).toBe(cellText.length);
+  });
+
+  it('removes the list too when its only item was the empty one', () => {
+    // removeEmptiedContainers unwinds the <ul> the climb stepped out of, so no
+    // invisible empty list is left behind after the table.
+    const root = makeRoot(tableHtml + '<ul><li><br></li></ul>');
+    setupEditor(root, () => {});
+    caretAtStart(root.querySelector('li')!);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe(tableHtml);
+  });
+
+  it('still merges two ordinary paragraphs across a Backspace', () => {
+    const root = makeRoot('<p>one</p><p>two</p>');
+    setupEditor(root, () => {});
+    caretAtStart(root.children[1]);
+
+    const evt = dispatchBeforeInput(root, 'deleteContentBackward');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('<p>onetwo</p>');
+  });
+});
+
+describe('setupEditor: an abandoned composition restores the root exactly', () => {
+  const start = (root: HTMLElement): void => {
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+  };
+  const abandon = (root: HTMLElement): void => {
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+  };
+
+  it('puts back the <br> placeholder it displaced', () => {
+    // `<body><br></body>` is a shape a .html file on disk carries, and it is
+    // what Chromium leaves behind in an emptied editable. Materializing the
+    // paragraph drops that <br> (the paragraph provides the line box), so a
+    // composition the user abandons has to bring it back — otherwise an
+    // untouched document silently saves as empty.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    expect(root.innerHTML).toBe('<p><br></p>');
+    abandon(root);
+
+    expect(root.innerHTML).toBe('<br>');
+  });
+
+  it('does not report the untouched document to the history channel', () => {
+    // Without the restore the rollback reported an empty document here, so the
+    // pending transaction committed the lost <br> as a real edit that undo
+    // would then have to put back.
+    const root = makeRoot('<br>');
+    const reported: string[] = [];
+    setupEditor(root, () => {}, undefined, () => reported.push(root.innerHTML));
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(reported).toEqual(['<br>']);
+  });
+
+  it('keeps breaks in place when they are interleaved with whitespace', () => {
+    const html = '\n  <br>\n  ';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('keeps two adjacent breaks in their original order', () => {
+    // Each dropped break is anchored on the next SURVIVING sibling, so a pair
+    // sharing one anchor has to be restored in document order.
+    const root = makeRoot('<br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe('<br><br>');
+  });
+
+  it('leaves an empty root empty', () => {
+    const root = makeRoot('');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    abandon(root);
+
+    expect(root.innerHTML).toBe('');
+  });
+
+  it('does not resurrect the break when the composition commits text', () => {
+    // The mirror: a committed composition is a real edit, so the paragraph
+    // stays and the placeholder it replaced must NOT come back beside it.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    start(root);
+    root.querySelector('p')!.querySelector('br')!.replaceWith(document.createTextNode('日本語'));
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+
+    expect(root.innerHTML).toBe('<p>日本語</p>');
+  });
+
+  it('still drops the break for good when the user actually types', () => {
+    // insertText is not rolled back, so the placeholder stays gone.
+    const root = makeRoot('<br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p>');
+  });
+});
+
+describe('setupEditor: what counts as an empty document', () => {
+  /** Put a collapsed caret directly on the root at a child index. */
+  const caretAtRootIndex = (root: HTMLElement, index: number): void => {
+    const range = document.createRange();
+    range.setStart(root, index);
+    range.collapse(true);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+  };
+
+  it('drops only the break the paragraph stands in for', () => {
+    // Root-level breaks are blank lines the reader can see. Taking them all out
+    // deleted content on the very first keystroke, and only for typing — the
+    // composition rollback put them back, so the two paths disagreed.
+    const root = makeRoot('<br><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<p>a</p><br><br>');
+  });
+
+  it('puts the paragraph where the caret was, not where an index lands after the removal', () => {
+    // The insertion point is resolved as a NODE before the break is taken out.
+    // Read as an index afterwards it named a different child, so a caret on the
+    // second line produced a paragraph on the first.
+    const root = makeRoot('<br><br>');
+    setupEditor(root, () => {});
+    caretAtRootIndex(root, 1);
+
+    dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(root.innerHTML).toBe('<br><p>a</p>');
+  });
+
+  it('leaves a document holding an image to the browser', () => {
+    // An <img> is childless and not a block tag, so the "caret is at the edge of
+    // its block" predicate calls it insignificant — a document showing a picture
+    // would have counted as empty and had its breaks deleted around it.
+    const root = makeRoot('<img src="x"><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<img src="x"><br><br>');
+  });
+
+  it('leaves a document holding a rule to the browser', () => {
+    const root = makeRoot('<hr>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe('<hr>');
+  });
+
+  it('leaves a document holding an empty table to the browser', () => {
+    // Same trap one level deeper: every node on the way down is childless or a
+    // non-block, so the whole table answered "insignificant".
+    const html = '<table><tbody><tr><td></td></tr></tbody></table>';
+    const root = makeRoot(html);
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(false);
+    expect(root.innerHTML).toBe(html);
+  });
+
+  it('still treats whitespace and a lone break as empty', () => {
+    const root = makeRoot('\n  <br>\n  ');
+    setupEditor(root, () => {});
+    caretAtRootIndex(root, 1); // on the break itself
+
+    const evt = dispatchBeforeInput(root, 'insertText', 'a');
+
+    expect(evt.defaultPrevented).toBe(true);
+    expect(root.innerHTML).toBe('\n  <p>a</p>\n  ');
+  });
+
+  it('rolls an abandoned composition back over the untouched breaks', () => {
+    // The rollback stays exact now that only one break ever leaves.
+    const root = makeRoot('<br><br><br>');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    expect(root.innerHTML).toBe('<p><br></p><br><br>');
+    root.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+
+    expect(root.innerHTML).toBe('<br><br><br>');
+  });
+
+  it('does not materialize anything for a composition in an image-only document', () => {
+    const root = makeRoot('<img src="x">');
+    setupEditor(root, () => {});
+    caretAtStart(root);
+
+    root.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+
+    expect(root.innerHTML).toBe('<img src="x">');
   });
 });

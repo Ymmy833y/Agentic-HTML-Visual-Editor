@@ -5,12 +5,19 @@
 
 import {
   BLOCK_TAGS,
-  CARET_INSIDE_ATTR,
-  CARET_OUTSIDE_ATTR,
   INLINE_FORMAT_TAGS,
   QUOTE_PLACEHOLDER_ATTR,
 } from '../shared/constants';
-import { blockOrBareCell, findAncestor, findBlockAncestor, isBlockEmptyOrStubBr, isInCommentMeta } from '../shared/dom-utils';
+import type { DeleteDirection, DeleteGranularity } from '../shared/constants';
+import {
+  blockOrBareCell,
+  findAncestor,
+  findBlockAncestor,
+  isBlockEmptyOrStubBr,
+  isCaretAtBlockEnd,
+  isCaretAtBlockStart,
+  isInsignificantTail,
+} from '../shared/dom-utils';
 import {
   ensureBlockAtRoot,
   ensureBlockInCell,
@@ -18,12 +25,95 @@ import {
   findBareBlockquoteLine,
   findBareBlockquoteRun,
   findBareRootRun,
+  materializeEmptyRootParagraph,
   toggleList,
 } from '../commands/block-format';
+import type { MaterializedParagraph } from '../commands/block-format';
 import { alertTypeFromShortcut } from '../shared/alert-types';
 import { findTrailingEmptyCodeLine } from '../commands/code-block';
+import {
+  handleEmptyBlockAtStructuralBoundary,
+  isProtectedStructuralBoundary,
+} from '../commands/structural-boundary';
+// The only core → features dependency in the webview, and a deliberate one:
+// beforeinput and keydown arrive here and nowhere else, so the routing below
+// has to name every handler that stands in front of a browser default —
+// including the comment ones, which live under features/comment because that is
+// where the <comment> DOM shape is owned (comment-dom, comment-popup,
+// comment-commands). Moving them into commands/ would only turn this into
+// commands → features.
+//
+// It is NOT a pattern to follow: every other feature (table, link, details,
+// clipboard) is wired by webview/main.ts, the composition root, and should stay
+// that way. If a second feature ever needs to be named here, inject the
+// handlers through setupEditor's arguments instead of adding another import.
+//
+// What this file must NOT do is keep a second copy of the boundary rules: every
+// handler that reasons about the visible edge of a <comment> lives in
+// features/comment, so a fix to one cannot land while its counterpart in the
+// other direction is missed. Only the routing stays here.
+import type { BoundaryState } from '../features/comment/comment-boundary';
+import {
+  handleBoundaryInsert,
+  handleCommentArrowLeft,
+  handleCommentArrowRight,
+  keepCommentWholeOnEnter,
+  syncCaretMarkers,
+} from '../features/comment/comment-boundary';
+import {
+  commentInCaretBlock,
+  facesCommentAcrossBlockBoundary,
+  handleCommentBackspace,
+  handleCommentDelete,
+} from '../features/comment/comment-deletion';
 
 const DEBOUNCE_MS = 250;
+
+interface DeleteIntent {
+  direction: DeleteDirection;
+  granularity: DeleteGranularity;
+}
+
+// Collapsed-caret deletions we inspect before the browser runs. Both axes
+// matter: the direction picks the handler chain, the granularity tells the
+// comment handlers how much the browser would have removed.
+//
+// The word rows are backed by native probes in
+// tests/e2e/comment-delete-sweep.spec.ts, which measure what Chromium really
+// does at these positions. The line rows are not, and cannot be: Chromium binds
+// the line-deletion commands only on macOS (Cmd+Backspace / Cmd+Delete), so on
+// the platforms the e2e suite runs on no keystroke produces them — a probe in
+// that same file measures exactly this and fails if it ever changes. Their
+// coverage is the synthetic beforeinput dispatch in
+// tests/unit/editor-core.test.ts.
+//
+// Soft and hard line deletion are separate granularities because they cannot be
+// answered the same way: a hard line is the block (so the handlers may clip a
+// deletion to the caret's text node), a soft line is a visual line whose extent
+// this code cannot see (so it is blocked, never reproduced). See
+// DeleteGranularity in shared/constants.
+const DELETE_INPUT_TYPES = new Map<string, DeleteIntent>([
+  ['deleteContentBackward', { direction: 'backward', granularity: 'character' }],
+  ['deleteWordBackward', { direction: 'backward', granularity: 'word' }],
+  ['deleteSoftLineBackward', { direction: 'backward', granularity: 'soft-line' }],
+  ['deleteHardLineBackward', { direction: 'backward', granularity: 'hard-line' }],
+  ['deleteContentForward', { direction: 'forward', granularity: 'character' }],
+  ['deleteWordForward', { direction: 'forward', granularity: 'word' }],
+  ['deleteSoftLineForward', { direction: 'forward', granularity: 'soft-line' }],
+  ['deleteHardLineForward', { direction: 'forward', granularity: 'hard-line' }],
+]);
+
+// The one deletion input type with no row above it. `deleteEntireSoftLine`
+// removes the whole visual line in a single keystroke — both directions at once
+// — so it fits neither: routing it through the backward handlers would silently
+// reproduce half of what the user asked for. Chromium binds no chord to it on
+// the platforms this editor runs on (the probe in
+// tests/e2e/comment-delete-sweep.spec.ts measures that for the line commands),
+// but an input type absent from the map skips every guard below, and the line it
+// deletes is exactly where a <comment>'s contenteditable=false body sits. So it
+// is consumed wherever a hazard is present and left to the browser everywhere
+// else — see {@link entireLineDeletionIsUnsafe}.
+const ENTIRE_LINE_INPUT_TYPE = 'deleteEntireSoftLine';
 
 // Presentational tags the browser emits for built-in bold/italic, mapped to
 // the semantic tags the editor uses everywhere else.
@@ -66,13 +156,19 @@ export function setupEditor(
   // it, so the presentational-tag normalizer and the comment-boundary insertText
   // handler both stand down until compositionend.
   let composing = false;
+  // What was materialized at compositionstart in an effectively empty root —
+  // the paragraph and the <br> placeholders it displaced — tracked so a
+  // composition that commits nothing can be rolled back whole. Without the
+  // rollback, cancelling the IME would keep the structural change and an empty
+  // document would save as <p><br></p>.
+  let composedEmptyRoot: MaterializedParagraph | null = null;
 
   // Comment leading-edge state. The browser normalises the inside-start caret to
   // the outside, so the caret position alone cannot say "type inside". ArrowRight
   // there arms this one-shot intent; the next typed character is routed into the
   // comment's target start and the flag is cleared. Per-editor (closure) so it
   // never leaks across instances or tests.
-  const boundary: { pendingInside: Element | null } = { pendingInside: null };
+  const boundary: BoundaryState = { pendingInside: null };
 
   const scheduleChange = (): void => {
     // Dirty state must flip synchronously: a document remount arriving inside
@@ -105,6 +201,13 @@ export function setupEditor(
     // "type inside" intent (it is meaningful only for the immediate next char).
     if (e.inputType !== 'insertText') boundary.pendingInside = null;
     if (e.inputType === 'insertParagraph') {
+      // Enter in an effectively empty document gets the canonical paragraph
+      // pair; the browser default would edit the bare root directly.
+      if (handleEmptyRootEnter(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
+        return;
+      }
       // A blank trailing line is the escape hatch from a code block. Chromium
       // represents code-block line breaks with <br> nodes while existing HTML
       // may contain literal newlines, so the handler supports both forms.
@@ -142,7 +245,7 @@ export function setupEditor(
       // Keep an inline <comment> whole: split the block at the boundary just
       // after the comment so the browser default never cuts through it (which
       // corrupts the contenteditable=false body and duplicates the id).
-      if (keepCommentWholeOnEnter(root)) {
+      if (keepCommentWholeOnEnter(root, insertBareBlockquoteBreak)) {
         e.preventDefault();
         recordHandledEdit('Insert paragraph');
         return;
@@ -166,6 +269,16 @@ export function setupEditor(
       if (handleThematicBreakShortcut(root)) {
         e.preventDefault();
         recordHandledEdit('Insert horizontal rule');
+        return;
+      }
+    }
+    if (e.inputType === 'insertLineBreak') {
+      // Shift+Enter is the fifth way into an effectively empty document, and it
+      // reaches the same browser default the other four now stand in front of:
+      // the break becomes a bare root-level <br> with no block around it.
+      if (handleEmptyRootLineBreak(root)) {
+        e.preventDefault();
+        recordHandledEdit('Insert paragraph');
         return;
       }
     }
@@ -197,45 +310,124 @@ export function setupEditor(
       typeof e.data === 'string' &&
       e.data.length > 0
     ) {
+      // Typing into an effectively empty root would leave the character as a
+      // bare text node directly under the root, where the list commands and
+      // Ctrl+A formatting have no block to anchor to. Materialize the
+      // canonical paragraph and perform the insertion inside it instead.
+      if (handleEmptyRootInsertText(root, e.data)) {
+        e.preventDefault();
+        recordHandledEdit('Type text');
+        return;
+      }
       if (handleBoundaryInsert(root, boundary, e.data)) {
         e.preventDefault();
         recordHandledEdit('Type text');
         return;
       }
     }
-    if (e.inputType === 'deleteContentBackward') {
-      // Backspace with the caret right after a comment must not let the browser
-      // delete across the comment boundary (which destroys the
-      // contenteditable=false body). Shrink the comment's target text instead.
-      if (handleCommentBackspace(root)) {
+    if (e.inputType === ENTIRE_LINE_INPUT_TYPE) {
+      if (entireLineDeletionIsUnsafe(root)) e.preventDefault();
+      return;
+    }
+    const deletion = DELETE_INPUT_TYPES.get(e.inputType);
+    // A soft line is a VISUAL line, and the comment handlers below reproduce a
+    // deletion by clipping it to the caret's own text node — which in a wrapped
+    // paragraph spans several visual lines, so the clip would remove lines the
+    // user never asked for. Where a comment is in range, consume the keystroke
+    // and edit nothing instead: the same trade ENTIRE_LINE_INPUT_TYPE makes, for
+    // the same reason (the line boxes are not visible to this code, and getting
+    // the extent wrong deletes text rather than merely refusing to).
+    if (deletion?.granularity === 'soft-line' && commentInCaretBlock(root)) {
+      e.preventDefault();
+      return;
+    }
+    if (deletion?.direction === 'backward') {
+      // A backward deletion that reaches a comment must not let the browser
+      // cross its contenteditable=false metadata. Word and line deletion keep
+      // their native granularity only where the browser provably stops short of
+      // the comment; everywhere else in the danger zone we perform the deletion
+      // ourselves, clipped to the caret's own text node.
+      const comment = handleCommentBackspace(root, deletion.granularity);
+      if (comment) {
         e.preventDefault();
-        recordHandledEdit('Delete content');
+        // 'blocked' consumed the keystroke without editing anything, so it must
+        // not mark the document dirty or push an undo step.
+        if (comment === 'edited') recordHandledEdit('Delete content');
         return;
       }
       // Backspace at the very start of a block merges it into the previous
-      // block. The browser default merge cuts through a trailing comment and
-      // wraps moved heading text in a presentational span; do it ourselves so
-      // the comment stays whole and no style wrapper is injected.
+      // block. The browser default merge cuts through comments and may wrap
+      // moved heading text in a presentational span. Word and line deletion go
+      // through the same safe merge: at a block edge Chromium deletes no word
+      // either way, it only performs that same destructive merge.
       if (handleBlockMergeBackspace(root)) {
         e.preventDefault();
         recordHandledEdit('Delete content');
         return;
       }
-    }
-    if (e.inputType === 'deleteContentForward') {
-      // Delete near a comment must skip its (display:none, contenteditable=false)
-      // metadata and remove only the next visible character; the browser default
-      // mistakes the metadata for the next deletable node and wipes the body.
-      if (handleCommentDelete(root)) {
+      if (handleEmptyBlockAtStructuralBoundary(root, deletion.direction)) {
         e.preventDefault();
         recordHandledEdit('Delete content');
         return;
       }
-      // Delete at the very end of a block pulls the next block into it — the
-      // mirror of the Backspace merge, with the same comment/style hazards.
+      // Chromium does not safely no-op at semantic block boundaries. In
+      // particular, crossing a details/summary boundary can discard the
+      // details body, crossing a pre boundary can move text outside its code
+      // wrapper, and crossing a table boundary dissolves the adjacent block
+      // into a bare text node under the root. There is no unambiguous merge
+      // for these structures, so keep both sides intact and consume the key
+      // without recording an edit.
+      if (isProtectedStructuralBoundary(root, deletion.direction)) {
+        e.preventDefault();
+        return;
+      }
+      // The safe merge above only covers two mergeable leaf blocks. When it
+      // declines — a list, a table, a quote holding nested blocks — the
+      // deletion still crosses the boundary, and Chromium's range there takes a
+      // comment's contenteditable=false body with it. Keep both blocks intact
+      // instead, the same trade the structural guard makes.
+      //
+      // Every granularity, character included. A plain Delete at such a join was
+      // measured destroying the metadata (see "Delete at a join with a commented
+      // list keeps the comment" in tests/e2e/comment-delete-sweep.spec.ts), so
+      // "a character deletion only touches what is beside the caret" does not
+      // hold once the thing beside the caret is a block boundary.
+      if (facesCommentAcrossBlockBoundary(root, deletion.direction)) {
+        e.preventDefault();
+        return;
+      }
+    }
+    if (deletion?.direction === 'forward') {
+      // Forward deletion applies the same rule mirrored: character Delete
+      // always skips the hidden metadata, while word/line Delete is left to the
+      // browser only when its range cannot reach the comment.
+      const comment = handleCommentDelete(root, deletion.granularity);
+      if (comment) {
+        e.preventDefault();
+        // See the backward branch: a 'blocked' keystroke records no edit.
+        if (comment === 'edited') recordHandledEdit('Delete content');
+        return;
+      }
+      // Delete at the very end of a block is the mirror of the Backspace merge,
+      // and covers word/line input for the same reason.
       if (handleBlockMergeForward(root)) {
         e.preventDefault();
         recordHandledEdit('Delete content');
+        return;
+      }
+      if (handleEmptyBlockAtStructuralBoundary(root, deletion.direction)) {
+        e.preventDefault();
+        recordHandledEdit('Delete content');
+        return;
+      }
+      if (isProtectedStructuralBoundary(root, deletion.direction)) {
+        e.preventDefault();
+        return;
+      }
+      // Mirror of the backward guard above. This is the measured direction:
+      // plain Delete at such a join strips the comment's body.
+      if (facesCommentAcrossBlockBoundary(root, deletion.direction)) {
+        e.preventDefault();
         return;
       }
     }
@@ -275,11 +467,36 @@ export function setupEditor(
     // IME composes at the (normalised, outside) caret, so a leading-edge inside
     // intent cannot be honoured for it; drop it rather than mis-route the commit.
     boundary.pendingInside = null;
+    // A composition that begins in an effectively empty root would commit its
+    // text as a bare text node under the root. insertCompositionText is not
+    // cancelable, so the paragraph is materialized here, before the browser
+    // inserts any composition text into it.
+    composedEmptyRoot = materializeEmptyRootParagraph(root);
   });
-  root.addEventListener('compositionend', () => {
+  root.addEventListener('compositionend', (e: CompositionEvent) => {
     composing = false;
+    // A composition that committed nothing (cancelled, or emptied before
+    // confirming) reports empty data here and leaves the materialized
+    // paragraph as the untouched stub; remove it so the document returns to
+    // its pre-composition shape instead of keeping an edit the user never made.
+    let rolledBack = false;
+    if (composedEmptyRoot) {
+      if (!e.data) {
+        rolledBack = rollbackEmptyRootParagraph(root, composedEmptyRoot);
+      }
+      composedEmptyRoot = null;
+    }
     normalizePresentationalTags(root);
     scheduleChange();
+    // The browser reports a running composition through input events, so the
+    // history layer already holds a snapshot that includes the paragraph
+    // materialized at compositionstart. The rollback above happens afterwards
+    // and outside that path, so hand the rolled-back document to the same
+    // channel: recordNative overwrites the pending transaction's "after" with
+    // what the document really contains, which now equals its "before" and is
+    // therefore committed as nothing at all. Without this the transaction would
+    // keep — and undo/redo would restore — a paragraph the user never made.
+    if (rolledBack) onNativeEdit?.('insertCompositionText');
   });
 
   root.addEventListener('input', (event: Event) => {
@@ -306,6 +523,145 @@ export function setupEditor(
       onCommandEdit?.(label);
     },
   };
+}
+
+/**
+ * insertText in an effectively empty root: put the character in a fresh
+ * paragraph rather than letting the browser default leave it as a bare text
+ * node under the root. Returns whether it handled the insertion.
+ */
+function handleEmptyRootInsertText(root: HTMLElement, data: string): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const p = materialized.paragraph;
+
+  const text = document.createTextNode(data);
+  const stub = p.querySelector('br');
+  if (stub) stub.replaceWith(text);
+  else p.appendChild(text);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    caret.setStart(text, text.length);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Enter in an effectively empty root: an empty first line plus the fresh
+ * paragraph the caret continues on — the same two blocks Enter produces in an
+ * empty paragraph — instead of the browser default editing the bare root.
+ */
+function handleEmptyRootEnter(root: HTMLElement): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const first = materialized.paragraph;
+
+  const second = document.createElement('p');
+  second.appendChild(document.createElement('br'));
+  first.after(second);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    caret.setStart(second, 0);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Shift+Enter in an effectively empty root: the break goes INSIDE a fresh
+ * paragraph rather than becoming the bare root-level <br> the browser default
+ * leaves there. Two breaks, not one — the first is the line the keystroke asked
+ * for, and the paragraph's own stub becomes the placeholder that gives the
+ * second line a box for the caret to sit in. That is the shape Chromium
+ * produces for Shift+Enter in an empty paragraph, and it is what makes the
+ * keystroke visible at all: a paragraph holding a single <br> renders one line,
+ * so the caret would have nowhere to go.
+ *
+ * The stub is left UNMARKED, unlike the bare-blockquote break next door. A
+ * trailing <br> at the end of a block is Chromium's own placeholder convention,
+ * and it collapses one when text is typed on that line — measured in
+ * tests/e2e/empty-document.spec.ts, where typing after this keystroke leaves
+ * `<p><br>xy</p>` and not a paragraph carrying a break the user never asked
+ * for. Marking it with {@link QUOTE_PLACEHOLDER_ATTR} instead made a SECOND
+ * Shift+Enter a no-op: that one is a native edit, so nothing rebuilds the
+ * placeholder, and removeQuotePlaceholders swept away the very line box
+ * Chromium had just added.
+ */
+function handleEmptyRootLineBreak(root: HTMLElement): boolean {
+  const materialized = materializeEmptyRootParagraph(root);
+  if (!materialized) return false;
+  const p = materialized.paragraph;
+
+  p.insertBefore(document.createElement('br'), p.firstChild);
+
+  const selection = window.getSelection();
+  if (selection) {
+    const caret = document.createRange();
+    // Between the two breaks: the start of the second line.
+    caret.setStart(p, 1);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
+}
+
+/**
+ * Undo {@link materializeEmptyRootParagraph} once the composition it was made
+ * for turns out to have committed nothing. Only the untouched stub is removed
+ * — any content that reached the paragraph keeps it, whatever the event data
+ * said — the <br> placeholder the materialization stood in for is put back where
+ * it was, and the caret returns to the root-level spot the paragraph occupied.
+ *
+ * Restoring the break is what makes this a true rollback rather than a
+ * near-miss: `<body><br></body>` is a shape a .html file on disk carries, and
+ * dropping that break for an abandoned composition changed a document the user
+ * never typed into — a change the history channel below would then commit.
+ *
+ * Returns whether the paragraph was actually removed, so the caller can tell
+ * the history layer that the document no longer holds what the composition's
+ * input events reported.
+ */
+function rollbackEmptyRootParagraph(
+  root: HTMLElement,
+  materialized: MaterializedParagraph,
+): boolean {
+  const { paragraph, droppedBreak } = materialized;
+  if (paragraph.parentNode !== root) return false;
+  if (!Array.from(paragraph.childNodes).every(isInsignificantTail)) return false;
+
+  const selection = window.getSelection();
+  const caretWasInside =
+    selection !== null &&
+    selection.rangeCount > 0 &&
+    paragraph.contains(selection.getRangeAt(0).startContainer);
+  const index = Array.from(root.childNodes).indexOf(paragraph);
+  paragraph.remove();
+  // An anchor that has since left the root leaves the break at the end rather
+  // than throwing — the composition path never moves one, but the rollback must
+  // not be the thing that fails.
+  if (droppedBreak) {
+    const { node, anchor } = droppedBreak;
+    root.insertBefore(node, anchor && anchor.parentNode === root ? anchor : null);
+  }
+
+  if (caretWasInside && selection) {
+    const caret = document.createRange();
+    caret.setStart(root, Math.min(index, root.childNodes.length));
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  }
+  return true;
 }
 
 /**
@@ -603,607 +959,10 @@ function handleFormattedEnter(root: HTMLElement): boolean {
   return true;
 }
 
-/**
- * Keep an inline <comment> whole when Enter splits its block. The comment's
- * target text is editable, but its `contenteditable="false"` <comment-body>
- * makes the browser's default paragraph split cut through the comment when the
- * caret sits inside it — corrupting the body and duplicating the comment id.
- * (Relocating the caret and deferring to the default does not help: Chromium
- * splits using the selection as it was before the event, ignoring the change.)
- *
- * So we split the block ourselves at the boundary just AFTER the whole comment:
- * the comment (and everything before it) stays on the current line, and only
- * the content after the comment moves into a fresh sibling block. Returns
- * whether the split was performed (i.e. the caret was inside a comment).
- */
-function keepCommentWholeOnEnter(root: HTMLElement): boolean {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed) return false;
-
-  const comment = findAncestor(range.startContainer, 'COMMENT', root);
-  if (!comment) return false;
-  const block = findBlockAncestor(comment, root);
-  if (!block) return false;
-
-  if (block.tagName === 'BLOCKQUOTE') {
-    const safeRange = document.createRange();
-    safeRange.setStartAfter(comment);
-    safeRange.collapse(true);
-    return insertBareBlockquoteBreak(safeRange, root, selection);
-  }
-
-  // Extract everything after the comment up to the block end. extractContents
-  // splits any inline-format wrappers between the comment and the block, so a
-  // nested comment (e.g. inside <strong>) is handled correctly.
-  const tailRange = document.createRange();
-  tailRange.setStartAfter(comment);
-  tailRange.setEnd(block, block.childNodes.length);
-  const tail = tailRange.extractContents();
-
-  const newBlock = document.createElement(block.tagName.toLowerCase());
-  newBlock.appendChild(tail);
-  if (newBlock.childNodes.length === 0) {
-    newBlock.appendChild(document.createElement('br'));
-  }
-  block.after(newBlock);
-
-  const newRange = document.createRange();
-  newRange.setStart(newBlock, 0);
-  newRange.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(newRange);
-  return true;
-}
-
-/** Per-editor comment-boundary state (see the `boundary` closure var). */
-interface BoundaryState {
-  pendingInside: Element | null;
-}
-
-/**
- * ArrowRight near an inline comment: at the visible trailing edge (inside) it
- * steps the caret just past </comment> so the next character lands outside; when
- * the caret sits just before a comment (outside) it arms a "type inside" intent
- * for that comment's leading edge. The leading inside-start caret cannot be kept
- * (the browser normalises it back outside), so we do NOT move the caret there;
- * instead the next typed character is routed into the target start (see
- * {@link handleBoundaryInsert}) and the caret colour flips via the marker.
- * Returns whether the key was handled.
- */
-function handleCommentArrowRight(root: HTMLElement, boundary: BoundaryState): boolean {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return false;
-
-  // Inside the trailing edge -> step out, just past the comment.
-  const trailing = caretAtCommentTrailingEdge(range, root);
-  if (trailing) {
-    boundary.pendingInside = null;
-    placeCaret(selection, (r) => r.setStartAfter(trailing));
-    syncCaretMarkers(root, boundary);
-    return true;
-  }
-  // Just before a comment (outside) -> arm "type inside" for its leading edge.
-  const ahead = commentJustAfterCaret(root);
-  if (ahead) {
-    boundary.pendingInside = ahead;
-    syncCaretMarkers(root, boundary); // tint the caret author-colour immediately
-    return true; // caret stays put (the inside position cannot be represented)
-  }
-  return false;
-}
-
-/**
- * ArrowLeft near an inline comment: cancels a pending leading-edge inside intent
- * (stay outside); else when the caret sits just after a comment (outside) it
- * re-enters at the target end; else at the visible leading edge (inside) it steps
- * the caret just before <comment>. The mirror of {@link handleCommentArrowRight}.
- * Returns whether the key was handled.
- */
-function handleCommentArrowLeft(root: HTMLElement, boundary: BoundaryState): boolean {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return false;
-
-  // Cancel a pending "type inside" intent: step back out (caret stays put).
-  if (boundary.pendingInside && commentJustAfterCaret(root) === boundary.pendingInside) {
-    boundary.pendingInside = null;
-    syncCaretMarkers(root, boundary);
-    return true;
-  }
-  // Just after a comment (outside) -> step in, to the target end.
-  const behind = commentJustBeforeCaret(root);
-  if (behind) {
-    const target = lastNonEmptyTargetText(behind);
-    placeCaret(selection, (r) =>
-      target ? r.setStart(target, target.data.length) : r.setStart(behind, 0),
-    );
-    syncCaretMarkers(root, boundary);
-    return true;
-  }
-  // Inside the leading edge -> step out, just before the comment.
-  const leading = caretAtCommentLeadingEdge(range, root);
-  if (leading) {
-    placeCaret(selection, (r) => r.setStartBefore(leading));
-    syncCaretMarkers(root, boundary);
-    return true;
-  }
-  return false;
-}
-
-/** Collapse a fresh range configured by `place` and make it the selection. */
-function placeCaret(selection: Selection, place: (r: Range) => void): void {
-  const r = document.createRange();
-  place(r);
-  r.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(r);
-}
-
-/**
- * Route a typed character at a comment boundary. First honours a pending
- * leading-edge "type inside" intent (ArrowRight) by inserting at the target
- * start; otherwise inserts just after (trailing) or just before (leading) the
- * comment when the caret sits immediately outside it. Returns whether it handled
- * the insertion.
- */
-function handleBoundaryInsert(root: HTMLElement, boundary: BoundaryState, data: string): boolean {
-  const pending = boundary.pendingInside;
-  if (pending && commentJustAfterCaret(root) === pending) {
-    boundary.pendingInside = null;
-    insertAtTargetStart(pending, data);
-    return true;
-  }
-  return handleInsertAfterComment(root, data) || handleInsertBeforeComment(root, data);
-}
-
-/**
- * Insert text at the very start of a comment's editable target (prepending to
- * its first target text node, or creating one before the metadata), then place
- * the caret just after it — a position genuinely inside the comment that the
- * browser keeps. Used to honour the leading-edge "type inside" intent.
- */
-function insertAtTargetStart(comment: Element, data: string): void {
-  const selection = window.getSelection()!;
-  const target = firstNonEmptyTargetText(comment);
-  if (target) {
-    target.insertData(0, data);
-    placeCaret(selection, (r) => r.setStart(target, data.length));
-  } else {
-    const textNode = document.createTextNode(data);
-    comment.insertBefore(textNode, comment.firstChild);
-    placeCaret(selection, (r) => r.setStart(textNode, data.length));
-  }
-}
-
-/**
- * Insert typed text just after a comment (outside it) when the caret sits
- * immediately past the comment's close. Reaching that position requires
- * ArrowRight (see {@link handleCommentArrowRight}); the browser would otherwise
- * absorb the keystroke back into the comment's target. The text is prepended to
- * an existing following text node, or a fresh text node is created after the
- * comment. Returns whether it inserted the text.
- */
-function handleInsertAfterComment(root: HTMLElement, data: string): boolean {
-  const comment = commentJustBeforeCaret(root);
-  if (!comment) return false;
-  const selection = window.getSelection()!;
-  const next = comment.nextSibling;
-  if (next && next.nodeType === Node.TEXT_NODE) {
-    (next as Text).insertData(0, data);
-    placeCaret(selection, (r) => r.setStart(next, data.length));
-  } else {
-    const textNode = document.createTextNode(data);
-    comment.after(textNode);
-    placeCaret(selection, (r) => r.setStart(textNode, data.length));
-  }
-  return true;
-}
-
-/**
- * Mirror of {@link handleInsertAfterComment} for the leading edge: insert typed
- * text just before a comment (outside it) when the caret sits immediately before
- * <comment>. The text is appended to an existing preceding text node, or a fresh
- * text node is created before the comment. Returns whether it inserted the text.
- */
-function handleInsertBeforeComment(root: HTMLElement, data: string): boolean {
-  const comment = commentJustAfterCaret(root);
-  if (!comment) return false;
-  const selection = window.getSelection()!;
-  const prev = comment.previousSibling;
-  if (prev && prev.nodeType === Node.TEXT_NODE) {
-    const at = (prev as Text).data.length;
-    (prev as Text).insertData(at, data);
-    placeCaret(selection, (r) => r.setStart(prev, at + data.length));
-  } else {
-    const textNode = document.createTextNode(data);
-    comment.before(textNode);
-    placeCaret(selection, (r) => r.setStart(textNode, data.length));
-  }
-  return true;
-}
-
-/**
- * The <comment> a collapsed caret sits immediately after (just past its close),
- * or null — "the node immediately before the caret is a comment". Shared by the
- * after-insertion handler, the ArrowLeft re-entry, and the caret-outside marker.
- */
-function commentJustBeforeCaret(root: HTMLElement): Element | null {
-  const range = collapsedCaretRange(root);
-  if (!range) return null;
-  const before = nodeImmediatelyBeforeCaret(range);
-  if (!before || before.nodeType !== Node.ELEMENT_NODE) return null;
-  return (before as Element).tagName === 'COMMENT' ? (before as Element) : null;
-}
-
-/**
- * The <comment> a collapsed caret sits immediately before (just outside its
- * open), or null — "the node immediately after the caret is a comment". Shared
- * by the before-insertion handler, the ArrowRight step-in, and the marker.
- */
-function commentJustAfterCaret(root: HTMLElement): Element | null {
-  const range = collapsedCaretRange(root);
-  if (!range) return null;
-  const after = nodeImmediatelyAfterCaret(range);
-  if (!after || after.nodeType !== Node.ELEMENT_NODE) return null;
-  return (after as Element).tagName === 'COMMENT' ? (after as Element) : null;
-}
-
-/** The current collapsed caret range inside root, or null. */
-function collapsedCaretRange(root: HTMLElement): Range | null {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return null;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return null;
-  return range;
-}
-
-/**
- * Reconcile the transient caret-colour markers with the caret position and the
- * leading-edge intent. At most one comment is marked: CARET_INSIDE_ATTR when a
- * "type inside" intent is armed and the caret still sits at that comment's
- * leading edge (parent tinted author-colour); otherwise CARET_OUTSIDE_ATTR on a
- * comment the caret sits just outside of (its own caret reset to default). A
- * caret that has moved off the armed leading edge clears the intent.
- */
-function syncCaretMarkers(root: HTMLElement, boundary: BoundaryState): void {
-  for (const c of Array.from(
-    root.querySelectorAll(`comment[${CARET_INSIDE_ATTR}], comment[${CARET_OUTSIDE_ATTR}]`),
-  )) {
-    c.removeAttribute(CARET_INSIDE_ATTR);
-    c.removeAttribute(CARET_OUTSIDE_ATTR);
-  }
-
-  const ahead = commentJustAfterCaret(root);
-  if (boundary.pendingInside) {
-    if (boundary.pendingInside === ahead) {
-      ahead.setAttribute(CARET_INSIDE_ATTR, '');
-      return;
-    }
-    boundary.pendingInside = null; // caret left the armed leading edge
-  }
-  const outside = ahead ?? commentJustBeforeCaret(root);
-  if (outside) outside.setAttribute(CARET_OUTSIDE_ATTR, '');
-}
-
-/**
- * The comment whose visible trailing edge the collapsed caret sits at, or null.
- * "Visible trailing edge" means no visible (non-metadata) text remains between
- * the caret and the comment's end, which covers the target-text end, the
- * element offset before the body, and the position after the (display:none)
- * body. A caret mid-target (visible text still follows) returns null.
- */
-function caretAtCommentTrailingEdge(range: Range, root: HTMLElement): Element | null {
-  return caretAtCommentEdge(range, root, 'trailing');
-}
-
-/**
- * Mirror of {@link caretAtCommentTrailingEdge} for the leading edge: the comment
- * whose visible start the caret sits at (no visible text between the comment's
- * start and the caret), or null.
- */
-function caretAtCommentLeadingEdge(range: Range, root: HTMLElement): Element | null {
-  return caretAtCommentEdge(range, root, 'leading');
-}
-
-/**
- * The comment the caret sits at the visible edge of, on the given side, or null.
- * Clones the span between the caret and the comment's matching boundary and
- * checks it carries no visible (non-metadata) text.
- */
-function caretAtCommentEdge(
-  range: Range,
-  root: HTMLElement,
-  side: 'leading' | 'trailing',
-): Element | null {
-  const comment = findAncestor(range.startContainer, 'COMMENT', root);
-  if (!comment) return null;
-  const span = document.createRange();
-  if (side === 'trailing') {
-    span.setStart(range.startContainer, range.startOffset);
-    span.setEnd(comment, comment.childNodes.length);
-  } else {
-    span.setStart(comment, 0);
-    span.setEnd(range.startContainer, range.startOffset);
-  }
-  const fragment = span.cloneContents();
-  return Array.from(fragment.childNodes).every(isInsignificantOrMeta) ? comment : null;
-}
-
-/**
- * Like {@link isInsignificantTail} but also treats a comment's metadata
- * (<comment-body>/<comment-reply>) as insignificant, so a caret sitting before
- * that metadata still counts as the comment's trailing edge.
- */
-function isInsignificantOrMeta(node: Node): boolean {
-  if (node.nodeType === Node.ELEMENT_NODE) {
-    const tag = (node as Element).tagName;
-    if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') return true;
-  }
-  return isInsignificantTail(node);
-}
-
-/**
- * A comment's body/replies are display:none and contenteditable=false, so the
- * browser default deletion repeatedly mistakes them for "the next thing to
- * delete" and wipes the body as collateral. Both of these handlers enforce one
- * rule: deletions act only on *visible* characters (target text + surrounding
- * text) in the key direction, never on the invisible metadata. When the caret
- * sits inside or next to a comment, we perform the single-character deletion
- * ourselves; far from comments we defer to the browser (return false).
- *
- * Spot to delete: one character at {text}[{index}], or — when {text} is null —
- * remove the whole (now anchorless) {comment}.
- */
-interface DeletionSpot {
-  text: Text | null;
-  index: number;
-  comment: Element | null;
-}
-
-function handleCommentBackspace(root: HTMLElement): boolean {
-  return handleCommentDeletion(root, backwardDeletionSpot);
-}
-
-function handleCommentDelete(root: HTMLElement): boolean {
-  return handleCommentDeletion(root, forwardDeletionSpot);
-}
-
-function handleCommentDeletion(
-  root: HTMLElement,
-  findSpot: (range: Range, root: HTMLElement) => DeletionSpot | null,
-): boolean {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return false;
-  const range = selection.getRangeAt(0);
-  if (!range.collapsed || !root.contains(range.startContainer)) return false;
-
-  const spot = findSpot(range, root);
-  if (!spot) return false;
-
-  if (spot.text) {
-    spot.text.deleteData(spot.index, 1);
-    return true;
-  }
-  if (spot.comment) removeAnchorlessComment(spot.comment, selection);
-  return true;
-}
-
-/** Backspace: the previous visible character, skipping comment metadata. */
-function backwardDeletionSpot(range: Range, root: HTMLElement): DeletionSpot | null {
-  const { startContainer: sc, startOffset: so } = range;
-
-  // A character within the current text node, only inside the comment danger
-  // zone (in a comment's target text, or in text adjacent to a comment).
-  if (sc.nodeType === Node.TEXT_NODE && so > 0) {
-    if (!isCommentDangerText(sc as Text, root)) return null;
-    return { text: sc as Text, index: so - 1, comment: findAncestor(sc, 'COMMENT', root) };
-  }
-
-  // Otherwise resolve the node immediately before the caret.
-  const before = nodeImmediatelyBeforeCaret(range);
-  if (!before) return null;
-  if (before.nodeType === Node.TEXT_NODE) {
-    const t = before as Text;
-    if (t.data.length === 0 || !isCommentDangerText(t, root)) return null;
-    return { text: t, index: t.data.length - 1, comment: findAncestor(t, 'COMMENT', root) };
-  }
-  if (before.nodeType !== Node.ELEMENT_NODE) return null;
-  const comment = ownerCommentForMeta(before as Element);
-  if (!comment) return null;
-  // Shrink the comment's target from its end; remove it once nothing is left.
-  const text = lastNonEmptyTargetText(comment);
-  return { text, index: text ? text.data.length - 1 : -1, comment };
-}
-
-/** Delete: the next visible character, skipping comment metadata. */
-function forwardDeletionSpot(range: Range, root: HTMLElement): DeletionSpot | null {
-  const { startContainer: sc, startOffset: so } = range;
-
-  if (sc.nodeType === Node.TEXT_NODE && so < (sc as Text).data.length) {
-    if (!isCommentDangerText(sc as Text, root)) return null;
-    return { text: sc as Text, index: so, comment: findAncestor(sc, 'COMMENT', root) };
-  }
-
-  const after = nodeImmediatelyAfterCaret(range);
-  if (after) {
-    if (after.nodeType === Node.TEXT_NODE) {
-      const t = after as Text;
-      if (t.data.length === 0 || !isCommentDangerText(t, root)) return null;
-      return { text: t, index: 0, comment: findAncestor(t, 'COMMENT', root) };
-    }
-    if (after.nodeType === Node.ELEMENT_NODE) {
-      const el = after as Element;
-      if (el.tagName === 'COMMENT') {
-        // Just before a comment: delete its first target character.
-        return { text: firstNonEmptyTargetText(el), index: 0, comment: el };
-      }
-      const meta = ownerCommentForMeta(el);
-      if (meta) {
-        // At a comment's trailing edge (next node is its metadata): skip the
-        // metadata and delete the first character of the following text.
-        const text = firstVisibleTextAfter(meta);
-        return text ? { text, index: 0, comment: null } : null;
-      }
-    }
-    return null;
-  }
-
-  // Caret at the trailing edge inside a comment (after the metadata / its end):
-  // the next visible character is the first one of the text following it.
-  const host = findAncestor(sc, 'COMMENT', root);
-  if (host) {
-    const text = firstVisibleTextAfter(host);
-    if (text) return { text, index: 0, comment: null };
-  }
-  return null;
-}
-
-/** True when a text node is in the comment danger zone: inside a comment's
- *  target text, or directly adjacent (prev/next sibling) to a comment. */
-function isCommentDangerText(text: Text, root: HTMLElement): boolean {
-  if (findAncestor(text, 'COMMENT', root) && !isInCommentMeta(text, root)) return true;
-  const prev = text.previousSibling;
-  if (prev && prev.nodeType === Node.ELEMENT_NODE && (prev as Element).tagName === 'COMMENT') return true;
-  const next = text.nextSibling;
-  if (next && next.nodeType === Node.ELEMENT_NODE && (next as Element).tagName === 'COMMENT') return true;
-  return false;
-}
-
-/** The comment owning a node that is a comment element or a comment's metadata,
- *  else null. */
-function ownerCommentForMeta(el: Element): Element | null {
-  if (el.tagName === 'COMMENT') return el;
-  if (el.tagName === 'COMMENT-BODY' || el.tagName === 'COMMENT-REPLY') {
-    const p = el.parentElement;
-    if (p && p.tagName === 'COMMENT') return p;
-  }
-  return null;
-}
-
-/** Remove an anchorless comment and drop the caret where it stood. */
-function removeAnchorlessComment(comment: Element, selection: Selection): void {
-  const parent = comment.parentNode;
-  if (!parent) return;
-  const index = Array.prototype.indexOf.call(parent.childNodes, comment);
-  comment.remove();
-  const r = document.createRange();
-  r.setStart(parent, index);
-  r.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(r);
-}
-
-/** First non-empty text node after a comment within its block, or null. */
-function firstVisibleTextAfter(comment: Element): Text | null {
-  let n: Node | null = comment.nextSibling;
-  while (n) {
-    const t = deepestFirstNonEmptyText(n);
-    if (t) return t;
-    n = n.nextSibling;
-  }
-  return null;
-}
-
-/** The node directly before a collapsed caret, or null when the caret sits
- *  mid-text (a normal in-place deletion the caller should leave to the browser). */
-function nodeImmediatelyBeforeCaret(range: Range): Node | null {
-  const { startContainer, startOffset } = range;
-  if (startContainer.nodeType === Node.TEXT_NODE) {
-    return startOffset === 0 ? startContainer.previousSibling : null;
-  }
-  return startOffset > 0 ? startContainer.childNodes[startOffset - 1] : null;
-}
-
-/** Deepest, last non-empty text node within a comment's editable target region
- *  (the content before the first <comment-body>/<comment-reply>), or null. */
-function lastNonEmptyTargetText(comment: Element): Text | null {
-  const kids = comment.childNodes;
-  let end = kids.length;
-  for (let i = 0; i < kids.length; i++) {
-    const n = kids[i];
-    if (n.nodeType === Node.ELEMENT_NODE) {
-      const tag = (n as Element).tagName;
-      if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') {
-        end = i;
-        break;
-      }
-    }
-  }
-  for (let i = end - 1; i >= 0; i--) {
-    const found = deepestLastNonEmptyText(kids[i]);
-    if (found) return found;
-  }
-  return null;
-}
-
-function deepestLastNonEmptyText(node: Node): Text | null {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return (node as Text).data.length > 0 ? (node as Text) : null;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return null;
-  for (let i = node.childNodes.length - 1; i >= 0; i--) {
-    const found = deepestLastNonEmptyText(node.childNodes[i]);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** The node directly after a collapsed caret, or null when the caret sits
- *  mid-text (a normal in-place forward deletion the caller should not redirect). */
-function nodeImmediatelyAfterCaret(range: Range): Node | null {
-  const { startContainer, startOffset } = range;
-  if (startContainer.nodeType === Node.TEXT_NODE) {
-    return startOffset === (startContainer as Text).data.length
-      ? startContainer.nextSibling
-      : null;
-  }
-  return startOffset < startContainer.childNodes.length
-    ? startContainer.childNodes[startOffset]
-    : null;
-}
-
-/** Deepest, first non-empty text node within a comment's editable target region
- *  (the content before the first <comment-body>/<comment-reply>), or null. */
-function firstNonEmptyTargetText(comment: Element): Text | null {
-  const kids = comment.childNodes;
-  let end = kids.length;
-  for (let i = 0; i < kids.length; i++) {
-    const n = kids[i];
-    if (n.nodeType === Node.ELEMENT_NODE) {
-      const tag = (n as Element).tagName;
-      if (tag === 'COMMENT-BODY' || tag === 'COMMENT-REPLY') {
-        end = i;
-        break;
-      }
-    }
-  }
-  for (let i = 0; i < end; i++) {
-    const found = deepestFirstNonEmptyText(kids[i]);
-    if (found) return found;
-  }
-  return null;
-}
-
-function deepestFirstNonEmptyText(node: Node): Text | null {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return (node as Text).data.length > 0 ? (node as Text) : null;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return null;
-  for (let i = 0; i < node.childNodes.length; i++) {
-    const found = deepestFirstNonEmptyText(node.childNodes[i]);
-    if (found) return found;
-  }
-  return null;
-}
-
 // Blocks whose Backspace-at-start / Delete-at-end merge we take over from the
 // browser. They carry inline content only: LI keeps the browser's list
-// behavior, and PRE / SUMMARY / DETAILS have structural semantics we leave be.
+// behavior, while PRE / SUMMARY / DETAILS are owned by
+// commands/structural-boundary, which blocks the merge instead of performing it.
 const MERGEABLE_BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'DIV',
 ]);
@@ -1223,16 +982,6 @@ function isMergeableLeafBlock(el: Element | null): el is HTMLElement {
     }
   }
   return true;
-}
-
-/** Mirror of {@link isCaretAtBlockEnd}: nothing significant precedes the caret
- *  within the block (only whitespace / <br> / empty inline wrappers). */
-function isCaretAtBlockStart(range: Range, block: Element): boolean {
-  const head = document.createRange();
-  head.setStart(block, 0);
-  head.setEnd(range.startContainer, range.startOffset);
-  const fragment = head.cloneContents();
-  return Array.from(fragment.childNodes).every(isInsignificantTail);
 }
 
 /**
@@ -1269,8 +1018,9 @@ function mergeBlocks(prev: HTMLElement, next: HTMLElement, selection: Selection)
 
 /**
  * Backspace at the very start of a mergeable block folds it into the previous
- * mergeable block (the inverse of {@link keepCommentWholeOnEnter}). Returns
- * whether it handled the deletion; otherwise the browser default runs.
+ * mergeable block (the inverse of keepCommentWholeOnEnter in
+ * features/comment/comment-boundary). Returns whether it handled the deletion;
+ * otherwise the browser default runs.
  */
 function handleBlockMergeBackspace(root: HTMLElement): boolean {
   const selection = window.getSelection();
@@ -1311,6 +1061,29 @@ function handleBlockMergeForward(root: HTMLElement): boolean {
 }
 
 /**
+ * Whether a whole-line deletion at the caret would run over something the
+ * browser default destroys (see {@link ENTIRE_LINE_INPUT_TYPE}).
+ *
+ * Deliberately a guard rather than a reimplementation: the keystroke is
+ * consumed and nothing is edited, the same trade
+ * {@link isProtectedStructuralBoundary} makes. Reproducing a whole-line
+ * deletion ourselves would need the line boxes, which this code cannot see —
+ * and getting it wrong deletes the user's text rather than merely refusing to.
+ *
+ * A whole-line deletion covers the caret's line in both directions at once, so
+ * any comment in that line is inside its range — which is what
+ * {@link commentInCaretBlock} answers. The structural pair is asked in both
+ * directions for the same reason.
+ */
+function entireLineDeletionIsUnsafe(root: HTMLElement): boolean {
+  return (
+    commentInCaretBlock(root) ||
+    isProtectedStructuralBoundary(root, 'backward') ||
+    isProtectedStructuralBoundary(root, 'forward')
+  );
+}
+
+/**
  * Inline-format ancestor chain (outermost first) of the content immediately
  * before the caret. Resolving from the node before the caret — rather than the
  * caret's literal ancestors — handles a block-level caret that sits just after
@@ -1339,14 +1112,6 @@ function inlineChainBeforeCaret(range: Range, block: Element): string[] {
     cur = cur.parentNode;
   }
   return tags.reverse();
-}
-
-function isCaretAtBlockEnd(range: Range, block: Element): boolean {
-  const tail = document.createRange();
-  tail.setStart(range.endContainer, range.endOffset);
-  tail.setEnd(block, block.childNodes.length);
-  const fragment = tail.cloneContents();
-  return Array.from(fragment.childNodes).every(isInsignificantTail);
 }
 
 // Rewrite <b>/<i> to <strong>/<em>, preserving attributes. Moving the children
@@ -1391,17 +1156,6 @@ function normalizePresentationalTags(root: HTMLElement): boolean {
     }
   }
   return true;
-}
-
-// A trailing node is insignificant if it is whitespace-only text, a <br>, or
-// an inline wrapper whose own children are all insignificant.
-function isInsignificantTail(node: Node): boolean {
-  if (node.nodeType === Node.TEXT_NODE) return /^\s*$/.test((node as Text).data);
-  if (node.nodeType !== Node.ELEMENT_NODE) return false;
-  const el = node as Element;
-  if (el.tagName === 'BR') return true;
-  if (BLOCK_TAGS.has(el.tagName)) return false;
-  return Array.from(el.childNodes).every(isInsignificantTail);
 }
 
 /**

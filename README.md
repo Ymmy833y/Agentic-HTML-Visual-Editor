@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.8-F59E0B?style=for-the-badge" alt="Version 0.1.8" />
+  <img src="https://img.shields.io/badge/version-0.1.9-F59E0B?style=for-the-badge" alt="Version 0.1.9" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -23,7 +23,6 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
 
 ## 📑 Table of Contents
 
-- [📑 Table of Contents](#-table-of-contents)
 - [✨ Why this extension](#-why-this-extension)
 - [🚀 Getting started](#-getting-started)
 - [🤖 Using it with an AI agent](#-using-it-with-an-ai-agent)
@@ -58,17 +57,17 @@ Coding agents and humans both need to read and write the same documents — desi
 2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInVisualEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInTextEditor`) switches it back.
 3. **Edit it like a document** — type directly, or use the toolbar, the selection floating menu, and markdown-style shortcuts. Press `Ctrl+S` / `Cmd+S` to write your changes back into the `.html` source. See [Features in detail](#-features-in-detail) for everything you can do.
 
-> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor. Use the title-bar buttons to switch the active tab between **Open in WYSIWYG** (`ahve.openInVisualEditor`) and **Open in HTML** (`ahve.openInTextEditor`). If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
+> **Opt-in by design.** The default editor for `.html` stays VS Code's text editor; the view changes only when you press one of those title-bar buttons. If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
 
 ---
 
 ## 🤖 Using it with an AI agent
 
-Coding agents generate design notes, research reports, and task lists as plain HTML; you read and edit them in the WYSIWYG view, and the HTML on disk stays in sync as the single source of truth for both of you. The loop:
+A typical round trip:
 
-1. **Tell your AI agent how to write HTML for this view.** The repository ships an authoring guide — the `html-result-output` **Skill** at `.claude/skills/html-result-output/SKILL.md` — that pins down the supported tag set, the custom `<comment>` annotation tags, what the extension strips or forbids, and how to keep the markup small and semantic. It is **agent-neutral**: hand any AI these rules and its HTML renders correctly and minimally here. (Agents that auto-discover Skills pick it up from the folder automatically; for any other agent, just give it the contents of `SKILL.md`.) The full guide is reproduced below.
+1. **Tell your AI agent how to write HTML for this view.** The repository ships an authoring guide — the `html-result-output` **Skill** at `.claude/skills/html-result-output/SKILL.md` — that pins down the supported tag set, the custom `<comment>` annotation tags, what the extension strips or forbids, and how to keep the markup small and semantic. It is **agent-neutral**: hand any AI these rules and its HTML renders correctly and minimally here. (Agents that auto-discover Skills pick it up from the folder automatically; for any other agent, just give it the contents of `SKILL.md`.)
 2. **Have the agent write the deliverable as a `.html` file.**
-3. **Open it in WYSIWYG, read it, and edit it — leaving inline comments as you go.** Click a comment to open its thread, reply, or mark it resolved; human- and AI-authored comments are colour-coded so you can tell them apart.
+3. **Open it in WYSIWYG, read it, and edit it — leaving inline comments as you go.** Click a comment to open its thread, reply, or mark it resolved.
 4. **Ask the agent to revise.** Your edits and comments live in the HTML itself, so the agent reads the whole review thread straight from the markup and responds — appending new notes and replies without touching the existing ones.
 
 <details>
@@ -329,14 +328,17 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
 - Switching between the active HTML text tab and the WYSIWYG view closes the current tab first and opens its replacement in the same editor group. Canceling VS Code's close prompt leaves the current tab open and does not switch views. If the replacement is already open, it is revealed without closing the current tab.
 - The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
-- Undo/redo uses VS Code's standard history (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for WYSIWYG edits. History entries remain available after saving, and undo/redo is merged with any direct HTML changes made in the meantime.
-- The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first).
+- Undo/redo uses VS Code's standard history (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for WYSIWYG edits. History entries remain available after saving.
+- The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first). The same merge covers every path where view content meets the source — undo/redo after a save, a switch between views, and a hot-exit restore.
 - While the view has no unsaved changes, direct changes to the HTML source are reflected into the view immediately.
-- The switch does not snapshot or rewrite the HTML itself. Changes written by an AI agent while the close prompt is open or while the view starts are read through VS Code's current document state, then continue through the same live-update and three-way-merge flow.
-- The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab (or switching it over to the text editor) prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes — merged with any direct HTML changes made in the meantime — still unsaved until you save.
+- The switch does not snapshot or rewrite the HTML itself. Changes written by an AI agent while the close prompt is open or while the view starts are read through VS Code's current document state.
+- The WYSIWYG editor participates in VSCode's standard save lifecycle: closing a dirty WYSIWYG tab prompts to save or discard the changes, **Revert File** discards them, auto-save (`files.autoSave`) applies to it, and a window reload (hot exit) restores the unsaved changes, still unsaved until you save.
 - A bundled custom default CSS gives content a modern appearance out of the box.
 - `style` attributes written directly in the HTML are respected and take precedence over the default CSS.
 - Links are followed with Ctrl+click (Cmd+click on macOS), so an ordinary click stays available for editing the link text; hovering a link shows the hint. Ctrl+clicking a link to a relative file (e.g. `./notes.html`) opens it in a VS Code tab instead of navigating the view away; the target is resolved safely within the document's workspace folder (or its own directory when outside a workspace). Other links keep their native behavior.
+- **Structure-safe deletion:** Backspace/Delete at the edge of a `<details>`, `<pre>`, or `<table>` keeps both sides intact, rather than discarding the details body, moving code text outside its `<code>` wrapper, or dissolving the neighbouring block into unwrapped text. The edit that is meaningful there still happens: an empty block left beside the structure is removed and the caret moves into the structure it belongs to — the summary of a closed `<details>`, the nearest cell of a table.
+- **Formatting across structure:** a selection spanning several blocks — including a table, a code block, a `<details>`, or a comment — formats only the text it holds; the structures it merely spans stay where they are, and applying the same inline format twice returns the document to the shape it started in.
+- **Starting from an empty file:** an empty `.html` is editable right away. Typing, Enter, Shift+Enter, IME input, and pasting each start a real paragraph instead of leaving text unwrapped at the top level, and the toolbar's block-type and list buttons work before anything has been typed.
 
 **Supported HTML**
 
@@ -350,7 +352,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 
 ### 💬 Inline comment annotations
 
-A review-style annotation that is fully expressed in HTML, so AI agents can read it as ordinary elements:
+A review-style annotation that is fully expressed in HTML: the body and replies stay out of the rendered flow but remain in the source, so any reader — human or AI — can read the whole thread from the markup.
 
 ```html
 <comment id="...">target text<comment-body data-author="..." data-updated="...">body</comment-body><comment-reply data-author="..." data-updated="...">reply</comment-reply>...</comment>
@@ -362,8 +364,9 @@ A review-style annotation that is fully expressed in HTML, so AI agents can read
 - **Author & time:** each body/reply carries `data-author` (`human` or `ai`) and a `data-updated` ISO 8601 timestamp. Editing in the WYSIWYG view fills these in automatically; the box colour is keyed off the author, so human- and AI-authored comments are distinguishable.
 - **Resolved state:** a `<comment>` may carry a boolean `data-resolved` attribute (toggled from the popup). Resolved comments recede to a dashed, muted box; unresolved ones keep a solid coloured box.
 - **Editing the counterpart's notes:** when a human edits or deletes a comment the AI authored, the view asks for confirmation first, so review notes are not overwritten by accident.
+- **Reading a thread:** drag across a body or reply in the popup to select its text — so it can be copied — while a plain click still opens that entry for editing.
+- **Deleting around a comment:** Backspace and Delete near a comment, including word-wise `Ctrl+Backspace` / `Ctrl+Delete`, remove visible characters only; the hidden body and replies are never taken along as collateral.
 - **Typing at the boundary:** with the caret at a comment's leading or trailing edge you can choose whether the next characters join the comment or stay outside it — the caret takes on the comment's colour when typing will land inside, and the default colour when it will land outside. Comments stay whole and never nest, even as you edit the text around them.
-- The body and replies are hidden from the document flow visually but remain in the HTML source, so any reader — human or AI — can see the full thread by inspecting the markup.
 
 ### ✅ List editing
 
@@ -372,6 +375,8 @@ Bulleted (`ul`) and numbered (`ol`) lists can be created and edited entirely wit
 - **Toolbar:** the bulleted-list and numbered-list buttons toggle the current block(s) into a list, switch between `ul`/`ol`, or turn a list back into paragraphs.
 - **Markdown-style:** typing `- ` / `* ` (bulleted) or `1. ` (numbered) at the start of a paragraph starts a list.
 - **Nesting:** Tab indents the current item under the previous one; Shift+Tab outdents it (and promotes a top-level item back to a paragraph). Enter on an empty item exits the list.
+- **Converting a selection:** the list buttons convert every block the selection holds — including text not yet wrapped in a block — while leaving tables, code blocks, `<details>`, and blockquotes it merely spans where they are. A conversion next to an existing list of the same type merges into it, keeping its numbering.
+- **Inserting a block inside a list:** adding a horizontal rule or a `<details>` from within a list item splits the list around it instead of nesting it invalidly; a numbered list continues its numbering below the split, and an item left empty (with its now-empty list) is removed.
 
 ### ℹ️ Alert blockquotes
 
@@ -384,8 +389,7 @@ GitHub-style alerts are stored as ordinary blockquotes with a small semantic att
 The WYSIWYG view adds the fixed English label, icon, and type-specific accent colour without adding presentation markup to the saved HTML. Supported values are `note`, `tip`, `important`, `warning`, and `caution`. An unrecognized value remains in the HTML and renders as an ordinary blockquote.
 
 - **Toolbar:** open the block-type menu and hover **Blockquote** to open its submenu. Choose **Normal** (shown first) for an ordinary quote, or choose one of the five alert types.
-- **Markdown-style:** type `>note `, `>tip `, `>important `, `>warning `, or `>caution ` at the start of a block.
-- The existing `> ` shortcut continues to create an ordinary blockquote.
+- **Markdown-style:** at the start of a block, type `>` immediately followed by one of those type names and a space (e.g. `>warning `); the plain `> ` still creates an ordinary blockquote.
 
 ### ⌨️ Shortcuts
 

@@ -15,6 +15,8 @@ declare global {
     __vscodeMessages: { type: string; [key: string]: unknown }[];
     /** Last value passed to the mocked vscode.setState (see webview-host.html). */
     __lastState: unknown;
+    /** inputTypes recorded by {@link recordProbeInputTypes}. */
+    __probeInputTypes: string[];
   }
 }
 
@@ -209,7 +211,104 @@ export async function caretAtEnd(page: Page, selector: string): Promise<void> {
   }, selector);
 }
 
+/** Place a collapsed caret at the start of the contents of the given selector. */
+export async function caretAtStart(page: Page, selector: string): Promise<void> {
+  await page.evaluate((selector) => {
+    const el = document.querySelector(selector);
+    if (!el) throw new Error(`element not found: ${selector}`);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(true);
+    const sel = window.getSelection();
+    if (!sel) throw new Error('no selection');
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }, selector);
+}
+
+/**
+ * Collapse the caret into the start of the bare text node that is the editor
+ * root's last child — the shape existing HTML carries when text sits directly
+ * under <body>, with no block wrapper. {@link caretAtStart} cannot express it:
+ * it takes a selector, and a bare text node has no element to name.
+ */
+export async function caretInBareTail(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const text = document.querySelector('#ahve-root')!.lastChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+}
+
 /** Focus the editor root (needed before dispatching keyboard input). */
 export async function focusEditor(page: Page): Promise<void> {
   await page.locator('#ahve-root').focus();
+}
+
+/** Selector of the bare contenteditable mounted by {@link mountNativeProbe}. */
+export const NATIVE_PROBE = '#native-probe';
+
+/**
+ * Mount a bare contenteditable that `setupEditor` never binds to, so a test can
+ * observe what the browser default actually does. That cannot be observed on
+ * `#ahve-root`: once a handler calls preventDefault(), the assertion only ever
+ * describes our own replacement behavior. Use it to pin down a Chromium
+ * behavior the editor's design depends on.
+ *
+ * IMPORTANT — the probe is not styled like the editor. Every rule in
+ * styles/default.css is scoped to `#ahve-root`, so `comment-body` /
+ * `comment-reply` are NOT display:none here; inside the probe they are visible
+ * text. Chromium's deletion is layout-sensitive, so a probe can report a
+ * SAFE result where the real editor is destructive: with the metadata rendered,
+ * it is content that stops a merge, while in the editor the same deletion runs
+ * straight through it. Treat a probe as proof that a default IS harmful, never
+ * as proof that it is harmless — for the latter, assert against `#ahve-root`.
+ */
+export async function mountNativeProbe(page: Page, html: string): Promise<void> {
+  await openHost(page);
+  await page.evaluate(
+    ({ id, html }) => {
+      const probe = document.createElement('div');
+      probe.id = id;
+      probe.contentEditable = 'true';
+      probe.innerHTML = html;
+      document.body.appendChild(probe);
+      probe.focus();
+    },
+    { id: NATIVE_PROBE.slice(1), html },
+  );
+}
+
+/** Serialized content of the probe mounted by {@link mountNativeProbe}. */
+export async function getNativeProbeHtml(page: Page): Promise<string> {
+  return page.locator(NATIVE_PROBE).innerHTML();
+}
+
+/**
+ * Run `act` and return the `inputType` of every `beforeinput` the probe saw.
+ *
+ * Chromium maps keys to editing commands through per-platform key bindings, so
+ * which inputType a chord produces is a property of the machine running the
+ * test, not of the chord. A probe that needs a specific command has to state
+ * what it actually got rather than assume the mapping — see the line-deletion
+ * probes in tests/e2e/comment-delete-sweep.spec.ts.
+ */
+export async function recordProbeInputTypes(
+  page: Page,
+  act: () => Promise<void>,
+): Promise<string[]> {
+  await page.evaluate((probe) => {
+    const el = document.querySelector(probe);
+    if (!el) throw new Error(`probe not found: ${probe}`);
+    window.__probeInputTypes = [];
+    el.addEventListener('beforeinput', (event) => {
+      window.__probeInputTypes.push((event as InputEvent).inputType);
+    });
+  }, NATIVE_PROBE);
+  await act();
+  return page.evaluate(() => window.__probeInputTypes);
 }

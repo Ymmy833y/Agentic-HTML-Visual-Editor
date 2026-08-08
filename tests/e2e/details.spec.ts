@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   caretAtEnd,
+  caretAtStart,
   focusEditor,
   getRootHtml,
   mountEditor,
@@ -8,6 +9,10 @@ import {
 } from './helpers/page';
 
 test.describe('Details / summary', () => {
+  const BOUNDARY_HTML =
+    '<p>lead</p><details open=""><summary>Title</summary>' +
+    '<p>Hidden body</p></details><p>tail</p>';
+
   test('Details toolbar button inserts a collapsible section', async ({ page }) => {
     await mountEditor(page, '<p>hello</p>');
     await focusEditor(page);
@@ -31,6 +36,56 @@ test.describe('Details / summary', () => {
     // Exactly one summary survived, and the typed text landed in the body.
     expect(await page.locator('#ahve-root summary').count()).toBe(1);
     expect(await getRootHtml(page)).toContain('<p>Zbody</p>');
+  });
+
+  test('Backspace at the start of summary preserves the entire details structure', async ({ page }) => {
+    await mountEditor(page, BOUNDARY_HTML);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root summary');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(BOUNDARY_HTML);
+  });
+
+  test('Delete at the end of summary preserves the entire details structure', async ({ page }) => {
+    await mountEditor(page, BOUNDARY_HTML);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root summary');
+
+    await page.keyboard.press('Delete');
+
+    expect(await getRootHtml(page)).toBe(BOUNDARY_HTML);
+  });
+
+  test('Backspace at the start of a non-empty details body preserves the summary', async ({ page }) => {
+    await mountEditor(page, BOUNDARY_HTML);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root details > p');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(BOUNDARY_HTML);
+  });
+
+  test('Backspace immediately after details preserves the entire details structure', async ({ page }) => {
+    await mountEditor(page, BOUNDARY_HTML);
+    await focusEditor(page);
+    await caretAtStart(page, '#ahve-root > p:last-child');
+
+    await page.keyboard.press('Backspace');
+
+    expect(await getRootHtml(page)).toBe(BOUNDARY_HTML);
+  });
+
+  test('Delete immediately before details preserves its summary and body', async ({ page }) => {
+    await mountEditor(page, BOUNDARY_HTML);
+    await focusEditor(page);
+    await caretAtEnd(page, '#ahve-root > p:first-child');
+
+    await page.keyboard.press('Delete');
+
+    expect(await getRootHtml(page)).toBe(BOUNDARY_HTML);
   });
 
   test('Clicking the disclosure marker toggles open/closed', async ({ page }) => {

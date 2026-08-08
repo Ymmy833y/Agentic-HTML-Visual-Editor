@@ -3,6 +3,7 @@
 // them directly with Range.insertNode creates invalid nested blocks that only
 // fall apart into empty elements when the saved HTML is parsed again.
 
+import { materializeEmptyRootParagraph } from '../../commands/block-format';
 import { isBlockEffectivelyEmpty } from '../../core/serialize';
 import { findBlockAncestor } from '../../shared/dom-utils';
 
@@ -19,6 +20,19 @@ const SPLIT_ON_BLOCK_PASTE_TAGS = new Set([
 export function insertFragmentAtCursor(root: HTMLElement, fragment: DocumentFragment): void {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return;
+
+  // An effectively empty document has no block for the insertion to anchor to,
+  // so inline clipboard content landed directly under the root — the one shape
+  // typing, Enter and IME composition all now avoid. Done BEFORE the boundary
+  // blocks are read, so the paragraph is one of them and the cleanup below
+  // drops it again when the clipboard turned out to carry blocks of its own.
+  const materialized = materializeEmptyRootParagraph(root);
+  if (materialized) {
+    // The stub <br> is that paragraph's placeholder line, which the pasted
+    // content replaces rather than sitting in front of. Removing a child at
+    // index 0 leaves the caret's own (paragraph, 0) boundary where it is.
+    materialized.paragraph.querySelector('br')?.remove();
+  }
 
   const range = selection.getRangeAt(0);
   const startBlock = findBlockAncestor(range.startContainer, root);
