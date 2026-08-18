@@ -16,7 +16,7 @@
  * selection are handled too), then unwrap every `<comment>` so only the
  * highlighted target content remains.
  */
-export function stripCommentTags(root: ParentNode): void {
+function stripCommentTags(root: ParentNode): void {
   for (const child of Array.from(root.querySelectorAll('comment-body, comment-reply'))) {
     child.remove();
   }

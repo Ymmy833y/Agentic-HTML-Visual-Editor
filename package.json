@@ -35,13 +35,13 @@
   "contributes": {
     "commands": [
       {
-        "command": "ahve.openInVisualEditor",
+        "command": "ahve.openInWysiwygEditor",
         "title": "Open in WYSIWYG",
         "category": "Agentic HTML Visual Editor",
         "icon": "$(edit)"
       },
       {
-        "command": "ahve.openInTextEditor",
+        "command": "ahve.openInHtmlEditor",
         "title": "Open in HTML",
         "category": "Agentic HTML Visual Editor",
         "icon": "$(code)"
@@ -49,11 +49,6 @@
       {
         "command": "ahve.copyAsHtml",
         "title": "Copy as HTML",
-        "category": "Agentic HTML Visual Editor"
-      },
-      {
-        "command": "ahve.copyAsConfluenceHtml",
-        "title": "Copy as Confluence-compatible HTML",
         "category": "Agentic HTML Visual Editor"
       }
     ],
@@ -72,31 +67,27 @@
     "menus": {
       "editor/title": [
         {
-          "command": "ahve.openInVisualEditor",
+          "command": "ahve.openInWysiwygEditor",
           "when": "resourceExtname == .html && activeCustomEditorId != ahve.editor",
           "group": "navigation"
         },
         {
-          "command": "ahve.openInTextEditor",
+          "command": "ahve.openInHtmlEditor",
           "when": "activeCustomEditorId == ahve.editor",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
-          "command": "ahve.openInVisualEditor",
+          "command": "ahve.openInWysiwygEditor",
           "when": "resourceExtname == .html"
         },
         {
-          "command": "ahve.openInTextEditor",
+          "command": "ahve.openInHtmlEditor",
           "when": "activeCustomEditorId == ahve.editor"
         },
         {
           "command": "ahve.copyAsHtml",
-          "when": "activeCustomEditorId == ahve.editor"
-        },
-        {
-          "command": "ahve.copyAsConfluenceHtml",
           "when": "activeCustomEditorId == ahve.editor"
         }
       ]

@@ -1,12 +1,11 @@
-// Sticky toolbar shown above the WYSIWYG root. Each button dispatches a
-// command and then notifies the caller so the resulting edit can be
-// serialized and pushed back to the extension host.
+// The fixed toolbar shown above the WYSIWYG root. Each button dispatches a command and
+// then notifies the caller, so the resulting edit can be serialized and sent back to
+// the extension host.
 
 import { clearFormatting, collectSegments, segmentsCovered, toggleInline } from '../commands/inline-format';
 import { insertDetails, insertHr, setAlertType, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
 import { findInlineAncestor, getCurrentAlertType, getCurrentBlockTag, getNearestListType } from '../commands/query';
 import type { CommandContext } from '../shared/command-context';
-import type { CopyFormat } from '../../src/shared/messages';
 import { ALERT_DEFINITIONS, type AlertType } from '../shared/alert-types';
 import { setupTooltip } from './tooltip';
 
@@ -18,14 +17,14 @@ const ICON_CODEBLOCK = `<svg viewBox="0 0 16 16" width="16" height="16" fill="no
 
 const ICON_CLIPBOARD = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`;
 
-// Floppy disk — the universal "save" glyph.
+// A floppy disk — the universal iconography for "save".
 const ICON_SAVE = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 1.5H3.5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V5L11 1.5Z"/><path d="M5 1.5V5h5V1.5"/><path d="M4.5 14.5V9.5h7v5"/></svg>`;
 
-// Tilted eraser pressed against a baseline, with a divider marking where
-// the worn tip meets the body — universally read as "erase / clear".
+// A tilted eraser pressed against a baseline, with a divider marking where the worn tip
+// meets the body — universally readable as "erase / clear".
 const ICON_CLEAR_FORMAT = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5L14 6.5L7.5 13H4L2 11L10 2.5Z"/><path d="M7 5.5L11 9.5"/><path d="M2.5 14h11"/></svg>`;
 
-// Bulleted list: three rows, each a dot bullet followed by a line.
+// Bulleted list: three rows, each a dot marker followed by a line.
 const ICON_UL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="2.5" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M6 4h8"/><path d="M6 8h8"/><path d="M6 12h8"/></svg>`;
 
 // Numbered list: three rows, each a numeral (1/2/3) followed by a line.
@@ -33,7 +32,7 @@ const ICON_OL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" str
 
 // ---
 
-// Display labels for the block-type dropdown.
+// The labels shown in the block-type dropdown.
 const BLOCK_LABELS: Record<string, string> = {
   p: 'Plain',
   h1: 'H1', h2: 'H2', h3: 'H3', h4: 'H4', h5: 'H5', h6: 'H6',
@@ -51,7 +50,7 @@ const BLOCK_OPTIONS: DropdownOption[] = [
   { value: 'h4',         label: 'H4' },
   { value: 'h5',         label: 'H5' },
   { value: 'h6',         label: 'H6' },
-  null,                              // visual separator
+  null,                              // a visual divider
   { value: 'blockquote', label: 'Blockquote' },
 ];
 
@@ -66,25 +65,25 @@ const ALERT_OPTIONS: AlertDropdownOption[] = [
 ];
 
 export interface ToolbarOptions {
-  /** Called after a synchronous command finishes mutating the DOM. */
+  /** Called after a synchronous command has finished mutating the DOM. */
   onCommand: () => void;
-  /** Open the link dialog and apply the result. */
+  /** Opens the link dialog and applies its result. */
   onLink: () => void;
-  /** Open the image dialog and insert the result. */
+  /** Opens the image dialog and inserts its result. */
   onImage: () => void;
-  /** Add a comment to the current selection and open its popup. */
+  /** Adds a comment on the current selection and opens its popup. */
   onAddComment: () => void;
-  /** Trigger a copy in the requested format. */
-  onCopy: (format: CopyFormat) => void;
-  /** Open the table picker, anchored to the clicked toolbar button. */
+  /** Copies the current selection (or the whole document) as HTML. */
+  onCopy: () => void;
+  /** Opens the table picker anchored to the clicked toolbar button. */
   onInsertTable: (anchor: HTMLElement) => void;
-  /** Sync the view into the document and save the file. */
+  /** Syncs the view's content into the document and saves the file. */
   onSave: () => void;
 }
 
 export interface ToolbarHandle {
   element: HTMLElement;
-  /** Show/hide the unsaved-changes indicator on the save button. */
+  /** Shows or hides the unsaved indicator on the save button. */
   setDirty(dirty: boolean): void;
 }
 
@@ -96,12 +95,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
 
   const ctx: CommandContext = { root };
 
-  // Selection snapshot taken just before the dropdown receives focus.
-  // The dropdown button is NOT covered by e.preventDefault() so focus may
-  // temporarily leave the editor; we restore the range before applying commands.
+  // A snapshot of the selection taken just before the dropdown receives focus.
+  // The dropdown button is *not* subject to e.preventDefault(), so focus can leave the
+  // editor briefly; the range is restored before a command is applied.
   let savedRange: Range | null = null;
 
-  // --- Buttons that need active-state tracking ---
+  // --- Buttons whose active state must be tracked ---
 
   const boldBtn = textBtn('B', 'Bold (Ctrl+B)', () => {
     toggleInline('strong', ctx);
@@ -151,12 +150,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
     ctx, opts, root, () => savedRange,
   );
 
-  // --- Save button with unsaved-changes indicator ---
-  // Mirrors the editor tab's native dirty dot inside the view, next to the
-  // action that clears it.
+  // --- Save button with an unsaved indicator ---
+  // Mirrors the editor tab's native dirty dot inside the view, right next to the action
+  // that clears it.
   const saveBtn = iconBtn(ICON_SAVE, 'Save (Ctrl+S)', () => opts.onSave(), 'ahve-tb-save');
 
-  // --- Assemble groups ---
+  // --- Assembling the groups ---
   group(bar, [saveBtn]);
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
@@ -168,20 +167,20 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
     tableBtn(opts.onInsertTable),
     commentBtn(opts.onAddComment),
   ]);
-  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy('html'), undefined, 'ahve-tb-copy'));
+  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy(), undefined, 'ahve-tb-copy'));
 
   const last = bar.lastElementChild;
   if (last && last.classList.contains('ahve-tb-sep')) last.remove();
 
-  // Toolbar mousedown handling:
-  //   - For the block dropdown wrapper: save the current selection and let the
-  //     click propagate naturally so the button's click handler fires.
-  //   - For everything else: prevent default to keep focus in the editor.
+  // How the toolbar handles mousedown:
+  //   - Inside the block dropdown's wrapper: save the current selection and let the
+  //     click propagate naturally, so the button's click handler fires.
+  //   - Otherwise: stop the default behavior and keep focus in the editor.
   bar.addEventListener('mousedown', (e) => {
     if (blockWrap.contains(e.target as Node)) {
       const sel = window.getSelection();
       if (sel?.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
-      return; // do NOT preventDefault — the click must reach the button
+      return; // deliberately *no* preventDefault — the click must reach the button
     }
     e.preventDefault();
   });
@@ -198,12 +197,12 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
 
     updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p', alertType);
 
-    // For a collapsed cursor use ancestor check; for a range require all text
-    // to carry the style (matches the toggle semantic: active ↔ "will remove").
-    // Segmented once for all four buttons rather than once per button: the walk
-    // descends into every structural child the range touches and asks a subtree
-    // query per inline node, so it is proportional to the selection, not to the
-    // root's child count.
+    // For a collapsed caret, decide by the presence of an ancestor; for a range,
+    // require every text run to carry the style (matching the toggle semantics: active
+    // ↔ "pressing removes it"). Split once for all four buttons rather than per button:
+    // this walk descends into every structural child the range touches and issues a
+    // subtree query per inline node, so its cost scales with the size of the selection
+    // rather than the number of root children.
     const segments = range.collapsed ? null : collectSegments(range, root);
     const covered = (tagName: string): boolean =>
       segments === null
@@ -223,21 +222,21 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
       ?.classList.toggle('ahve-tb-active', !!findInlineAncestor(node, 'A', root));
   };
 
-  // Sync toolbar active states whenever the cursor moves inside the editor,
-  // coalesced onto one animation frame.
+  // Sync the toolbar's active states every time the caret moves in the editor, but
+  // coalesce them into a single animation frame.
   //
-  // selectionchange fires for every mouse move of a drag and every arrow
-  // keypress, while the read above walks every node the selection touches and
-  // runs a subtree query per inline node — so a drag across a long document
-  // paid that walk dozens of times per second to paint at most one set of
-  // button states. The frame is the smallest interval any of it could become
-  // visible in, so nothing is lost by collapsing the burst into it.
+  // selectionchange fires on every mouse move during a drag and on every arrow-key
+  // press, while the read above walks every node the selection touches and runs a
+  // subtree query per inline node — so a drag across a long document used to pay for
+  // that walk dozens of times a second to paint at most one set of button states. A
+  // frame is the smallest interval at which the result could become visible, so
+  // collapsing that burst into one frame loses nothing.
   //
-  // Only the LAST event of a frame matters: each run reads the live selection
-  // rather than the event it was scheduled by, so an intermediate selection has
-  // nothing to contribute and a leading-edge run would only show a state the
-  // user never stopped at. Trailing edge it is — the toolbar always ends up
-  // describing the selection the document actually holds.
+  // Only the *last* event in a frame matters: each run reads the live selection rather
+  // than the event that scheduled it, so the intermediate selections have nothing to
+  // contribute, and running on the leading edge would only show a state the user is no
+  // longer in. Hence the trailing edge — the toolbar always describes the selection the
+  // document actually holds.
   let syncFrame: number | null = null;
   document.addEventListener('selectionchange', () => {
     if (syncFrame !== null) return;
@@ -255,10 +254,10 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
   };
 }
 
-// --- Custom block-type dropdown ---
+// --- The custom block-type dropdown ---
 //
-// Uses position:fixed positioning calculated from getBoundingClientRect() so
-// the panel escapes the toolbar's overflow:auto clipping context.
+// It uses position:fixed placement computed from getBoundingClientRect(), so the panel
+// can escape the toolbar's overflow:auto clipping context.
 
 function buildBlockDropdown(
   ctx: CommandContext,
@@ -289,8 +288,8 @@ function buildBlockDropdown(
   button.appendChild(labelSpan);
   button.appendChild(arrowSpan);
 
-  // Drop panel is appended to <body> so it is never clipped by the toolbar's
-  // overflow:auto. Its position is updated via getBoundingClientRect() on open.
+  // The dropdown panel is appended to <body>, so the toolbar's overflow:auto can never
+  // clip it. Its position is updated with getBoundingClientRect() when it opens.
   const drop = document.createElement('div');
   drop.className = 'ahve-tb-blk-drop';
   drop.setAttribute('role', 'listbox');
@@ -404,11 +403,12 @@ function buildBlockDropdown(
         item.addEventListener('mouseenter', closeAlertSubmenu);
       }
       item.addEventListener('mousedown', (e) => {
-        // Prevent this click from losing focus before the click handler fires.
+        // Stop this click's default behavior so focus is not lost before the click
+        // handler fires.
         e.preventDefault();
       });
       item.addEventListener('click', () => {
-        // Restore editor selection (may have been lost when the dropdown opened).
+        // Restore the editor's selection (opening the dropdown may have lost it).
         restoreEditorSelection();
         setBlockTag(opt.value as BlockTag, ctx);
         opts.onCommand();
@@ -437,7 +437,7 @@ function buildBlockDropdown(
     else closeDropdown();
   });
 
-  // Close when clicking outside the button + drop panel.
+  // Close on a click outside the button and the dropdown panels.
   document.addEventListener('mousedown', (e) => {
     if (
       !drop.hidden &&
@@ -449,7 +449,7 @@ function buildBlockDropdown(
     }
   });
 
-  // Recompute position if the window is resized while the panel is open.
+  // Recompute the position when the window is resized while the panel is open.
   window.addEventListener('resize', () => {
     if (!drop.hidden) {
       const rect = button.getBoundingClientRect();
@@ -478,7 +478,7 @@ function buildBlockDropdown(
   return { wrapper, updateLabel };
 }
 
-// --- Button factory helpers ---
+// --- Button construction helpers ---
 
 function textBtn(
   label: string,

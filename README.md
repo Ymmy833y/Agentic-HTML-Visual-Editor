@@ -54,7 +54,7 @@ Coding agents and humans both need to read and write the same documents — desi
 ## 🚀 Getting started
 
 1. **Install** — search **Agentic HTML Visual Editor** in the VS Code Extensions view and install it (or open the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor)).
-2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInVisualEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInTextEditor`) switches it back.
+2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInWysiwygEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInHtmlEditor`) switches it back.
 3. **Edit it like a document** — type directly, or use the toolbar, the selection floating menu, and markdown-style shortcuts. Press `Ctrl+S` / `Cmd+S` to write your changes back into the `.html` source. See [Features in detail](#-features-in-detail) for everything you can do.
 
 > **Opt-in by design.** The default editor for `.html` stays VS Code's text editor; the view changes only when you press one of those title-bar buttons. If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
