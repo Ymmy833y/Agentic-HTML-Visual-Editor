@@ -1,30 +1,35 @@
 export interface EditorSwitchActions {
-  closeCurrent: () => PromiseLike<boolean>;
   openReplacement: () => PromiseLike<void>;
-  restoreCurrent: () => PromiseLike<void>;
-  reportOpenFailure: (openError: unknown, restoreError?: unknown) => PromiseLike<void> | void;
+  closeCurrent: () => PromiseLike<boolean>;
+  undoReplacement: () => PromiseLike<unknown>;
+  reportOpenFailure: (openError: unknown) => PromiseLike<void> | void;
 }
 
 /**
- * Close the current editor before opening its replacement. VSCode owns
- * the close lifecycle, including Save / Don't Save / Cancel prompts; a false
- * result therefore means that the replacement editor must not be opened.
+ * Opens the replacement editor before closing the current one.
+ *
+ * In the opposite order, closing the last tab of a group takes the group down with it. In an
+ * auxiliary window (Move Editor into New Window) the window itself closes, leaving nowhere to open
+ * into and nothing on screen. Opening first leaves a second tab in the same group, so the group
+ * survives the close.
+ *
+ * VSCode owns the close lifecycle, including the save / don't save / cancel prompt. A cancelled
+ * close means the replacement did not happen, so the just-opened editor is folded away to restore
+ * the original state.
  */
 export async function replaceEditor(actions: EditorSwitchActions): Promise<boolean> {
-  const closed = await actions.closeCurrent();
-  if (!closed) return false;
-
   try {
     await actions.openReplacement();
-    return true;
   } catch (openError) {
-    let restoreError: unknown;
-    try {
-      await actions.restoreCurrent();
-    } catch (error) {
-      restoreError = error;
-    }
-    await actions.reportOpenFailure(openError, restoreError);
+    // Nothing has been closed yet, so the original state is still intact. No undo needed.
+    await actions.reportOpenFailure(openError);
     return false;
   }
+
+  const closed = await actions.closeCurrent();
+  if (!closed) {
+    await actions.undoReplacement();
+    return false;
+  }
+  return true;
 }

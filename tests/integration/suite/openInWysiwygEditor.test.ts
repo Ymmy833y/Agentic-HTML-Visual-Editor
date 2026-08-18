@@ -14,6 +14,15 @@ function textTab(uri: vscode.Uri): vscode.Tab | undefined {
   );
 }
 
+function textTabIn(uri: vscode.Uri, column: vscode.ViewColumn): vscode.Tab | undefined {
+  return allTabs().find(
+    (tab) =>
+      tab.group.viewColumn === column &&
+      tab.input instanceof vscode.TabInputText &&
+      tab.input.uri.fsPath === uri.fsPath,
+  );
+}
+
 function visualTab(uri: vscode.Uri): vscode.Tab | undefined {
   return allTabs().find(
     (tab) =>
@@ -55,6 +64,29 @@ suite('Command: ahve.openInWysiwygEditor', () => {
     assert.ok(replacement, 'the WYSIWYG replacement tab should be open');
     assert.strictEqual(replacement.group.viewColumn, sourceColumn);
     assert.strictEqual(replacement.isActive, true);
+  });
+
+  test('replaces the tab in the invoking group and leaves the other group untouched', async () => {
+    // With the same file open in several groups, the URI alone cannot pin down which tab to close.
+    // This checks that the invoking column narrows it down.
+    const uri = fixtureUri('sample.html');
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, {
+      viewColumn: vscode.ViewColumn.One,
+      preview: false,
+    });
+    await vscode.window.showTextDocument(document, {
+      viewColumn: vscode.ViewColumn.Two,
+      preview: false,
+    });
+    assert.strictEqual(vscode.window.activeTextEditor?.viewColumn, vscode.ViewColumn.Two);
+
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
+    await sleep(500);
+
+    assert.strictEqual(visualTab(uri)?.group.viewColumn, vscode.ViewColumn.Two);
+    assert.strictEqual(textTabIn(uri, vscode.ViewColumn.Two), undefined);
+    assert.ok(textTabIn(uri, vscode.ViewColumn.One), 'the other group should keep its text tab');
   });
 
   test('does not close an unrelated active tab when a uri is passed explicitly', async () => {

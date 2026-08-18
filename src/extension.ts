@@ -19,11 +19,11 @@ export function activate(context: vscode.ExtensionContext): AhveTestApi {
   const { registration, provider } = AhveEditorProvider.register(context, sessions);
 
   context.subscriptions.push(
-    registration,                         // customEditor: ahve.editor
-    registerOpenInWysiwygEditorCommand(), // ahve.openInWysiwygEditor
-    registerOpenInHtmlEditorCommand(),    // ahve.openInHtmlEditor
-    registerCopyCommand(sessions),        // ahve.copyAsHtml
-    registerHistoryCommands(sessions),    // ahve.save / ahve.undo / ahve.redo
+    registration,                               // customEditor: ahve.editor
+    registerOpenInWysiwygEditorCommand(),       // ahve.openInWysiwygEditor
+    registerOpenInHtmlEditorCommand(sessions),  // ahve.openInHtmlEditor
+    registerCopyCommand(sessions),              // ahve.copyAsHtml
+    registerHistoryCommands(sessions),          // ahve.save / ahve.undo / ahve.redo
   );
 
   return createTestApi(provider);
