@@ -19,8 +19,8 @@ describe('stripCommentsFromHtml', () => {
     ).toBe('<strong>bold</strong>');
   });
 
-  // A partial selection can clone a <comment-body>/<comment-reply> without its
-  // parent <comment>; matching by tag name removes those orphans too.
+  // A partial selection can clone <comment-body>/<comment-reply> without their parent
+  // <comment>. Matching by tag name removes those orphans too.
   it('removes orphaned comment-body/comment-reply left by a partial selection', () => {
     expect(
       stripCommentsFromHtml(

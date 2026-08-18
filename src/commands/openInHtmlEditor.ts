@@ -1,16 +1,16 @@
 import * as vscode from 'vscode';
-import { CUSTOM_EDITOR_VIEW_TYPE } from './openInVisualEditor';
+import { CUSTOM_EDITOR_VIEW_TYPE } from '../constants';
 import { replaceEditor } from './editorSwitch';
 
-export const OPEN_IN_TEXT_EDITOR_COMMAND = 'ahve.openInTextEditor';
+export const OPEN_IN_HTML_EDITOR_COMMAND = 'ahve.openInHtmlEditor';
 
-export function registerOpenInTextEditorCommand(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(
-    OPEN_IN_TEXT_EDITOR_COMMAND,
+export function registerOpenInHtmlEditorCommand(): vscode.Disposable {
+  return vscode.commands.registerCommand(
+    OPEN_IN_HTML_EDITOR_COMMAND,
     async (uri?: vscode.Uri) => {
       const activeGroup = vscode.window.tabGroups.activeTabGroup;
       const activeTab = activeGroup.activeTab;
-      const target = uri ?? visualTabUri(activeTab);
+      const target = uri ?? wysiwygTabUri(activeTab);
       if (!target) {
         vscode.window.showWarningMessage('There is no WYSIWYG file to open in the HTML editor.');
         return;
@@ -22,16 +22,16 @@ export function registerOpenInTextEditorCommand(context: vscode.ExtensionContext
         return;
       }
 
-      if (!activeTab || !isVisualTabFor(activeTab, target)) {
+      if (!activeTab || !isWysiwygTabFor(activeTab, target)) {
         await openTextEditor(target);
         return;
       }
 
-      const visualColumn = activeGroup.viewColumn;
+      const wysiwygColumn = activeGroup.viewColumn;
       await replaceEditor({
         closeCurrent: () => vscode.window.tabGroups.close(activeTab),
-        openReplacement: () => openTextEditor(target, visualColumn),
-        restoreCurrent: () => openVisualEditor(target, visualColumn),
+        openReplacement: () => openTextEditor(target, wysiwygColumn),
+        restoreCurrent: () => openWysiwygEditor(target, wysiwygColumn),
         reportOpenFailure: (_openError, restoreError) => {
           const detail = restoreError ? ' The WYSIWYG editor could not be restored.' : '';
           vscode.window.showErrorMessage(`Could not open the HTML editor.${detail}`);
@@ -39,10 +39,9 @@ export function registerOpenInTextEditorCommand(context: vscode.ExtensionContext
       });
     },
   );
-  context.subscriptions.push(disposable);
 }
 
-function visualTabUri(tab: vscode.Tab | undefined): vscode.Uri | undefined {
+function wysiwygTabUri(tab: vscode.Tab | undefined): vscode.Uri | undefined {
   if (!tab || !(tab.input instanceof vscode.TabInputCustom)) return undefined;
   return tab.input.viewType === CUSTOM_EDITOR_VIEW_TYPE ? tab.input.uri : undefined;
 }
@@ -53,7 +52,7 @@ function findTextTab(uri: vscode.Uri): vscode.Tab | undefined {
     .find((tab) => tab.input instanceof vscode.TabInputText && sameResource(tab.input.uri, uri));
 }
 
-function isVisualTabFor(tab: vscode.Tab, uri: vscode.Uri): boolean {
+function isWysiwygTabFor(tab: vscode.Tab, uri: vscode.Uri): boolean {
   return (
     tab.input instanceof vscode.TabInputCustom &&
     tab.input.viewType === CUSTOM_EDITOR_VIEW_TYPE &&
@@ -73,6 +72,6 @@ async function openTextEditor(uri: vscode.Uri, column?: vscode.ViewColumn): Prom
   });
 }
 
-async function openVisualEditor(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
+async function openWysiwygEditor(uri: vscode.Uri, column: vscode.ViewColumn): Promise<void> {
   await vscode.commands.executeCommand('vscode.openWith', uri, CUSTOM_EDITOR_VIEW_TYPE, column);
 }

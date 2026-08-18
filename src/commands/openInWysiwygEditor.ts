@@ -1,34 +1,34 @@
 import * as vscode from 'vscode';
+import { CUSTOM_EDITOR_VIEW_TYPE } from '../constants';
 import { replaceEditor } from './editorSwitch';
 
-export const OPEN_IN_VISUAL_EDITOR_COMMAND = 'ahve.openInVisualEditor';
-export const CUSTOM_EDITOR_VIEW_TYPE = 'ahve.editor';
+export const OPEN_IN_WYSIWYG_EDITOR_COMMAND = 'ahve.openInWysiwygEditor';
 
-export function registerOpenInVisualEditorCommand(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(OPEN_IN_VISUAL_EDITOR_COMMAND, async (uri?: vscode.Uri) => {
+export function registerOpenInWysiwygEditorCommand(): vscode.Disposable {
+  return vscode.commands.registerCommand(OPEN_IN_WYSIWYG_EDITOR_COMMAND, async (uri?: vscode.Uri) => {
     const target = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       vscode.window.showWarningMessage('There is no HTML file to open in the WYSIWYG editor.');
       return;
     }
 
-    const existingVisualTab = findVisualTab(target);
-    if (existingVisualTab) {
-      await openVisualEditor(target, existingVisualTab.group.viewColumn);
+    const existingWysiwygTab = findWysiwygTab(target);
+    if (existingWysiwygTab) {
+      await openWysiwygEditor(target, existingWysiwygTab.group.viewColumn);
       return;
     }
 
     const activeGroup = vscode.window.tabGroups.activeTabGroup;
     const sourceTab = activeGroup.activeTab;
     if (!sourceTab || !isTextTabFor(sourceTab, target)) {
-      await openVisualEditor(target);
+      await openWysiwygEditor(target);
       return;
     }
 
     const sourceColumn = activeGroup.viewColumn;
     await replaceEditor({
       closeCurrent: () => vscode.window.tabGroups.close(sourceTab),
-      openReplacement: () => openVisualEditor(target, sourceColumn),
+      openReplacement: () => openWysiwygEditor(target, sourceColumn),
       restoreCurrent: async () => {
         const document = await vscode.workspace.openTextDocument(target);
         await vscode.window.showTextDocument(document, {
@@ -42,10 +42,9 @@ export function registerOpenInVisualEditorCommand(context: vscode.ExtensionConte
       },
     });
   });
-  context.subscriptions.push(disposable);
 }
 
-function findVisualTab(uri: vscode.Uri): vscode.Tab | undefined {
+function findWysiwygTab(uri: vscode.Uri): vscode.Tab | undefined {
   return vscode.window.tabGroups.all
     .flatMap((group) => group.tabs)
     .find(
@@ -64,7 +63,7 @@ function sameResource(left: vscode.Uri, right: vscode.Uri): boolean {
   return left.toString() === right.toString();
 }
 
-async function openVisualEditor(uri: vscode.Uri, column?: vscode.ViewColumn): Promise<void> {
+async function openWysiwygEditor(uri: vscode.Uri, column?: vscode.ViewColumn): Promise<void> {
   if (column === undefined) {
     await vscode.commands.executeCommand('vscode.openWith', uri, CUSTOM_EDITOR_VIEW_TYPE);
     return;

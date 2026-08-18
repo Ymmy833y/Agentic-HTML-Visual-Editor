@@ -54,7 +54,7 @@
 ## 🚀 はじめに
 
 1. **インストール** — VS Code の拡張機能ビューで **Agentic HTML Visual Editor** を検索してインストールします（または [Marketplace ページ](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor) を開く）。
-2. **任意の `.html` ファイルを開き、エディタのタイトルバーの _Open in WYSIWYG_**（`ahve.openInVisualEditor`）をクリックすると、そのタブがビジュアルエディタに切り替わります。**Open in HTML**（`ahve.openInTextEditor`）で元に戻せます。
+2. **任意の `.html` ファイルを開き、エディタのタイトルバーの _Open in WYSIWYG_**（`ahve.openInWysiwygEditor`）をクリックすると、そのタブがビジュアルエディタに切り替わります。**Open in HTML**（`ahve.openInHtmlEditor`）で元に戻せます。
 3. **ドキュメントのように編集** — 直接入力するほか、ツールバー・選択時のフローティングメニュー・マークダウン風入力が使えます。`Ctrl+S` / `Cmd+S` で変更を `.html` ソースへ書き戻します。できることの詳細は [機能詳細](#-機能詳細) を参照してください。
 
 > **オプトイン設計。** `.html` の既定エディタは VSCode の標準テキストエディタのままで、上記のタイトルバーのボタンを押したときだけビューが切り替わります。現在のエディタに未保存の変更がある場合は、VSCode 標準の保存・破棄・キャンセル確認が完了してから切り替わります。

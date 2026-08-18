@@ -10,15 +10,23 @@ suite('Activation', () => {
 
     const commands = await vscode.commands.getCommands(true);
     for (const id of [
-      'ahve.openInVisualEditor',
-      'ahve.openInTextEditor',
+      'ahve.openInWysiwygEditor',
+      'ahve.openInHtmlEditor',
       'ahve.copyAsHtml',
-      'ahve.copyAsConfluenceHtml',
       'ahve.save',
       'ahve.undo',
       'ahve.redo',
     ]) {
       assert.ok(commands.includes(id), `command ${id} should be registered`);
     }
+  });
+
+  test('the withdrawn Confluence copy command is not registered', async () => {
+    await activateExtension();
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(
+      !commands.includes('ahve.copyAsConfluenceHtml'),
+      'ahve.copyAsConfluenceHtml should no longer be registered',
+    );
   });
 });

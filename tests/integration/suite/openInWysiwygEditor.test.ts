@@ -23,13 +23,13 @@ function visualTab(uri: vscode.Uri): vscode.Tab | undefined {
   );
 }
 
-suite('Command: ahve.openInVisualEditor', () => {
+suite('Command: ahve.openInWysiwygEditor', () => {
   suiteSetup(activateExtension);
   teardown(closeAllEditors);
 
   test('opens the WYSIWYG custom editor for the given HTML uri', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
 
     // Give VS Code a moment to mount the webview-backed editor.
     await sleep(500);
@@ -47,7 +47,7 @@ suite('Command: ahve.openInVisualEditor', () => {
     await vscode.window.showTextDocument(document, { preview: false });
     const sourceColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
 
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
 
     assert.strictEqual(textTab(uri), undefined, 'the source HTML tab should be closed');
@@ -63,7 +63,7 @@ suite('Command: ahve.openInVisualEditor', () => {
     await vscode.window.showTextDocument(unrelatedDocument, { preview: false });
 
     const target = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', target);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', target);
     await sleep(500);
 
     assert.ok(textTab(unrelatedUri), 'the unrelated text tab should remain open');
@@ -72,7 +72,7 @@ suite('Command: ahve.openInVisualEditor', () => {
 
   test('reveals an existing WYSIWYG tab without closing the active HTML tab', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
     const existing = visualTab(uri);
     assert.ok(existing, 'the initial WYSIWYG tab should be open');
@@ -82,7 +82,7 @@ suite('Command: ahve.openInVisualEditor', () => {
     await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside, false);
     assert.ok(textTab(uri), 'the HTML text tab should be open beside the WYSIWYG tab');
 
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
 
     assert.ok(textTab(uri), 'the HTML text tab should remain open');
@@ -92,10 +92,10 @@ suite('Command: ahve.openInVisualEditor', () => {
 
   test('does not throw when invoked with no argument and no active text editor', async () => {
     await closeAllEditors();
-    // We do not assert the warning message specifically (intercepting
-    // showWarningMessage requires patching live module bindings, which is
-    // brittle inside the Extension Development Host). The contract here is
-    // simply: the command path completes without throwing.
-    await vscode.commands.executeCommand('ahve.openInVisualEditor');
+    // The warning message itself is not asserted (intercepting showWarningMessage
+    // would require patching a live module binding, which is fragile inside the
+    // Extension Development Host). What this guarantees is simply that the command
+    // path completes without throwing.
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor');
   });
 });

@@ -9,7 +9,7 @@ suite('AhveEditorProvider', () => {
 
   test('the custom editor tab is labelled with filename and (WYSIWYG) suffix', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
 
     const allTabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
@@ -20,7 +20,7 @@ suite('AhveEditorProvider', () => {
   test('the custom editor accepts a workspace edit to the underlying document', async () => {
     const uri = fixtureUri('sample.html');
     const doc = await vscode.workspace.openTextDocument(uri);
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
 
     const before = doc.getText();
@@ -47,7 +47,7 @@ suite('AhveEditorProvider', () => {
     const uri = fixtureUri('wysiwyg-unpinned.html');
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode('<p>hello</p>\n'));
     try {
-      await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+      await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
       await sleep(500);
       assert.strictEqual(
         vscode.workspace.textDocuments.some((document) => document.uri.fsPath === uri.fsPath),
@@ -142,8 +142,8 @@ suite('AhveEditorProvider', () => {
       );
       assert.ok(view?.includes('This is banana'), 'the WYSIWYG view should keep its edit after save');
 
-      // `ahve.save` is the command bound to Ctrl/Cmd+S while the custom editor
-      // is active. It must use the same single-save path as the toolbar.
+      // `ahve.save` is the command bound to Ctrl/Cmd+S while the custom editor is
+      // active. It must use the same single save path as the toolbar.
       assert.strictEqual(api.setWysiwygTestHtml(uri, editedByShortcut), true);
       await sleep(400);
       await vscode.commands.executeCommand('ahve.save');

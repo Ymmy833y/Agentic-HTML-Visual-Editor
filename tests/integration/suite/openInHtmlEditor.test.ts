@@ -23,17 +23,17 @@ function visualTab(uri: vscode.Uri): vscode.Tab | undefined {
   );
 }
 
-suite('Command: ahve.openInTextEditor', () => {
+suite('Command: ahve.openInHtmlEditor', () => {
   suiteSetup(activateExtension);
   teardown(closeAllEditors);
 
   test('replaces the active WYSIWYG tab in the same editor group', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
     const visualColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
 
-    await vscode.commands.executeCommand('ahve.openInTextEditor');
+    await vscode.commands.executeCommand('ahve.openInHtmlEditor');
     await sleep(500);
 
     assert.strictEqual(visualTab(uri), undefined, 'the WYSIWYG tab should be closed');
@@ -45,7 +45,7 @@ suite('Command: ahve.openInTextEditor', () => {
 
   test('reveals an existing HTML tab without closing the WYSIWYG tab', async () => {
     const uri = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', uri);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', uri);
     await sleep(500);
     const visual = visualTab(uri);
     assert.ok(visual, 'the WYSIWYG tab should be open');
@@ -62,7 +62,7 @@ suite('Command: ahve.openInTextEditor', () => {
       CUSTOM_EDITOR_VIEW_TYPE,
       visual.group.viewColumn,
     );
-    await vscode.commands.executeCommand('ahve.openInTextEditor');
+    await vscode.commands.executeCommand('ahve.openInHtmlEditor');
     await sleep(500);
 
     assert.ok(visualTab(uri), 'the WYSIWYG tab should remain open');
@@ -72,14 +72,14 @@ suite('Command: ahve.openInTextEditor', () => {
 
   test('does not close an unrelated active tab when a uri is passed explicitly', async () => {
     const target = fixtureUri('sample.html');
-    await vscode.commands.executeCommand('ahve.openInVisualEditor', target);
+    await vscode.commands.executeCommand('ahve.openInWysiwygEditor', target);
     await sleep(500);
 
     const unrelatedUri = vscode.Uri.parse('untitled:unrelated.html');
     const unrelatedDocument = await vscode.workspace.openTextDocument(unrelatedUri);
     await vscode.window.showTextDocument(unrelatedDocument, { preview: false });
 
-    await vscode.commands.executeCommand('ahve.openInTextEditor', target);
+    await vscode.commands.executeCommand('ahve.openInHtmlEditor', target);
     await sleep(500);
 
     assert.ok(textTab(unrelatedUri), 'the unrelated text tab should remain open');

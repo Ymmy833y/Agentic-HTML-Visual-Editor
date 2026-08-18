@@ -1,45 +1,32 @@
 import type * as vscode from 'vscode';
-import { registerOpenInVisualEditorCommand } from './commands/openInVisualEditor';
-import { registerOpenInTextEditorCommand } from './commands/openInTextEditor';
-import { registerCopyCommands } from './commands/copy';
+import { registerOpenInWysiwygEditorCommand } from './commands/openInWysiwygEditor';
+import { registerOpenInHtmlEditorCommand } from './commands/openInHtmlEditor';
+import { registerCopyCommand } from './commands/copy';
+import { registerHistoryCommands } from './commands/history';
 import { AhveEditorProvider } from './editor/AhveEditorProvider';
+import { AhveSessionRegistry } from './editor/session-registry';
+import { createTestApi, type AhveTestApi } from './testing/test-api';
+
+export type { AhveTestApi };
 
 /**
- * Surface returned by `activate` for integration tests. Tests cannot reach
- * into the webview DOM, so marking a WYSIWYG document dirty needs a hook on
- * the extension side.
+ * The extension's composition root.
+ *
+ * The set of pushes below is everything this extension contributes to VSCode.
  */
-export interface AhveTestApi {
-  /**
-   * Mark the open WYSIWYG document for `uri` dirty, exactly as an edit in its
-   * webview would. Returns false when no WYSIWYG editor holds that uri.
-   */
-  fireWysiwygEdit(uri: vscode.Uri): boolean;
-  setWysiwygTestHtml(uri: vscode.Uri, html: string): boolean;
-  getWysiwygTestHtml(uri: vscode.Uri): Promise<string | null>;
-  requestWysiwygTestSave(uri: vscode.Uri): boolean;
-  openWysiwygTestRelativeFile(uri: vscode.Uri, href: string): Promise<boolean>;
-  openWysiwygTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean;
-}
-
 export function activate(context: vscode.ExtensionContext): AhveTestApi {
-  registerOpenInVisualEditorCommand(context);
-  registerOpenInTextEditorCommand(context);
-  registerCopyCommands(context);
-  const { registration, provider } = AhveEditorProvider.register(context);
-  context.subscriptions.push(registration);
-  provider.registerHistoryCommands();
-  return {
-    fireWysiwygEdit: (uri) => provider.fireTestEdit(uri),
-    setWysiwygTestHtml: (uri, html) => provider.setTestViewHtml(uri, html),
-    getWysiwygTestHtml: (uri) => provider.getTestViewHtml(uri),
-    requestWysiwygTestSave: (uri) => provider.requestTestViewSave(uri),
-    openWysiwygTestRelativeFile: (uri, href) => provider.openTestRelativeFile(uri, href),
-    openWysiwygTestRelativeFileViaWebview: (uri, href) =>
-      provider.openTestRelativeFileViaWebview(uri, href),
-  };
+  const sessions = new AhveSessionRegistry();
+  const { registration, provider } = AhveEditorProvider.register(context, sessions);
+
+  context.subscriptions.push(
+    registration,                         // customEditor: ahve.editor
+    registerOpenInWysiwygEditorCommand(), // ahve.openInWysiwygEditor
+    registerOpenInHtmlEditorCommand(),    // ahve.openInHtmlEditor
+    registerCopyCommand(sessions),        // ahve.copyAsHtml
+    registerHistoryCommands(sessions),    // ahve.save / ahve.undo / ahve.redo
+  );
+
+  return createTestApi(provider);
 }
 
-export function deactivate(): void {
-  // Cleanup is currently delegated to subscriptions.
-}
+export function deactivate(): void {}
