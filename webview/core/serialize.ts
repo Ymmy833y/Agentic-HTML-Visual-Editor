@@ -25,6 +25,7 @@ import {
   LEGACY_MERGE_ANCHOR_CLASS,
   QUOTE_PLACEHOLDER_ATTR,
 } from '../shared/constants';
+import { stripMermaidPresentation } from '../features/mermaid/mermaid-dom';
 
 export const EMPTYABLE_BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -54,6 +55,7 @@ export function formatForSerialize(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
   // The marker lives on the live DOM only for the duration of the clone.
   if (active) active.removeAttribute(ACTIVE_ATTR);
+  stripMermaidPresentation(clone);
   stripTransientCommentMarkers(clone);
   stripTransientCellSelectionClasses(clone);
   stripTransientQuotePlaceholders(clone);

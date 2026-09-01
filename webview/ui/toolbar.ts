@@ -71,6 +71,8 @@ export interface ToolbarOptions {
   onLink: () => void;
   /** Opens the image dialog and inserts its result. */
   onImage: () => void;
+  /** Opens the Mermaid source dialog and inserts its result. */
+  onMermaid: () => void;
   /** Adds a comment on the current selection and opens its popup. */
   onAddComment: () => void;
   /** Copies the current selection (or the whole document) as HTML. */
@@ -159,7 +161,7 @@ export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarH
   group(bar, [saveBtn]);
   group(bar, [blockWrap]);
   group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
-  group(bar, [linkBtn(opts.onLink), imageBtn(opts.onImage)]);
+  group(bar, [linkBtn(opts.onLink), imageBtn(opts.onImage), mermaidBtn(opts.onMermaid)]);
   group(bar, [ulBtn, olBtn]);
   group(bar, [
     textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
@@ -530,6 +532,16 @@ function imageBtn(onImage: () => void): HTMLButtonElement {
   setupTooltip(b, 'Insert image');
   b.textContent = 'Image';
   b.addEventListener('click', onImage);
+  return b;
+}
+
+function mermaidBtn(onMermaid: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ahve-tb-btn ahve-tb-mermaid';
+  setupTooltip(b, 'Insert Mermaid diagram');
+  b.textContent = 'Mermaid';
+  b.addEventListener('click', onMermaid);
   return b;
 }
 

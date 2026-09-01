@@ -29,6 +29,7 @@
 - [🚀 機能ひと目](#-機能ひと目)
 - [🧩 機能詳細](#-機能詳細)
   - [✍️ WYSIWYG 編集（インライン編集型）](#️-wysiwyg-編集インライン編集型)
+  - [📊 Mermaid ダイアグラム](#-mermaid-ダイアグラム)
   - [💬 インラインコメント注釈](#-インラインコメント注釈)
   - [✅ リスト編集](#-リスト編集)
   - [ℹ️ アラート引用](#ℹ️-アラート引用)
@@ -132,6 +133,10 @@ Notes:
 - **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
   `<pre>` and `<table>` subtrees are treated as opaque, so their internal
   whitespace is preserved exactly.
+- **Mermaid diagrams:** use either `<pre class="mermaid">…</pre>` or
+  `<pre><code class="language-mermaid">…</code></pre>`. The view renders both as
+  diagrams and preserves the chosen source form. Do not add a Mermaid `<script>`;
+  the renderer is bundled with the extension.
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
@@ -189,7 +194,8 @@ per-element intent. The properties that carry real, user-meaningful meaning
 
 Avoid font, spacing, border, and layout styling; let the bundled CSS own the
 look. Never add `class` for styling — there is no external stylesheet to match
-it, and pasted `class` attributes are dropped.
+it, and pasted `class` attributes are dropped. The only semantic class
+exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 
@@ -283,6 +289,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
   or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
   are dropped.
 - **No external CSS/JS:** external stylesheets and scripts are not loaded.
+  Mermaid support is provided by the extension's own bundled runtime.
 - **Forms render but don't submit:** a `<form>` shows but submission is disabled.
 
 ## Quick checklist before delivering
@@ -291,7 +298,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
       `script`/`iframe`/`style`/`on*`/unsafe URLs.
 - [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
-      and no styling `class` attributes.
+      and no styling `class` attributes (apart from the two Mermaid tokens).
 - [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
       `details` has `<summary>` first and `open` only when it should start open.
 - [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
@@ -318,6 +325,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル対応 |
 | ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
 | ▦ **テーブル** | 挿入・編集・結合/分割・ヘッダー切替・ドラッグでの列幅調整 |
+| 📊 **Mermaid** | CDN 不要で、VS Code テーマに対応した Mermaid 図の挿入・表示・編集・削除 |
 | 📋 **クリップボード** | クリーンな HTML のコピーと、サニタイズ済みリッチ HTML / プレーンテキスト貼り付け |
 
 ---
@@ -350,7 +358,31 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - **リスト:** `ul`, `ol`, `li`（エディタ上で作成・ネストできる。後述の *リスト編集* を参照）
 - **テーブル:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col`（`colspan`, `rowspan`, `scope` 属性に対応）
 - **メディア:** `img`（ツールバーから相対パスまたは HTTP/HTTPS URL と任意の alt テキストを指定して挿入できる。`./images/foo.png` のような相対パスは HTML ファイルのディレクトリから解決される）
+- **ダイアグラム:** `<pre class="mermaid">` と `<pre><code class="language-mermaid">` のソースブロック
 - **独自タグ:** `<comment>` / `<comment-body>` / `<comment-reply>`（後述）
+
+### 📊 Mermaid ダイアグラム
+
+次のどちらかの形式を使う。ドキュメント側に `<script>` や CDN 参照を追加する必要はない。
+
+```html
+<pre class="mermaid">graph TD
+  A --> B
+</pre>
+
+<pre><code class="language-mermaid">sequenceDiagram
+  A->>B: Hello
+</code></pre>
+```
+
+WYSIWYG ビューは同梱 Mermaid ランタイムを必要時だけ読み込み、現在の VS Code
+ライト／ダークテーマで図を描画する。保存時には元のソース形式を変更しない。
+ツールバーの **Mermaid** ボタンを使うと現在のカーソル位置へ図を挿入でき、ソース
+編集ダイアログが直ちに開く。Cancel では文書を変更しない。既存の図をクリック
+（またはフォーカスして Enter / Space）すると、ソースの編集または **Delete diagram**
+による図全体の削除ができる。Apply・挿入・削除はそれぞれ 1 回の undo 可能な編集と
+して記録される。構文エラーでもソースは失われず、エラーカードから再編集できる。
+生成 SVG は表示専用で、HTML やコピー結果には含まれない。
 
 ### 💬 インラインコメント注釈
 
@@ -449,7 +481,7 @@ WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバ
 
 ### 📋 クリップボードのコピー/貼り付け
 
-**Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。
+**Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。Mermaid プレビューも同様に、生成 SVG ではなく元のソースブロックへ戻してコピーされる。
 
 貼り付けられた HTML は挿入前にサニタイズされる。段落や見出しの中にブロックレベルの断片を貼り付けた場合は、無効な入れ子ブロックを作らず現在のブロックの隣に挿入される。コピー時には、見た目上選択されていない空の境界ブロックも除去される。
 
