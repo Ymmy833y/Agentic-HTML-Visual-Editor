@@ -37,6 +37,7 @@ import { mountTableResize } from './features/table/table-resize';
 import { mountCellSelection, type CellSelectionHandle } from './features/table/cell-selection';
 import { adjacentCell, appendRowAtEnd, insertTable } from './features/table/structure-commands';
 import { findCell, findTable } from './features/table/table-model';
+import { mountMermaid, type MermaidController } from './features/mermaid/mermaid';
 import type {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
@@ -46,6 +47,7 @@ import './styles/default.css';
 import './styles/editor-chrome.css';
 import './styles/comment-popup.css';
 import './styles/table.css';
+import './styles/mermaid.css';
 
 interface VsCodeApi {
   postMessage(message: WebviewToExtensionMessage): void;
@@ -56,6 +58,17 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
+
+// Capture this while the entry script is executing: document.currentScript is
+// null after startup. The separately built Mermaid runtime lives beside the
+// main bundle and receives the same nonce when it is loaded on demand.
+const bootstrapScript = document.currentScript instanceof HTMLScriptElement
+  ? document.currentScript
+  : null;
+const mermaidRuntimeUrl = bootstrapScript?.src
+  ? new URL('mermaid.js', bootstrapScript.src).toString()
+  : null;
+const bootstrapNonce = bootstrapScript?.nonce ?? '';
 
 const root = document.getElementById('ahve-root');
 if (!root) {
@@ -68,6 +81,7 @@ let suffix = '';
 // The controller for multi-cell table selection. Assigned by the mount-time wiring
 // below, before any host message can trigger a remount.
 let cellSelection: CellSelectionHandle | null = null;
+let mermaidController: MermaidController | null = null;
 
 // --- Sync state ---
 // The document's text as of when the current DOM was mounted or last synced. This is
@@ -112,6 +126,7 @@ function mountFromSource(source: string): void {
   // The cell-selection anchors were lost along with the old DOM. Drop them so a stale
   // reference can never become the origin of a range in the new tree.
   cellSelection?.reset();
+  mermaidController?.refresh();
 }
 
 function serialize(): string | null {
@@ -149,6 +164,12 @@ const editor = setupEditor(
   (inputType) => history.recordNative(inputType),
   (label) => history.recordCommand(label),
 );
+
+mermaidController = mountMermaid(root, {
+  runtimeUrl: mermaidRuntimeUrl,
+  nonce: bootstrapNonce,
+  onEdit: (label) => editor.notifyChanged(label),
+});
 
 // Asks the extension host to run VSCode's save flow for this document. The host then
 // requests the view's content with `getFileData`, three-way merges it into the text
@@ -277,6 +298,7 @@ const toolbar = createToolbar(root, {
   onImage: () => {
     void handleImage();
   },
+  onMermaid: () => mermaidController?.insert(),
   onAddComment: handleAddComment,
   onCopy: doCopy,
   onInsertTable: (anchor) => tablePicker.open(anchor),
@@ -389,6 +411,7 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
   cleanupPastedFragment(tpl.content);
   insertFragmentAtCursor(root, tpl.content);
   editor.notifyChanged();
+  mermaidController?.refresh();
 });
 
 // A <form> element may exist for layout reasons, but it must never be submitted. The
@@ -695,6 +718,7 @@ window.addEventListener('beforeunload', () => {
   commentPopup.flushPending();
   history.flush();
   editor.flush();
+  mermaidController?.dispose();
 });
 
 vscode.postMessage({ type: 'ready' });

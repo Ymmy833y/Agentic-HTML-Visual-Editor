@@ -109,9 +109,27 @@ function stripStyleAndClass(root: ParentNode): void {
   const all = (root as Element).querySelectorAll?.('*');
   if (!all) return;
   for (const el of Array.from(all)) {
-    if (el.hasAttribute('class')) el.removeAttribute('class');
+    preserveMermaidClassOnly(el);
     if (el.hasAttribute('style')) pruneStyle(el as HTMLElement);
   }
+}
+
+// Class names from rich clipboard HTML are normally presentation noise. The
+// two exact Mermaid tokens are public document semantics, so retain only those
+// tokens on the elements where the editor recognizes them.
+function preserveMermaidClassOnly(el: Element): void {
+  if (!el.hasAttribute('class')) return;
+  const kept: string[] = [];
+  if (el.tagName === 'PRE' && el.classList.contains('mermaid')) kept.push('mermaid');
+  if (
+    el.tagName === 'CODE' &&
+    el.parentElement?.tagName === 'PRE' &&
+    el.classList.contains('language-mermaid')
+  ) {
+    kept.push('language-mermaid');
+  }
+  if (kept.length > 0) el.setAttribute('class', kept.join(' '));
+  else el.removeAttribute('class');
 }
 
 function pruneStyle(el: HTMLElement): void {

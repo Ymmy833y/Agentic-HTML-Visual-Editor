@@ -162,6 +162,7 @@
     "js-yaml": "4.3.1"
   },
   "dependencies": {
+    "mermaid": "^11.17.2",
     "node-diff3": "^3.2.1"
   }
 }

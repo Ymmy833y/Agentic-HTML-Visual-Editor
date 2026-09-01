@@ -29,6 +29,7 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
 - [🚀 Features at a glance](#-features-at-a-glance)
 - [🧩 Features in detail](#-features-in-detail)
   - [✍️ WYSIWYG editing (inline)](#️-wysiwyg-editing-inline)
+  - [📊 Mermaid diagrams](#-mermaid-diagrams)
   - [💬 Inline comment annotations](#-inline-comment-annotations)
   - [✅ List editing](#-list-editing)
   - [ℹ️ Alert blockquotes](#ℹ️-alert-blockquotes)
@@ -130,6 +131,10 @@ Notes:
 - **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
   `<pre>` and `<table>` subtrees are treated as opaque, so their internal
   whitespace is preserved exactly.
+- **Mermaid diagrams:** use either `<pre class="mermaid">…</pre>` or
+  `<pre><code class="language-mermaid">…</code></pre>`. The view renders both as
+  diagrams and preserves the chosen source form. Do not add a Mermaid `<script>`;
+  the renderer is bundled with the extension.
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
@@ -187,7 +192,8 @@ per-element intent. The properties that carry real, user-meaningful meaning
 
 Avoid font, spacing, border, and layout styling; let the bundled CSS own the
 look. Never add `class` for styling — there is no external stylesheet to match
-it, and pasted `class` attributes are dropped.
+it, and pasted `class` attributes are dropped. The only semantic class
+exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 
@@ -281,6 +287,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
   or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
   are dropped.
 - **No external CSS/JS:** external stylesheets and scripts are not loaded.
+  Mermaid support is provided by the extension's own bundled runtime.
 - **Forms render but don't submit:** a `<form>` shows but submission is disabled.
 
 ## Quick checklist before delivering
@@ -289,7 +296,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
       `script`/`iframe`/`style`/`on*`/unsafe URLs.
 - [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
-      and no styling `class` attributes.
+      and no styling `class` attributes (apart from the two Mermaid tokens).
 - [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
       `details` has `<summary>` first and `open` only when it should start open.
 - [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
@@ -316,6 +323,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
 | ▦ **Tables** | Insert, edit, merge/split, header toggle, and drag-resize columns |
+| 📊 **Mermaid** | Insert, render, edit, and delete bundled, theme-aware Mermaid diagrams without a CDN |
 | 📋 **Clipboard** | Copy clean HTML (selection or whole body) and paste sanitized rich HTML or plain text |
 
 ---
@@ -348,7 +356,32 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - **Lists:** `ul`, `ol`, `li` (created and nested from within the editor — see *List editing*)
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
 - **Media:** `img` (insert from the toolbar using a relative path or HTTP/HTTPS URL, with optional alt text; relative paths such as `./images/foo.png` are resolved from the HTML file's directory)
+- **Diagrams:** `<pre class="mermaid">` and `<pre><code class="language-mermaid">` source blocks
 - **Custom tags:** `<comment>`, `<comment-body>`, `<comment-reply>` (below)
+
+### 📊 Mermaid diagrams
+
+Use either supported source form; no `<script>` or CDN reference belongs in the document:
+
+```html
+<pre class="mermaid">graph TD
+  A --> B
+</pre>
+
+<pre><code class="language-mermaid">sequenceDiagram
+  A->>B: Hello
+</code></pre>
+```
+
+The WYSIWYG view lazily loads its bundled Mermaid runtime, renders the diagram
+with the active VS Code light/dark theme, and keeps the source form unchanged on
+save. Use the **Mermaid** toolbar button to insert a diagram at the current
+caret; its source dialog opens immediately, and Cancel leaves the document
+unchanged. Click an existing diagram (or focus it and press Enter/Space) to edit
+its source or delete the entire diagram with **Delete diagram**. Apply, insert,
+and delete each create one undoable edit. Invalid syntax remains safely editable
+and is shown as an error card. Generated SVG is presentation-only and is never
+written to the HTML or copied in place of the Mermaid source.
 
 ### 💬 Inline comment annotations
 
@@ -447,7 +480,7 @@ Tables can be created and edited from the WYSIWYG view. Insert tables from the t
 
 ### 📋 Clipboard copy/paste
 
-**Copy as HTML** copies clean HTML to the clipboard: the current selection, or — when nothing is selected — the whole document body. (Copy/cut from within the editor also writes this same clean HTML rather than the browser's style-laden contenteditable markup.) Comment annotations are private to the editor, so they are stripped from the copied HTML — only the commented-on text, with its inline markup, is exported.
+**Copy as HTML** copies clean HTML to the clipboard: the current selection, or — when nothing is selected — the whole document body. (Copy/cut from within the editor also writes this same clean HTML rather than the browser's style-laden contenteditable markup.) Comment annotations are private to the editor, so they are stripped from the copied HTML — only the commented-on text, with its inline markup, is exported. Mermaid previews are likewise reduced back to their original source blocks.
 
 Pasted HTML is sanitized before insertion. Block-level fragments pasted into a paragraph or heading are inserted beside the current block instead of creating invalid nested blocks, and visually unselected empty boundary blocks are trimmed from copied selections.
 

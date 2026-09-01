@@ -4,6 +4,7 @@
 
 import { stripCommentsFromHtml } from './strip-comments';
 import { isBlockEffectivelyEmpty } from '../../core/serialize';
+import { stripMermaidPresentation } from '../mermaid/mermaid-dom';
 
 // Inline wrappers that survive cloneContents. When a range's boundaries sit inside
 // one of these elements but cover its entire content, the range is expanded to
@@ -36,11 +37,14 @@ function currentHtml(root: HTMLElement): string {
     expandToInlineWrappers(range, root);
     const fragment = range.cloneContents();
     trimEmptyBoundaryBlocks(fragment);
+    stripMermaidPresentation(fragment);
     const tpl = document.createElement('template');
     tpl.content.appendChild(fragment);
     return tpl.innerHTML;
   }
-  return root.innerHTML;
+  const clone = root.cloneNode(true) as HTMLElement;
+  stripMermaidPresentation(clone);
+  return clone.innerHTML;
 }
 
 // A drag that visually ends after a paragraph can still leave the Range's endpoint at

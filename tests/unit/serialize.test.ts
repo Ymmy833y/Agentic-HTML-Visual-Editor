@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatForSerialize } from '../../webview/core/serialize';
 import { injectEmptyBlockPlaceholders } from '../../webview/core/placeholder';
+import { mountMermaidSource, setMermaidSvg } from '../../webview/features/mermaid/mermaid-dom';
 import { clearDom, makeRoot } from './helpers/selection';
 
 afterEach(() => {
@@ -18,6 +19,26 @@ function roundtrip(savedHtml: string): string {
   injectEmptyBlockPlaceholders(root);
   return formatForSerialize(root);
 }
+
+describe('formatForSerialize: Mermaid presentation', () => {
+  it('removes generated SVG and restores the direct pre source', () => {
+    const html = '<pre class="mermaid">graph TD\nA--&gt;B</pre>';
+    const root = makeRoot(html);
+    const block = mountMermaidSource(root.querySelector('pre')!);
+    setMermaidSvg(block, '<svg><text>A to B</text></svg>');
+
+    expect(formatForSerialize(root)).toBe(html);
+  });
+
+  it('removes generated SVG and restores the language-mermaid code source', () => {
+    const html = '<pre><code class="language-mermaid">graph LR</code></pre>';
+    const root = makeRoot(html);
+    const block = mountMermaidSource(root.querySelector('pre')!);
+    setMermaidSvg(block, '<svg><text>Graph</text></svg>');
+
+    expect(formatForSerialize(root)).toBe(html);
+  });
+});
 
 describe('formatForSerialize: empty-block pruning', () => {
   it('strips a <br> placeholder from an empty <p>', () => {

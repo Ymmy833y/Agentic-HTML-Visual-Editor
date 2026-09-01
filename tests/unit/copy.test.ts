@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { prepareCopy } from '../../webview/features/clipboard/copy';
+import { mountMermaidSource, setMermaidSvg } from '../../webview/features/mermaid/mermaid-dom';
 import { clearDom, makeRoot, selectContents, selectTextRange } from './helpers/selection';
 
 afterEach(clearDom);
 
 describe('prepareCopy', () => {
+  it('copies Mermaid source without generated preview markup', () => {
+    const html = '<pre class="mermaid">graph TD\nA--&gt;B</pre>';
+    const root = makeRoot(html);
+    const block = mountMermaidSource(root.querySelector('pre')!);
+    setMermaidSvg(block, '<svg><text>A to B</text></svg>');
+    window.getSelection()?.removeAllRanges();
+
+    expect(prepareCopy(root)).toBe(html);
+  });
+
   it('returns the full root innerHTML when nothing is selected', () => {
     const root = makeRoot('<p>hello</p><p>world</p>');
     window.getSelection()?.removeAllRanges();

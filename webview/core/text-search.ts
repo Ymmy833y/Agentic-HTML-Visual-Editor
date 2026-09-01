@@ -12,6 +12,7 @@
 // resolved back into Range boundaries.
 
 import { isInCommentMeta } from '../shared/dom-utils';
+import { isInMermaidSource } from '../features/mermaid/mermaid-dom';
 
 export interface SearchOptions {
   caseSensitive: boolean;
@@ -38,7 +39,7 @@ export function findMatches(root: HTMLElement, query: string, opts: SearchOption
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode() as Text | null;
   while (node) {
-    if (!isInCommentMeta(node, root)) {
+    if (!isInCommentMeta(node, root) && !isInMermaidSource(node, root)) {
       const data = node.data;
       if (data.length > 0) {
         segments.push({ node, start: flat.length, end: flat.length + data.length });

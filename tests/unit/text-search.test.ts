@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { findMatches, type SearchOptions } from '../../webview/core/text-search';
 import { clearDom, makeRoot } from './helpers/selection';
+import { mountMermaidSource, setMermaidSvg } from '../../webview/features/mermaid/mermaid-dom';
 
 afterEach(() => {
   clearDom();
@@ -66,6 +67,15 @@ describe('findMatches', () => {
       '<comment-reply>target</comment-reply></comment></p>';
     // The two visible "target"s count; the body/reply ones are excluded.
     expect(find(html, 'target')).toHaveLength(2);
+  });
+
+  it('searches rendered Mermaid labels but skips its hidden source', () => {
+    const root = makeRoot('<pre class="mermaid">graph TD\nHiddenNode</pre>');
+    const block = mountMermaidSource(root.querySelector('pre')!);
+    setMermaidSvg(block, '<svg><text>Visible label</text></svg>');
+
+    expect(findMatches(root, 'HiddenNode', DEFAULT)).toHaveLength(0);
+    expect(texts(findMatches(root, 'Visible label', DEFAULT))).toEqual(['Visible label']);
   });
 
   it('produces ranges whose contents equal the query (case-insensitive)', () => {
