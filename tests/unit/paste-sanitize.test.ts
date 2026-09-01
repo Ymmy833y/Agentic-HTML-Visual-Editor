@@ -86,6 +86,20 @@ describe('cleanupPastedFragment', () => {
     expect(out).toBe('<p>x</p>');
   });
 
+  it('preserves only supported Mermaid class tokens on their semantic elements', () => {
+    const out = clean(
+      '<pre class="mermaid copied"><code class="noise">graph TD</code></pre>' +
+      '<pre class="noise"><code class="language-mermaid copied">sequenceDiagram</code></pre>' +
+      '<p class="mermaid">not a diagram</p>' +
+      '<code class="language-mermaid">not a block</code>',
+    );
+    expect(out).toBe(
+      '<pre class="mermaid"><code>graph TD</code></pre>' +
+      '<pre><code class="language-mermaid">sequenceDiagram</code></pre>' +
+      '<p>not a diagram</p><code>not a block</code>',
+    );
+  });
+
   it('preserves data-alert while removing clipboard class noise', () => {
     const out = clean(
       '<blockquote class="markdown-alert" data-alert="tip">Helpful</blockquote>',

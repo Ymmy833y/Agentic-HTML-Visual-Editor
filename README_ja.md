@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.9-F59E0B?style=for-the-badge" alt="Version 0.1.9" />
+  <img src="https://img.shields.io/badge/version-0.1.10-F59E0B?style=for-the-badge" alt="Version 0.1.10" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -29,6 +29,7 @@
 - [🚀 機能ひと目](#-機能ひと目)
 - [🧩 機能詳細](#-機能詳細)
   - [✍️ WYSIWYG 編集（インライン編集型）](#️-wysiwyg-編集インライン編集型)
+  - [📊 Mermaid ダイアグラム](#-mermaid-ダイアグラム)
   - [💬 インラインコメント注釈](#-インラインコメント注釈)
   - [✅ リスト編集](#-リスト編集)
   - [ℹ️ アラート引用](#ℹ️-アラート引用)
@@ -54,7 +55,7 @@
 ## 🚀 はじめに
 
 1. **インストール** — VS Code の拡張機能ビューで **Agentic HTML Visual Editor** を検索してインストールします（または [Marketplace ページ](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor) を開く）。
-2. **任意の `.html` ファイルを開き、エディタのタイトルバーの _Open in WYSIWYG_**（`ahve.openInVisualEditor`）をクリックすると、そのタブがビジュアルエディタに切り替わります。**Open in HTML**（`ahve.openInTextEditor`）で元に戻せます。
+2. **任意の `.html` ファイルを開き、エディタのタイトルバーの _Open in WYSIWYG_**（`ahve.openInWysiwygEditor`）をクリックすると、そのタブがビジュアルエディタに切り替わります。**Open in HTML**（`ahve.openInHtmlEditor`）で元に戻せます。
 3. **ドキュメントのように編集** — 直接入力するほか、ツールバー・選択時のフローティングメニュー・マークダウン風入力が使えます。`Ctrl+S` / `Cmd+S` で変更を `.html` ソースへ書き戻します。できることの詳細は [機能詳細](#-機能詳細) を参照してください。
 
 > **オプトイン設計。** `.html` の既定エディタは VSCode の標準テキストエディタのままで、上記のタイトルバーのボタンを押したときだけビューが切り替わります。現在のエディタに未保存の変更がある場合は、VSCode 標準の保存・破棄・キャンセル確認が完了してから切り替わります。
@@ -132,6 +133,10 @@ Notes:
 - **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
   `<pre>` and `<table>` subtrees are treated as opaque, so their internal
   whitespace is preserved exactly.
+- **Mermaid diagrams:** use either `<pre class="mermaid">…</pre>` or
+  `<pre><code class="language-mermaid">…</code></pre>`. The view renders both as
+  diagrams and preserves the chosen source form. Do not add a Mermaid `<script>`;
+  the renderer is bundled with the extension.
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
@@ -189,7 +194,8 @@ per-element intent. The properties that carry real, user-meaningful meaning
 
 Avoid font, spacing, border, and layout styling; let the bundled CSS own the
 look. Never add `class` for styling — there is no external stylesheet to match
-it, and pasted `class` attributes are dropped.
+it, and pasted `class` attributes are dropped. The only semantic class
+exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 
@@ -283,6 +289,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
   or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
   are dropped.
 - **No external CSS/JS:** external stylesheets and scripts are not loaded.
+  Mermaid support is provided by the extension's own bundled runtime.
 - **Forms render but don't submit:** a `<form>` shows but submission is disabled.
 
 ## Quick checklist before delivering
@@ -291,7 +298,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
       `script`/`iframe`/`style`/`on*`/unsafe URLs.
 - [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
-      and no styling `class` attributes.
+      and no styling `class` attributes (apart from the two Mermaid tokens).
 - [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
       `details` has `<summary>` first and `open` only when it should start open.
 - [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
@@ -318,6 +325,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル対応 |
 | ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
 | ▦ **テーブル** | 挿入・編集・結合/分割・ヘッダー切替・ドラッグでの列幅調整 |
+| 📊 **Mermaid** | CDN 不要で、VS Code テーマに対応した Mermaid 図の挿入・表示・編集・削除 |
 | 📋 **クリップボード** | クリーンな HTML のコピーと、サニタイズ済みリッチ HTML / プレーンテキスト貼り付け |
 
 ---
@@ -328,7 +336,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 
 - `.html` を対象とする。
 - WYSIWYG ビュー上の編集内容はビュー内に保持され、保存操作（`Ctrl+S` / `Cmd+S`、またはツールバーの保存ボタン）で裏の HTML ソースへ同期される。未保存の変更がある間は保存ボタンにドットが表示される。
-- 操作中の HTML テキストタブと WYSIWYG ビューを切り替えるときは、現在のタブを先に閉じてから同じエディタグループに切り替え先を開く。VSCode の確認でキャンセルした場合は現在のタブを維持し、切り替えない。切り替え先がすでに開いている場合は、現在のタブを閉じずに既存のタブを表示する。
+- 操作中の HTML テキストタブと WYSIWYG ビューを切り替えるときは、呼び出し元のエディタグループに切り替え先を開いてから現在のタブを閉じるため、別ウィンドウ内のグループも含めて正しいグループが維持される。VSCode の確認でキャンセルした場合は切り替え先を閉じて元の状態へ戻す。切り替え先がすでに開いている場合は、現在のタブを閉じずに既存のタブを表示する。
 - WYSIWYG タブはテキストエディタタブとは独立した固有の未保存インジケーター（●）を持つ。HTML ソースだけを編集した場合はテキストタブのみ、WYSIWYG ビューだけを編集した場合は WYSIWYG タブのみ、両方を編集した場合は両方のタブが未保存になる。
 - undo/redo は VSCode 標準の履歴（`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`）を使う。保存後も WYSIWYG 編集の履歴は残る。
 - 同期は git と同様の 3-way 差分適用で行われる。ビューの編集中に HTML ソースが直接変更されていた場合、重ならない変更は両方マージされ、同じ行が両側で変更されていた場合は両方の内容が残る（ドキュメント側が先）。このマージは、ビューの内容とソースが突き合わされるすべての経路（保存後の undo/redo、ビューの切り替え、ホット終了からの復元）に共通で適用される。
@@ -350,7 +358,31 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - **リスト:** `ul`, `ol`, `li`（エディタ上で作成・ネストできる。後述の *リスト編集* を参照）
 - **テーブル:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col`（`colspan`, `rowspan`, `scope` 属性に対応）
 - **メディア:** `img`（ツールバーから相対パスまたは HTTP/HTTPS URL と任意の alt テキストを指定して挿入できる。`./images/foo.png` のような相対パスは HTML ファイルのディレクトリから解決される）
+- **ダイアグラム:** `<pre class="mermaid">` と `<pre><code class="language-mermaid">` のソースブロック
 - **独自タグ:** `<comment>` / `<comment-body>` / `<comment-reply>`（後述）
+
+### 📊 Mermaid ダイアグラム
+
+次のどちらかの形式を使う。ドキュメント側に `<script>` や CDN 参照を追加する必要はない。
+
+```html
+<pre class="mermaid">graph TD
+  A --> B
+</pre>
+
+<pre><code class="language-mermaid">sequenceDiagram
+  A->>B: Hello
+</code></pre>
+```
+
+WYSIWYG ビューは同梱 Mermaid ランタイムを必要時だけ読み込み、現在の VS Code
+ライト／ダークテーマで図を描画する。保存時には元のソース形式を変更しない。
+ツールバーの **Mermaid** ボタンを使うと現在のカーソル位置へ図を挿入でき、ソース
+編集ダイアログが直ちに開く。Cancel では文書を変更しない。既存の図をクリック
+（またはフォーカスして Enter / Space）すると、ソースの編集または **Delete diagram**
+による図全体の削除ができる。Apply・挿入・削除はそれぞれ 1 回の undo 可能な編集と
+して記録される。構文エラーでもソースは失われず、エラーカードから再編集できる。
+生成 SVG は表示専用で、HTML やコピー結果には含まれない。
 
 ### 💬 インラインコメント注釈
 
@@ -449,7 +481,7 @@ WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバ
 
 ### 📋 クリップボードのコピー/貼り付け
 
-**Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。
+**Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。Mermaid プレビューも同様に、生成 SVG ではなく元のソースブロックへ戻してコピーされる。
 
 貼り付けられた HTML は挿入前にサニタイズされる。段落や見出しの中にブロックレベルの断片を貼り付けた場合は、無効な入れ子ブロックを作らず現在のブロックの隣に挿入される。コピー時には、見た目上選択されていない空の境界ブロックも除去される。
 

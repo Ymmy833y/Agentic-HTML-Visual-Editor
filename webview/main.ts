@@ -1,8 +1,8 @@
-// Webview entry point.
-// Phase 4 adds the command layer, sticky toolbar, floating menu, keyboard
-// shortcuts, and markdown-style triggers. The webview still only touches the
-// body inner content; everything outside <body> is preserved verbatim via a
-// prefix/suffix splice.
+// The Webview's entry point.
+// Phase 4 added the command layer, the fixed toolbar, the floating menu, keyboard
+// shortcuts, and markdown-style triggers. The Webview still touches only the content
+// inside the body; everything outside <body> is preserved verbatim by the
+// prefix/suffix concatenation.
 
 import { parseBodyContent, sanitizeFragment, splitAroundBody } from './core/renderer';
 import { formatForSerialize } from './core/serialize';
@@ -37,8 +37,8 @@ import { mountTableResize } from './features/table/table-resize';
 import { mountCellSelection, type CellSelectionHandle } from './features/table/cell-selection';
 import { adjacentCell, appendRowAtEnd, insertTable } from './features/table/structure-commands';
 import { findCell, findTable } from './features/table/table-model';
+import { mountMermaid, type MermaidController } from './features/mermaid/mermaid';
 import type {
-  CopyFormat,
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
 } from '../src/shared/messages';
@@ -47,6 +47,7 @@ import './styles/default.css';
 import './styles/editor-chrome.css';
 import './styles/comment-popup.css';
 import './styles/table.css';
+import './styles/mermaid.css';
 
 interface VsCodeApi {
   postMessage(message: WebviewToExtensionMessage): void;
@@ -58,6 +59,17 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 
+// Capture this while the entry script is executing: document.currentScript is
+// null after startup. The separately built Mermaid runtime lives beside the
+// main bundle and receives the same nonce when it is loaded on demand.
+const bootstrapScript = document.currentScript instanceof HTMLScriptElement
+  ? document.currentScript
+  : null;
+const mermaidRuntimeUrl = bootstrapScript?.src
+  ? new URL('mermaid.js', bootstrapScript.src).toString()
+  : null;
+const bootstrapNonce = bootstrapScript?.nonce ?? '';
+
 const root = document.getElementById('ahve-root');
 if (!root) {
   throw new Error('WYSIWYG root element (#ahve-root) is missing.');
@@ -66,30 +78,31 @@ if (!root) {
 let prefix = '';
 let suffix = '';
 
-// Multi-cell table selection controller; assigned during mount wiring below,
-// before any host message can trigger a remount.
+// The controller for multi-cell table selection. Assigned by the mount-time wiring
+// below, before any host message can trigger a remount.
 let cellSelection: CellSelectionHandle | null = null;
+let mermaidController: MermaidController | null = null;
 
 // --- Sync state ---
-// The document text the current DOM was mounted from / last synced with. It is
-// the base of the three-way merge the extension performs on save, so it must
-// only advance when the view and the document are known to agree.
+// The document's text as of when the current DOM was mounted or last synced. This is
+// the baseline for the three-way merge the extension performs on save, so it may only
+// advance when the view and the document are known to agree.
 let baseHtml: string | null = null;
-// Whether the view holds changes that have not been saved into the document.
-// Edits stay in the webview until the save flow asks for them; nothing is
-// pushed to the document while typing. They are streamed to the extension
-// host as `backup` messages so hot-exit backups and saves with an unreachable
-// webview have a fresh copy.
+// Whether the view holds changes that have not been saved to the document yet.
+// Edits stay inside the Webview until the save flow asks for them; they are never
+// pushed to the document while typing. They are streamed to the extension host as
+// `backup` messages so that the hot-exit backup, and a save with an unreachable
+// Webview, always have the latest copy.
 let dirty = false;
-// Number of save snapshots in flight (a `getFileData` request was answered,
-// its saveResult not yet received).
+// The number of in-flight save snapshots (a `getFileData` request has been answered
+// but its saveResult has not arrived yet).
 let pendingSaves = 0;
-// The serialization sent with the most recent save snapshot, used to detect
-// edits made while the save round-trip was in flight.
+// The serialization sent with the most recent save snapshot. Used to detect edits made
+// while the save round trip was in progress.
 let savedSnapshot: string | null = null;
-// Most recent source known to be saved. This mirrors VS Code's save point for
-// the in-view save indicator; the native tab dirty state is owned by the
-// CustomDocumentEditEvent stack in the extension host.
+// The latest source known to be saved. This mirrors VS Code's save point for the sake
+// of the in-view save indicator; the tab's native dirty state is owned by the
+// extension host's CustomDocumentEditEvent stack.
 let cleanHtml: string | null = null;
 
 function mountFromSource(source: string): void {
@@ -99,21 +112,21 @@ function mountFromSource(source: string): void {
   prefix = split ? split.prefix : '';
   suffix = split ? split.suffix : '';
   const fragment = parseBodyContent(bodyInner);
-  // Empty editable blocks (e.g. `<p></p>` or a saved `<p><strong></strong></p>`)
-  // need a `<br>` placeholder so contenteditable can place a caret inside them;
-  // without it the block renders uneditable. The serializer strips the
-  // placeholder back out on save.
+  // Empty editable blocks (e.g. `<p></p>`, or a saved `<p><strong></strong></p>`) need
+  // a `<br>` placeholder so contenteditable can place a caret inside them; without one
+  // the block renders uneditable. The serializer strips these placeholders on save.
   injectEmptyBlockPlaceholders(fragment);
   root.replaceChildren(fragment);
-  // Mark <comment-body>/<comment-reply> in the freshly mounted DOM as
-  // non-editable so contenteditable does not let the user type inside them.
+  // Make <comment-body>/<comment-reply> in the newly mounted DOM non-editable, so
+  // contenteditable does not let the user type inside them.
   for (const c of cdom.commentsInDocumentOrder(root)) cdom.lockChildren(c);
-  // The remount detached every node the popup pointed at; re-bind it to the
-  // fresh DOM (or close it when its comment is gone).
+  // The remount detached every node the popup was pointing at. Rebind it to the new
+  // DOM (or close it if its comment is gone).
   commentPopup.resyncAfterRemount();
-  // The cell-selection anchors died with the old DOM; drop them so a stale
-  // reference can never seed a range in the fresh tree.
+  // The cell-selection anchors were lost along with the old DOM. Drop them so a stale
+  // reference can never become the origin of a range in the new tree.
   cellSelection?.reset();
+  mermaidController?.refresh();
 }
 
 function serialize(): string | null {
@@ -136,9 +149,9 @@ const history = new HistoryCoordinator(captureHistorySnapshot, (edit) => {
   vscode.postMessage({ type: 'editCommitted', ...edit });
 });
 
-// Debounced: stream the unsaved content to the extension host, which keeps
-// the freshest copy per document for hot-exit backups and save fallbacks.
-// The document itself is NOT touched here — sync happens only on save.
+// Debounced: streams unsaved content to the extension host, which keeps the latest
+// copy per document for the hot-exit backup and the save fallback.
+// The document itself is not touched here — syncing happens only on save.
 const editor = setupEditor(
   root,
   () => {
@@ -152,10 +165,16 @@ const editor = setupEditor(
   (label) => history.recordCommand(label),
 );
 
-// Ask the extension host to run VSCode's save flow for this document. The
-// host then requests the view content with `getFileData`, three-way merges it
-// into the text buffer, and saves the file. Runs even when the view is clean
-// so Ctrl+S still behaves as a plain file save.
+mermaidController = mountMermaid(root, {
+  runtimeUrl: mermaidRuntimeUrl,
+  nonce: bootstrapNonce,
+  onEdit: (label) => editor.notifyChanged(label),
+});
+
+// Asks the extension host to run VSCode's save flow for this document. The host then
+// requests the view's content with `getFileData`, three-way merges it into the text
+// buffer, and saves the file. It runs even when the view is clean, so Ctrl+S still
+// behaves like an ordinary file save.
 function requestSave(): void {
   commentPopup.flushPending();
   history.flush();
@@ -173,9 +192,9 @@ async function handleLink(): Promise<void> {
   const existing = findInlineAncestor(initialRange.startContainer, 'A', root!);
   const currentUrl = existing?.getAttribute('href') ?? '';
 
-  // Capture the selection so we can restore it after the dialog steals focus.
-  // If the cursor is collapsed inside an existing <a>, expand to the whole
-  // link so the command can update or remove it cleanly.
+  // Capture the selection so it can be restored after the dialog takes focus.
+  // When the caret is collapsed inside an existing <a>, expand it over the whole link
+  // so the command can update or remove it cleanly.
   const savedRange = document.createRange();
   if (existing && initialRange.collapsed) {
     savedRange.selectNodeContents(existing);
@@ -211,7 +230,7 @@ async function handleImage(): Promise<void> {
     return;
   }
 
-  // Keep the insertion point while the modal moves focus into its inputs.
+  // Hold on to the insertion point while the modal moves focus to its own input.
   const savedRange = document.createRange();
   savedRange.setStart(initialRange.startContainer, initialRange.startOffset);
   savedRange.setEnd(initialRange.endContainer, initialRange.endOffset);
@@ -227,10 +246,9 @@ async function handleImage(): Promise<void> {
   if (image) editor.notifyChanged('Insert image');
 }
 
-function doCopy(format: CopyFormat): void {
+function doCopy(): void {
   if (!root) return;
-  const text = prepareCopy(root, format);
-  vscode.postMessage({ type: 'clipboardWrite', text, format });
+  vscode.postMessage({ type: 'clipboardWrite', text: prepareCopy(root) });
 }
 
 const commentPopup = mountCommentPopup(root, {
@@ -245,17 +263,17 @@ function handleAddComment(): void {
   const comment = addComment(ctx);
   if (!comment) return;
   editor.notifyChanged();
-  // Open straight in body-edit mode so the user can type the comment text
+  // Open straight into body-editing mode so the user can type the comment body
   // without first clicking the "Add a comment" placeholder.
   commentPopup.open(comment, { editBody: true });
 }
 
-// Open the popup when an existing comment highlight is clicked.
+// Open the popup when an existing comment's highlight is clicked.
 root.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as Element | null;
   if (!target) return;
-  // A modified click on a link follows the link; it must not also open the
-  // popup of a comment the link happens to sit in.
+  // A modifier-clicked link follows the link. It must not also open the popup of a
+  // comment the link happens to sit inside.
   const link = target.closest('a[href]');
   if (isFollowLinkModifier(e) && link && root.contains(link)) return;
   const comment = target.closest('comment[id]');
@@ -271,7 +289,7 @@ const tablePicker = mountTablePicker({
   },
 });
 
-// Toolbar above the editor.
+// The toolbar above the editor.
 const toolbar = createToolbar(root, {
   onCommand: () => editor.notifyChanged(),
   onLink: () => {
@@ -280,8 +298,9 @@ const toolbar = createToolbar(root, {
   onImage: () => {
     void handleImage();
   },
+  onMermaid: () => mermaidController?.insert(),
   onAddComment: handleAddComment,
-  onCopy: (format) => doCopy(format),
+  onCopy: doCopy,
   onInsertTable: (anchor) => tablePicker.open(anchor),
   onSave: () => requestSave(),
 });
@@ -289,8 +308,8 @@ document.body.insertBefore(toolbar.element, root);
 
 mountTableMenu(root, {
   onCommand: () => {
-    // Clear before notifyChanged so the history snapshot serialized there
-    // never carries the highlight class.
+    // Clear first, so the history snapshot serialized inside notifyChanged never
+    // contains the highlight classes.
     cellSelection?.clearRange();
     editor.notifyChanged();
   },
@@ -301,22 +320,22 @@ mountTableResize(root, {
   onCommand: () => editor.notifyChanged(),
 });
 
-// Mounted after the table menu and resize controllers on purpose: its
-// document keydown must run after the menu's (Escape closes the menu first),
-// and its root mousedown must see the resize controller's preventDefault.
+// Mounting after the table menu and resize controllers is deliberate: its document
+// keydown must run after the menu's (Escape closes the menu first), and its root
+// mousedown must be able to observe the resize controller's preventDefault.
 cellSelection = mountCellSelection(root);
 
-// Click the disclosure marker to open/close a <details> (native toggle is
-// suppressed inside contenteditable).
+// Toggle <details> by clicking the open/close marker (the native toggle is suppressed
+// inside contenteditable).
 mountDetails(root, {
   onChange: () => editor.notifyChanged(),
 });
 
-// Drive multi-block text selection inside a <details> body, which the browser
-// otherwise clamps at the first block (see mountDetailsSelection).
+// Drive multi-block text selection inside a <details> body ourselves; otherwise the
+// browser caps it at the first block (see mountDetailsSelection).
 mountDetailsSelection(root);
 
-// Selection-driven floating menu.
+// The selection-driven floating menu.
 mountFloatingMenu(root, {
   onCommand: () => editor.notifyChanged(),
   onLink: () => {
@@ -325,15 +344,14 @@ mountFloatingMenu(root, {
   onAddComment: handleAddComment,
 });
 
-// In-document search (Ctrl+F). Highlights are painted with the CSS Custom
-// Highlight API, so they never touch the editor DOM or the serialized output.
+// In-document search (Ctrl+F). The highlights are painted with the CSS Custom
+// Highlight API, so they never touch the editor's DOM or the serialized output.
 const searchWidget = mountSearchWidget(root);
 
-// Override the browser's default copy/cut: contenteditable serialization
-// inlines computed styles (font-family, color, ...) and adds CF_HTML
-// fragment comments. Write our own clean HTML — the same string the
-// "Copy as HTML" command produces — so round-tripping through the
-// clipboard does not bloat the document.
+// Override the browser's default copy/cut: contenteditable's serialization inlines
+// computed styles (font-family, color, …) and appends CF_HTML fragment comments. Here
+// we write our own clean HTML — the same string the "Copy as HTML" command produces —
+// so a round trip through the clipboard does not bloat the document.
 function writeCopyPayload(e: ClipboardEvent): boolean {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
@@ -358,16 +376,15 @@ root.addEventListener('cut', (e: ClipboardEvent) => {
   editor.notifyChanged();
 });
 
-// Ctrl+Shift+V (or Cmd+Shift+V) forces a plain-text paste. We can't read
-// shiftKey from the paste event itself, so the keydown handler sets a
-// one-shot flag that the paste handler consumes.
+// Ctrl+Shift+V (or Cmd+Shift+V) forces a plain-text paste. shiftKey cannot be read
+// from the paste event itself, so the keydown handler raises a one-shot flag that the
+// paste handler consumes.
 let pendingPlainPaste = false;
 
-// Sanitize HTML pasted from outside the editor (clipboard data from
-// browsers/Word can contain <script>, <link>, on* attributes, plus CF_HTML
-// comments and inlined computed styles). The renderer sanitizer strips
-// security-sensitive nodes; cleanupPastedFragment then prunes style/class
-// noise according to a per-tag allowlist.
+// Sanitize HTML pasted from outside the editor (clipboard data from a browser or Word
+// can carry <script>, <link>, and on* attributes as well as CF_HTML comments and
+// inlined computed styles). The renderer's sanitizer removes security-relevant nodes,
+// then cleanupPastedFragment prunes the style/class noise against a per-tag allowlist.
 root.addEventListener('paste', (e: ClipboardEvent) => {
   if (pendingPlainPaste) {
     pendingPlainPaste = false;
@@ -384,7 +401,7 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
 
   const html = e.clipboardData?.getData('text/html');
   if (!html) {
-    // Plain-text paste is safe; let the browser insert it.
+    // A plain-text paste is safe. Let the browser insert it as-is.
     return;
   }
   e.preventDefault();
@@ -394,26 +411,27 @@ root.addEventListener('paste', (e: ClipboardEvent) => {
   cleanupPastedFragment(tpl.content);
   insertFragmentAtCursor(root, tpl.content);
   editor.notifyChanged();
+  mermaidController?.refresh();
 });
 
-// <form> elements may be present for layout, but should never submit. The
-// CSP `form-action 'none'` blocks navigation, but we also stop the event
-// here so contenteditable does not get confused by the default behavior.
+// A <form> element may exist for layout reasons, but it must never be submitted. The
+// CSP's `form-action 'none'` blocks the navigation, and the event is stopped here as
+// well so the default behavior does not confuse contenteditable.
 root.addEventListener('submit', (e: Event) => {
   e.preventDefault();
 });
 
-// Keyboard shortcuts for the main inline / block commands.
+// Keyboard shortcuts for the main inline and block commands.
 root.addEventListener('keydown', (e: KeyboardEvent) => {
   const mod = e.ctrlKey || e.metaKey;
 
-  // Navigation ends a native typing/deletion group. Modified horizontal
-  // arrows are included because they can move by words or change selection.
+  // Navigation delimits a group of native input/deletion. Modified horizontal arrows
+  // are included because they can move by word or change the selection.
   if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' || e.key === 'PageUp' || e.key === 'PageDown') {
     history.flush();
   }
 
-  // Tab / Shift+Tab navigation inside table cells.
+  // Tab / Shift+Tab navigation inside a table cell.
   if (e.key === 'Tab' && !mod && !e.altKey) {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -440,9 +458,9 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
         return;
       }
 
-      // Tab / Shift+Tab indent/dedent list items. Always preventDefault inside a
-      // list item so a literal tab is never inserted; notify only when the
-      // structure actually changed.
+      // Tab / Shift+Tab indents/outdents a list item. Always preventDefault inside a
+      // list item so a literal tab is never inserted; notify only when the structure
+      // actually changed.
       const li = findAncestor(range.startContainer, 'LI', root);
       if (li) {
         e.preventDefault();
@@ -481,18 +499,18 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 
   if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v') {
-    // Set the flag and let the paste event fire; it will consume the flag.
+    // Raise the flag and let the paste event fire; the paste handler consumes it.
     pendingPlainPaste = true;
     return;
   }
 
-  // Block-type shortcuts: Ctrl/Cmd + (Shift or Alt) + digit. Digit1–6 → h1–h6,
-  // Digit0 → p (plain). Ctrl/Cmd+Alt+<digit> is an equivalent fallback because
-  // some platforms reserve Ctrl+Shift+<digit> at the OS/IME level (e.g. Windows
-  // input-language hotkeys) so it never reaches the webview. `shiftKey !==
-  // altKey` accepts exactly one of the two modifiers. Match on e.code, not
-  // e.key: with Shift held e.key is the shifted symbol ('!', '@', …), never the
-  // digit, so a digit test on e.key never matches in a real browser.
+  // Block-type shortcuts: Ctrl/Cmd + (Shift or Alt) + a digit. Digit1–6 → h1–h6,
+  // Digit0 → p (plain). Ctrl/Cmd+Alt+<digit> is an equivalent fallback because some
+  // platforms reserve Ctrl+Shift+<digit> at the OS/IME level (e.g. Windows' input
+  // language hotkeys) and it never reaches the Webview. `shiftKey !== altKey` accepts
+  // exactly one of the two modifiers. Match on e.code rather than e.key: while Shift
+  // is held, e.key is the shifted symbol ('!', '@', …) and not a digit, so a
+  // digit test against e.key would never match in a real browser.
   if (mod && e.shiftKey !== e.altKey) {
     const blockTag = headingShortcutTag(e.code);
     if (blockTag) {
@@ -506,11 +524,11 @@ root.addEventListener('keydown', (e: KeyboardEvent) => {
 
 root.addEventListener('focusout', () => history.flush());
 
-// Ctrl/Cmd+F opens the search widget. Listen at the document level (capture) so
-// it works whether focus is in the editor or already in the widget. The webview
-// has `enableFindWidget` unset, so VSCode does not contend for this shortcut.
-// Save is intentionally not handled here: the `ahve.save` workbench keybinding
-// owns Ctrl/Cmd+S so a single keyboard action cannot start two save flows.
+// Ctrl/Cmd+F opens the search widget. It listens at the document level (capture) so it
+// works whether focus is in the editor or in the widget. `enableFindWidget` is unset
+// for this Webview, so VSCode never competes for this shortcut. Save is deliberately
+// not handled here: the workbench keybinding for `ahve.save` owns Ctrl/Cmd+S, so a
+// single keystroke cannot start two save flows.
 document.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
@@ -523,23 +541,23 @@ document.addEventListener(
   true,
 );
 
-// Keep search highlights in sync while the document changes underneath them: a
-// save echo remounts the DOM (invalidating match ranges) and live edits change
-// what matches. Both recompute without jumping the user to a different hit.
+// Keep the search highlights in sync while the document changes underfoot: a save echo
+// remounts the DOM (invalidating the match ranges), and an in-place edit changes what
+// matches. Recompute in both cases without jumping the user to a different hit.
 root.addEventListener('input', () => {
   if (searchWidget.isOpen()) searchWidget.refresh();
 });
 
-/** Remount the view from `source`, preserving the caret and search state. */
+/** Remounts the view from `source`, preserving the caret and the search state. */
 function remountPreservingSelection(source: string): void {
   if (!root) return;
-  // A remount replaces the whole DOM, invalidating the live Selection.
-  // Capture the caret as a whitespace-stable path before the remount and
-  // restore it afterward so a sync does not bounce the cursor to the top.
+  // A remount replaces the whole DOM, which invalidates the live Selection. Capture the
+  // caret as a whitespace-insensitive path before the remount and restore it after, so
+  // the cursor does not jump to the top on every sync.
   const saved = captureSelection(root);
   mountFromSource(source);
   if (saved) restoreSelection(root, saved);
-  // The remount replaced every node, so any live search ranges are stale.
+  // The remount replaced every node, so all live search ranges are stale.
   searchWidget.refresh();
 }
 
@@ -549,9 +567,9 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
     case 'init': {
       baseHtml = message.html;
       cleanHtml = message.html;
-      // `restored` carries unsaved changes a previous view session backed up,
-      // already three-way merged by the host against the current document.
-      // Mount them as unsaved content — the user's next save commits them.
+      // `restored` carries unsaved changes backed up by a previous view session; the
+      // host has already three-way merged them against the current document. Mount
+      // them as unsaved content — the user's next save commits them.
       if (typeof message.restored === 'string' && message.restored !== message.html) {
         history.reset({ html: message.html, selection: null });
         mountFromSource(message.restored);
@@ -565,11 +583,11 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       break;
     }
     case 'documentChanged': {
-      // While the view holds unsaved changes (or a save is in flight), an
-      // external document change is NOT applied to the view — it would wipe
-      // those changes. It is picked up by the three-way merge on the next
-      // save instead. This also neutralizes stale save echoes, which used to
-      // remount the DOM and roll back edits made during the round-trip.
+      // While the view holds unsaved changes (or a save is in flight), do *not* apply
+      // an external document change to the view — doing so would wipe those changes
+      // out. They are taken in by the three-way merge on the next save instead. This
+      // also defuses a stale save echo, which used to remount the DOM and roll back
+      // edits made during the round trip.
       if (dirty || pendingSaves > 0) return;
       if (message.html === baseHtml) return;
       baseHtml = message.html;
@@ -579,13 +597,14 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       break;
     }
     case 'getFileData': {
-      // Snapshot request from the host's save flow. Answer with nulls until
-      // `init` has arrived — there is nothing to merge yet. Otherwise record
-      // the snapshot as an in-flight save so the matching `saveResult` can
-      // reconcile edits made during the round-trip.
-      // Text still open in a comment popup textarea belongs in the snapshot:
-      // commit it first, or the file is saved with an empty body and the save
-      // echo remount detaches the element the popup would commit into later.
+      // A snapshot request from the host's save flow. Answer with null until `init`
+      // arrives — there is nothing to merge yet. Otherwise record the snapshot as an
+      // in-flight save, so the matching `saveResult` can reconcile edits made during
+      // the round trip.
+      // Text still open in the comment popup's textarea belongs in this snapshot too:
+      // without committing it first, the file would be saved with an empty body, and
+      // the remount from the save echo would detach the element the popup is about to
+      // write into.
       commentPopup.flushPending();
       history.flush();
       editor.flush();
@@ -607,8 +626,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       break;
     }
     case 'revert': {
-      // Revert File: discard the view's unsaved changes and sync to the text
-      // buffer content the host sent.
+      // Revert the file: discard the view's unsaved changes and sync to the text
+      // buffer's content sent by the host.
       pendingSaves = 0;
       savedSnapshot = null;
       baseHtml = message.html;
@@ -649,29 +668,28 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       vscode.postMessage({ type: 'openRelativeFile', href: message.href });
       break;
     case 'saveResult': {
-      // A saveResult can only follow an `init` (saves before that answer the
-      // snapshot request with nulls and settle host-side).
+      // A saveResult can only follow `init` (an earlier save answers the snapshot
+      // request with null and completes entirely on the host side).
       if (baseHtml === null) return;
       pendingSaves = Math.max(0, pendingSaves - 1);
-      // Older result of overlapping saves; the newest one carries the final
+      // This is the older of two overlapping saves; the latest one carries the final
       // document state.
       if (pendingSaves > 0) return;
       if (message.ok === false) {
-        // The host could not apply the merge to the document. Keep the view
-        // (and its base) untouched so nothing is lost; the save can be
-        // retried.
+        // The host could not apply the merged result to the document. Leave the view
+        // (and its baseline) untouched so nothing is lost; the save can be retried.
         savedSnapshot = null;
         return;
       }
       const current = serialize();
       if (current !== null && savedSnapshot !== null && current !== savedSnapshot) {
-        // The user kept editing while the save was in flight. Keep those
-        // edits (still marked dirty) and advance the merge base only to the
-        // snapshot that was saved — the next save merges the rest.
+        // The user kept editing while the save was in flight. Keep those edits (and
+        // stay marked dirty) and advance the merge baseline by the saved snapshot —
+        // the remainder is merged on the next save.
         baseHtml = savedSnapshot;
         cleanHtml = savedSnapshot;
         savedSnapshot = null;
-        // Refresh the host-side backup so it is keyed to the new base.
+        // Update the host-side backup so it matches the new baseline.
         vscode.postMessage({ type: 'backup', html: current, baseHtml });
         return;
       }
@@ -679,8 +697,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       baseHtml = message.html;
       cleanHtml = message.html;
       setDirty(false);
-      // Remount only when the saved document differs from the view (external
-      // changes merged in, or save-time normalization).
+      // Remount only when the saved document differs from the view (an external change
+      // was merged in, or a save-time normalization was applied).
       if (current !== message.html) {
         remountPreservingSelection(message.html);
       }
@@ -688,18 +706,19 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
       break;
     }
     case 'copyToClipboard':
-      doCopy(message.format);
+      doCopy();
       break;
   }
 });
 
 window.addEventListener('beforeunload', () => {
-  // Flush the debounced backup so the freshest unsaved content reaches the
-  // extension host before the webview is torn down. Pending comment-popup
-  // edits are committed first so the backup carries them too.
+  // Flush the debounced backup so the latest unsaved content reaches the extension host
+  // before the Webview is disposed. Commit the comment popup's pending edits first, so
+  // the backup can carry those too.
   commentPopup.flushPending();
   history.flush();
   editor.flush();
+  mermaidController?.dispose();
 });
 
 vscode.postMessage({ type: 'ready' });

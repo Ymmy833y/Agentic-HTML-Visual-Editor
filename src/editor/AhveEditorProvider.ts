@@ -1,95 +1,62 @@
 import * as vscode from 'vscode';
-import { CUSTOM_EDITOR_VIEW_TYPE } from '../commands/openInVisualEditor';
+import { CUSTOM_EDITOR_VIEW_TYPE } from '../constants';
 import { AhveDocument } from './AhveDocument';
 import { computeInitPayload, type UnsavedBackup } from './backup';
 import { readBackupFile, writeBackupFile } from './backupFile';
 import { buildContentSecurityPolicy } from './csp';
+import { saveAfterFlush } from './document-actions';
 import { mergeHtml } from './merge';
 import { mergeHistoryTransition } from './history';
 import { openRelativeFileLink } from './relativeFileLinks';
+import type { AhveSessionRegistry } from './session-registry';
 import type {
-  CopyFormat,
   ExtensionToWebviewMessage,
   SerializedEditState,
   WebviewToExtensionMessage,
 } from '../shared/messages';
 
-// workspaceState key that held the latest unsaved view content per document
-// before backups moved to VSCode's native custom-editor backup mechanism.
-// Still read (once) so unsaved content from a previous extension version is
-// not lost on update.
+// The workspaceState key that held the latest unsaved view content per document
+// before backups moved to VSCode's native custom-editor backup mechanism. It is
+// still read (once) so that unsaved content produced by an earlier version of
+// the extension is not lost across an update.
 const LEGACY_BACKUP_KEY_PREFIX = 'ahve.unsavedBackup:';
 
 function legacyBackupKey(uri: vscode.Uri): string {
   return LEGACY_BACKUP_KEY_PREFIX + uri.toString();
 }
 
-// The WYSIWYG editor is a full CustomEditorProvider (not a
-// CustomTextEditorProvider) so its tab's dirty indicator is independent of
-// the text buffer: WYSIWYG edits stay in the webview until save, and the
-// tab's ● is driven by onDidChangeCustomDocument instead of TextDocument
-// dirty state. The TextDocument remains the sync target — saves three-way
-// merge the view into the buffer and save it — so the text editor and the
-// WYSIWYG view keep seeing each other's changes.
+// The WYSIWYG editor is implemented as a full CustomEditorProvider rather than a
+// CustomTextEditorProvider so that the tab's dirty indicator is independent of the
+// text buffer: WYSIWYG edits stay inside the Webview until a save, and the tab's ●
+// is driven by onDidChangeCustomDocument rather than by the TextDocument's dirty
+// state. The sync target is still the TextDocument — a save three-way merges the
+// view back into the buffer — so the text editor and the WYSIWYG view keep seeing
+// each other's changes.
 export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocument> {
   public static readonly viewType = CUSTOM_EDITOR_VIEW_TYPE;
-
-  // Tracks the most recently active WYSIWYG panel so command-palette commands
-  // (e.g. Copy as HTML) can target it.
-  private static activePanel: vscode.WebviewPanel | null = null;
-
-  public static getActivePanel(): vscode.WebviewPanel | null {
-    return AhveEditorProvider.activePanel;
-  }
-
-  // Open documents by uri, for save fan-out and the test hook.
-  private readonly documents = new Map<string, AhveDocument>();
 
   private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<
     vscode.CustomDocumentEditEvent<AhveDocument>
   >();
 
-  // Every WYSIWYG transaction is a native custom-editor edit. VS Code owns
-  // stack traversal and the saved-state marker; the callbacks remount the
-  // corresponding visual state in the webview.
+  // Every WYSIWYG transaction is a native custom-editor edit. VS Code manages the
+  // stack traversal and the saved marker, and the callbacks mount the corresponding
+  // visual state back into the Webview.
   public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly sessions: AhveSessionRegistry,
+  ) {}
 
-  public registerHistoryCommands(): void {
-    this.context.subscriptions.push(
-      vscode.commands.registerCommand('ahve.save', () => this.runSaveCommand()),
-      vscode.commands.registerCommand('ahve.undo', () => this.runHistoryCommand('undo')),
-      vscode.commands.registerCommand('ahve.redo', () => this.runHistoryCommand('redo')),
-    );
-  }
-
-  private async runSaveCommand(document?: AhveDocument): Promise<void> {
-    const target = document ?? this.getActiveDocument();
-    if (!target) return;
-    await target.flushHistory();
-    await vscode.commands.executeCommand('workbench.action.files.save');
-  }
-
-  private getActiveDocument(): AhveDocument | undefined {
-    const panel = AhveEditorProvider.activePanel;
-    return panel
-      ? [...this.documents.values()].find((candidate) => candidate.panel === panel)
-      : undefined;
-  }
-
-  private async runHistoryCommand(command: 'undo' | 'redo'): Promise<void> {
-    const document = this.getActiveDocument();
-    if (!document) return;
-    await document.flushHistory();
-    await vscode.commands.executeCommand(command);
-  }
-
-  public static register(context: vscode.ExtensionContext): {
+  public static register(
+    context: vscode.ExtensionContext,
+    sessions: AhveSessionRegistry,
+  ): {
     registration: vscode.Disposable;
     provider: AhveEditorProvider;
   } {
-    const provider = new AhveEditorProvider(context);
+    const provider = new AhveEditorProvider(context, sessions);
     const registration = vscode.window.registerCustomEditorProvider(
       AhveEditorProvider.viewType,
       provider,
@@ -102,15 +69,11 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
   }
 
   /**
-   * Test hook: add a reversible no-op WYSIWYG transaction. Integration tests
-   * cannot reach into the webview DOM to produce a real edit.
+   * Test hook: pushes a reversible, no-op WYSIWYG transaction. Integration tests
+   * cannot reach the Webview DOM, so they cannot produce a real edit.
    */
   public fireTestEdit(uri: vscode.Uri): boolean {
-    // Fall back to fsPath matching: VSCode may normalize the uri (e.g. drive
-    // letter casing on Windows) before it reaches openCustomDocument.
-    const document =
-      this.documents.get(uri.toString()) ??
-      [...this.documents.values()].find((d) => d.uri.fsPath === uri.fsPath);
+    const document = this.sessions.find(uri);
     if (!document) return false;
     this._onDidChangeCustomDocument.fire({
       document,
@@ -122,20 +85,20 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
   }
 
   public setTestViewHtml(uri: vscode.Uri, html: string): boolean {
-    const document = this.findDocument(uri);
+    const document = this.sessions.find(uri);
     if (!document?.panel) return false;
     void document.panel.webview.postMessage({ type: 'testSetHtml', html });
     return true;
   }
 
   public async getTestViewHtml(uri: vscode.Uri): Promise<string | null> {
-    const document = this.findDocument(uri);
+    const document = this.sessions.find(uri);
     if (!document) return null;
     return (await document.requestFileData()).html;
   }
 
   public requestTestViewSave(uri: vscode.Uri): boolean {
-    const document = this.findDocument(uri);
+    const document = this.sessions.find(uri);
     if (!document?.panel) return false;
     void document.panel.webview.postMessage({ type: 'testRequestSave' });
     return true;
@@ -146,22 +109,15 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
   }
 
   /**
-   * Test hook: drive the webview to post an `openRelativeFile` message so the
-   * host's message handler (not just `openRelativeFileLink`) is exercised end
-   * to end with the real document uri.
+   * Test hook: makes the Webview post an `openRelativeFile` message, so the host's
+   * message handler (not just `openRelativeFileLink`) is exercised end to end with
+   * the real document uri.
    */
   public openTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean {
-    const document = this.findDocument(uri);
+    const document = this.sessions.find(uri);
     if (!document?.panel) return false;
     void document.panel.webview.postMessage({ type: 'testOpenRelativeFile', href });
     return true;
-  }
-
-  private findDocument(uri: vscode.Uri): AhveDocument | undefined {
-    return (
-      this.documents.get(uri.toString()) ??
-      [...this.documents.values()].find((document) => document.uri.fsPath === uri.fsPath)
-    );
   }
 
   public async openCustomDocument(
@@ -174,8 +130,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       restore = await readBackupFile(vscode.Uri.parse(openContext.backupId));
     }
     if (!restore) {
-      // One-time migration of a backup persisted by a previous extension
-      // version (workspaceState based).
+      // One-time migration of a backup persisted by an earlier version of the
+      // extension (workspaceState based).
       const key = legacyBackupKey(uri);
       const legacy = this.context.workspaceState.get<UnsavedBackup>(key);
       if (legacy) {
@@ -183,12 +139,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
         await this.context.workspaceState.update(key, undefined);
       }
     }
-    const document = new AhveDocument(uri, restore, () => {
-      if (this.documents.get(uri.toString()) === document) {
-        this.documents.delete(uri.toString());
-      }
-    });
-    this.documents.set(uri.toString(), document);
+    const document = new AhveDocument(uri, restore, () => this.sessions.remove(document));
+    this.sessions.add(document);
     return document;
   }
 
@@ -212,7 +164,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     };
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview, document.uri);
 
-    AhveEditorProvider.activePanel = webviewPanel;
+    this.sessions.setActivePanel(webviewPanel);
 
     const post = (message: ExtensionToWebviewMessage): void => {
       void webviewPanel.webview.postMessage(message);
@@ -222,22 +174,23 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       async (message: WebviewToExtensionMessage) => {
         switch (message.type) {
           case 'ready': {
-            // Restore unsaved changes from a hot-exit backup (consumed here)
-            // or from the freshest content a previous webview streamed (the
-            // webview is recreated when the panel is moved or reloaded). If
-            // the document changed in the meantime, the restored content is
-            // its three-way merge with those changes.
+            // Restore unsaved changes either from a hot-exit backup (consumed
+            // here) or from the latest content streamed by a previous Webview
+            // (moving or reloading a panel recreates the Webview). If the
+            // document changed in the meantime, what gets restored is the
+            // three-way merge with that change.
             const backup = document.pendingRestore ?? document.lastKnown;
             document.pendingRestore = undefined;
             const docText =
               (await readOpenDocumentOrFile(document.uri)) ?? backup?.baseHtml ?? '';
             const payload = computeInitPayload(docText, backup);
             if (payload.restored !== undefined) {
-              // A restored view is dirty before any edit streams new content;
-              // seed the backup source so hot exit has something to persist.
+              // A restored view is already dirty before any edit streams new
+              // content. Seed the backup source up front so hot exit has
+              // something to persist.
               document.lastKnown = { baseHtml: docText, html: payload.restored };
             } else {
-              // Stale or already-saved backup: consume it.
+              // A stale or already-saved backup: just consume it.
               document.lastKnown = undefined;
             }
             post({ type: 'init', html: payload.html, restored: payload.restored });
@@ -260,12 +213,12 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             document.resolveHistoryFlush(message.requestId);
             break;
           case 'requestSave': {
-            // The request came from the active WYSIWYG webview. Saving by URI
-            // is ambiguous when an HTML text tab for the same resource is also
-            // open: VS Code can save that stale TextDocument first and prevent
-            // it from reloading the subsequent custom-editor write. Save the
-            // active editor exactly once instead.
-            await this.runSaveCommand(document);
+            // The request comes from the active WYSIWYG Webview. When an HTML
+            // text tab for the same resource is also open, saving by URI is
+            // ambiguous: VS Code may save the stale TextDocument first and then
+            // be unable to reflect the custom editor's subsequent write. Save
+            // the active editor exactly once instead.
+            await saveAfterFlush(document);
             break;
           }
           case 'fileData':
@@ -281,7 +234,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             await openRelativeFileLink(document.uri, message.href);
             break;
           case 'clipboardWrite':
-            await writeClipboard(message.text, message.format);
+            await writeClipboard(message.text);
             break;
         }
       },
@@ -293,10 +246,10 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       post({ type: 'documentChanged', html: e.document.getText() });
     });
 
-    // Watch disk changes without pinning a TextDocument. Keeping an invisible
-    // text model open makes filesystem saves create/replace undo elements for
-    // the same URI as the custom editor, which collapses visual undo after a
-    // save. A real text tab is still covered by onDidChangeTextDocument above.
+    // Watch disk changes without holding a TextDocument. Keeping an invisible text
+    // model open would let a filesystem save create/replace an undo element on the
+    // same URI as the custom editor, collapsing the visual undo after a save. Real
+    // text tabs are still handled by the onDidChangeTextDocument above.
     const fileWatcher = createDocumentWatcher(document.uri, async () => {
       if (document.suppressEcho) return;
       const html = await readFileText(document.uri);
@@ -305,16 +258,14 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
 
     const viewStateSubscription = webviewPanel.onDidChangeViewState(() => {
       if (webviewPanel.active) {
-        AhveEditorProvider.activePanel = webviewPanel;
-      } else if (AhveEditorProvider.activePanel === webviewPanel) {
-        AhveEditorProvider.activePanel = null;
+        this.sessions.setActivePanel(webviewPanel);
+      } else {
+        this.sessions.clearActivePanel(webviewPanel);
       }
     });
 
     webviewPanel.onDidDispose(() => {
-      if (AhveEditorProvider.activePanel === webviewPanel) {
-        AhveEditorProvider.activePanel = null;
-      }
+      this.sessions.clearActivePanel(webviewPanel);
       if (document.panel === webviewPanel) {
         document.panel = undefined;
       }
@@ -345,9 +296,9 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     document: AhveDocument,
     _token: vscode.CancellationToken,
   ): Thenable<void> {
-    // Serialize saves per document: the merge input (buffer text) must not go
-    // stale under an overlapping save. Keep the chain alive after a failed
-    // save so later saves still run.
+    // Serialize saves per document: the merge input (the buffer's text) must not be
+    // made stale by an overlapping save. Keep the chain alive after a failed save so
+    // that subsequent saves still run.
     const run = document.saveChain.then(() => this.performSave(document));
     document.saveChain = run.catch(() => undefined);
     return run;
@@ -360,8 +311,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
 
     let view = await document.requestFileData();
     if (view.html === null || view.baseHtml === null) {
-      // Webview unreachable (still booting, blocked, or torn down): fall back
-      // to the freshest content it streamed.
+      // The Webview is unreachable (starting up, blocked, or disposed): fall back
+      // to the latest content it streamed.
       const fallback = document.lastKnown;
       if (fallback) view = { html: fallback.html, baseHtml: fallback.baseHtml };
     }
@@ -369,8 +320,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     const textDoc = findOpenTextDocument(document.uri);
     let documentText = textDoc?.getText() ?? (await readFileText(document.uri));
     if (documentText === undefined) {
-      // The file disappeared from disk and no buffer survives: recreate it
-      // from the view content rather than losing the edits.
+      // The file is gone from disk and no buffer is left: rebuild the file from the
+      // view's content rather than lose the edits.
       if (view.html !== null) {
         await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(view.html));
         document.lastKnown = undefined;
@@ -380,18 +331,18 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     }
 
     if (view.html === null || view.baseHtml === null) {
-      // No WYSIWYG content to merge; behave as a plain save of the buffer.
-      // Still echo a saveResult so a slow view that answered the snapshot
-      // request after our timeout settles its in-flight bookkeeping.
+      // There is no WYSIWYG content to merge. Behave like an ordinary save of the
+      // buffer, but still return a saveResult so that a slow view which answered the
+      // snapshot request after the timeout can settle its pending internal state.
       if (textDoc) await textDoc.save();
       post({ type: 'saveResult', html: textDoc?.getText() ?? documentText, ok: true });
       return;
     }
 
-    // Commit unsaved text-tab edits first. They are then included in the
-    // three-way merge below. Saving them before the merge also lets normal
-    // text save participants run without turning the WYSIWYG result itself
-    // into a TextDocument undo element.
+    // Commit the text tab's unsaved edits first, so they take part in the three-way
+    // merge below. Saving before the merge also lets the ordinary text save
+    // participants run without turning the WYSIWYG result itself into a TextDocument
+    // undo element.
     if (textDoc?.isDirty) {
       const textSaved = await textDoc.save();
       if (!textSaved && textDoc.isDirty) {
@@ -401,19 +352,19 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       documentText = textDoc.getText();
     }
 
-    // Persist the WYSIWYG merge directly through the filesystem. Applying a
-    // WorkspaceEdit here would add a full-document replacement to the same
-    // URI undo stack used by CustomDocumentEditEvent. After save, the first
-    // undo would consume that replacement instead of the last visual edit.
+    // Persist the merged WYSIWYG result directly through the filesystem. Applying a
+    // WorkspaceEdit here would add a whole-document replacement to the undo stack of
+    // the same URI that CustomDocumentEditEvent uses, and the first undo after a save
+    // would then consume that replacement instead of the last visual edit.
     const merged = normalizeEol(
       mergeHtml(view.baseHtml, view.html, documentText),
       textDoc?.eol ?? detectEndOfLine(documentText),
     );
     document.suppressEcho = true;
     try {
-      // The filesystem write is the persistence boundary. VS Code may reload
-      // an inactive, clean HTML tab later; that UI refresh must not turn a
-      // successful disk write into a WYSIWYG save failure.
+      // The filesystem write is the durability boundary. VS Code may later reload an
+      // inactive, clean HTML tab, but that UI refresh must never turn a successful
+      // disk write into a failed WYSIWYG save.
       await vscode.workspace.fs.writeFile(document.uri, new TextEncoder().encode(merged));
     } catch (error) {
       vscode.window.showErrorMessage(
@@ -424,11 +375,11 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     } finally {
       document.suppressEcho = false;
     }
-    // The unsaved changes are now in the file; drop their backup source.
+    // The unsaved changes reached the file, so drop their backup source.
     document.lastKnown = undefined;
-    // Echo the authoritative post-save text (save hooks such as formatting or
-    // final-newline insertion may have adjusted it) so the webview can update
-    // its sync base.
+    // Return the post-save authoritative text so the Webview can update its sync
+    // baseline (save hooks such as formatting or trailing-newline insertion may have
+    // adjusted the text).
     post({ type: 'saveResult', html: merged, ok: true });
   }
 
@@ -449,8 +400,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     } else {
       content = (await readOpenDocumentOrFile(document.uri)) ?? '';
     }
-    // The original buffer is left untouched; VSCode reopens the editor on the
-    // destination resource (a fresh openCustomDocument).
+    // Leave the original buffer untouched. VSCode reopens the editor on the
+    // destination resource (a fresh openCustomDocument call).
     await vscode.workspace.fs.writeFile(destination, new TextEncoder().encode(content));
   }
 
@@ -458,9 +409,10 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     document: AhveDocument,
     _token: vscode.CancellationToken,
   ): Promise<void> {
-    // Revert to the text BUFFER, not the disk file: the merge invariant is
-    // "baseHtml === buffer content at last sync", and unsaved text-tab edits
-    // must survive a WYSIWYG revert (they are not this editor's changes).
+    // Revert to the text *buffer*, not the file on disk: the merge invariant is
+    // "baseHtml === the buffer's content as of the last sync", and a text tab's
+    // unsaved edits must survive a WYSIWYG revert (they are not this editor's
+    // changes).
     const html = (await readOpenDocumentOrFile(document.uri)) ?? '';
     document.pendingRestore = undefined;
     document.lastKnown = undefined;
@@ -475,9 +427,10 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     context: vscode.CustomDocumentBackupContext,
     _token: vscode.CancellationToken,
   ): Promise<vscode.CustomDocumentBackup> {
-    // `lastKnown` is fed by the webview's debounced backup stream (flushed on
-    // unload) and seeded on restore, so it is fresh whenever the document is
-    // dirty. Throwing keeps VSCode's previous backup for this document.
+    // `lastKnown` is fed by the Webview's debounced backup stream (flushed on
+    // unload) and is also seeded on restore, so it is always current while the
+    // document is dirty. Throwing makes VSCode keep this document's previous
+    // backup.
     const data = document.lastKnown;
     if (!data) {
       throw new Error('No unsaved WYSIWYG content to back up.');
@@ -486,7 +439,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     return {
       id: context.destination.toString(),
       delete: (): void => {
-        // Best-effort: the backup file may already be gone.
+        // Best effort: the backup file may already be gone.
         void vscode.workspace.fs.delete(context.destination).then(undefined, () => undefined);
       },
     };
@@ -502,14 +455,14 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview.css'),
     );
 
-    // Resolve relative resource paths (e.g. `<img src="./images/foo.png">`) in
-    // the rendered content against the document's own directory. The webview
-    // runs at a `vscode-webview://` origin, so without a <base> every relative
-    // URL resolves against that origin and local images never load. Only file
-    // documents have a meaningful on-disk directory; other schemes (untitled,
-    // etc.) get no <base> and keep the previous behaviour. The browser uses the
-    // base only to resolve URLs at fetch time — the literal `src` attribute
-    // string is untouched, so serialization/round-trip is unaffected.
+    // Resolve relative resource paths in the rendered content (e.g.
+    // `<img src="./images/foo.png">`) against the document's own directory. The
+    // Webview runs on a `vscode-webview://` origin, so without a <base> every
+    // relative URL resolves against that origin and local images do not load. Only
+    // file documents have a meaningful directory on disk, so other schemes (untitled
+    // and the like) get no <base> and keep their previous behavior. Browsers use the
+    // base only for URL resolution at fetch time — the `src` attribute string itself
+    // is unchanged, so serialization and round-tripping are unaffected.
     const baseTag =
       documentUri.scheme === 'file'
         ? `\n    <base href="${webview
@@ -535,11 +488,11 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
   }
 }
 
-// Resource roots the webview may load local files (images, fonts) from. Always
-// includes the extension's `dist` bundle. For file documents we also allow the
-// document's own directory (so `./…` image paths load) and the enclosing
-// workspace folder (so `../…` paths that stay inside the workspace load too).
-// Absolute/out-of-workspace paths are intentionally left unreachable.
+// The resource roots the Webview may load local files (images, fonts) from. Always
+// includes the extension's `dist` bundle. For file documents it also allows the
+// document's own directory (so `./…` image paths load) and the workspace folder that
+// contains it (so `../…` paths that stay inside the workspace load too). Absolute
+// paths and paths outside the workspace are deliberately left unreachable.
 function buildLocalResourceRoots(
   extensionUri: vscode.Uri,
   documentUri: vscode.Uri,
@@ -598,14 +551,9 @@ function detectEndOfLine(text: string): vscode.EndOfLine {
   return text.includes('\r\n') ? vscode.EndOfLine.CRLF : vscode.EndOfLine.LF;
 }
 
-async function writeClipboard(text: string, format: CopyFormat): Promise<void> {
+async function writeClipboard(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  vscode.window.setStatusBarMessage(
-    format === 'confluence'
-      ? 'Copied as Confluence-compatible HTML'
-      : 'Copied as HTML',
-    2000,
-  );
+  vscode.window.setStatusBarMessage('Copied as HTML', 2000);
 }
 
 function makeNonce(): string {

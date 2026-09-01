@@ -1,5 +1,3 @@
-export type CopyFormat = 'html' | 'confluence';
-
 export interface SerializedSelectionPosition {
   path: number[];
   nodeIndex: number;
@@ -19,18 +17,18 @@ export interface SerializedEditState {
 
 export type ExtensionToWebviewMessage =
   // `restored` carries unsaved content recovered from a previous view session
-  // (already three-way merged against the current document); the view mounts
-  // it as unsaved changes instead of the document text.
+  // (already three-way merged against the current document). The view mounts it as
+  // unsaved changes instead of the document's text.
   | { type: 'init'; html: string; restored?: string }
   | { type: 'documentChanged'; html: string }
-  // Snapshot request: the host needs the current view serialization (save,
-  // save-as, backup). Answered with a `fileData` message echoing `requestId`.
+  // Snapshot request: the host needs the current view's serialization (save, save
+  // as, backup). Answer with a `fileData` message echoing `requestId`.
   | { type: 'getFileData'; requestId: number; forHistory?: boolean }
-  // `ok: false` means the merged content could not be applied to the document;
-  // the view keeps its unsaved state instead of syncing to `html`.
+  // `ok: false` means the merged result could not be applied to the document. The
+  // view does not sync to `html` and keeps its unsaved state.
   | { type: 'saveResult'; html: string; ok: boolean }
-  // Revert File: discard the view's unsaved changes and remount `html` (the
-  // text buffer content) as the new clean state.
+  // Revert the file: discard the view's unsaved changes and mount `html` (the text
+  // buffer's content) as the new clean state.
   | { type: 'revert'; html: string }
   | {
       type: 'applyHistoryState';
@@ -39,14 +37,14 @@ export type ExtensionToWebviewMessage =
       selection: SerializedSelection | null;
     }
   | { type: 'flushHistory'; requestId: number }
-  // Integration-test hook: replace the live view without touching the host
-  // document, then route it through the normal edit/save pipeline.
+  // Integration-test hook: replaces the live view without touching the host-side
+  // document, exercising the normal edit and save pipeline.
   | { type: 'testSetHtml'; html: string }
   | { type: 'testRequestSave' }
-  // Integration-test hook: make the view post an `openRelativeFile` message so
-  // the host's relative-link handler is exercised through the real channel.
+  // Integration-test hook: makes the view post an `openRelativeFile` message, so the
+  // host's relative-link handler runs over the real message channel.
   | { type: 'testOpenRelativeFile'; href: string }
-  | { type: 'copyToClipboard'; format: CopyFormat };
+  | { type: 'copyToClipboard' };
 
 export type WebviewToExtensionMessage =
   | { type: 'ready' }
@@ -58,16 +56,16 @@ export type WebviewToExtensionMessage =
     }
   | { type: 'historyStateApplied'; requestId: number }
   | { type: 'historyFlushed'; requestId: number }
-  // Ask the host to run VSCode's save flow for this document (toolbar button
-  // and the in-view Ctrl+S both route through here).
+  // Asks the host to run VSCode's save flow for this document (both the toolbar
+  // button and Ctrl+S inside the view go through here).
   | { type: 'requestSave' }
-  // Response to `getFileData`. `null` means the view is not initialized yet
-  // (no `init` received), so there is nothing to merge.
+  // The reply to `getFileData`. `null` means the view is not initialized yet (it has
+  // not received `init`), so there is nothing to merge.
   | { type: 'fileData'; requestId: number; html: string | null; baseHtml: string | null }
-  // Unsaved view content, streamed so the host always holds a fresh copy for
-  // hot-exit backups and as a save fallback while the webview is unreachable.
+  // Unsaved view content. Streamed so the host always holds the latest copy, for the
+  // hot-exit backup and as the save fallback when the Webview is unreachable.
   | { type: 'backup'; html: string; baseHtml: string }
-  // Open a relative link outside the webview so navigation cannot replace the
-  // editor page. The host resolves and validates the literal href.
+  // Relative links open outside the Webview so that navigation never replaces the
+  // editor's page. The host resolves and validates the href string it receives.
   | { type: 'openRelativeFile'; href: string }
-  | { type: 'clipboardWrite'; text: string; format: CopyFormat };
+  | { type: 'clipboardWrite'; text: string };

@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.9-F59E0B?style=for-the-badge" alt="Version 0.1.9" />
+  <img src="https://img.shields.io/badge/version-0.1.10-F59E0B?style=for-the-badge" alt="Version 0.1.10" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -29,6 +29,7 @@ A VS Code extension that turns plain `.html` files into a **modern, intuitive WY
 - [🚀 Features at a glance](#-features-at-a-glance)
 - [🧩 Features in detail](#-features-in-detail)
   - [✍️ WYSIWYG editing (inline)](#️-wysiwyg-editing-inline)
+  - [📊 Mermaid diagrams](#-mermaid-diagrams)
   - [💬 Inline comment annotations](#-inline-comment-annotations)
   - [✅ List editing](#-list-editing)
   - [ℹ️ Alert blockquotes](#ℹ️-alert-blockquotes)
@@ -54,7 +55,7 @@ Coding agents and humans both need to read and write the same documents — desi
 ## 🚀 Getting started
 
 1. **Install** — search **Agentic HTML Visual Editor** in the VS Code Extensions view and install it (or open the [Marketplace page](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor)).
-2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInVisualEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInTextEditor`) switches it back.
+2. **Open any `.html` file, then click _Open in WYSIWYG_** in the editor title bar (`ahve.openInWysiwygEditor`) to switch that tab into the visual editor. **Open in HTML** (`ahve.openInHtmlEditor`) switches it back.
 3. **Edit it like a document** — type directly, or use the toolbar, the selection floating menu, and markdown-style shortcuts. Press `Ctrl+S` / `Cmd+S` to write your changes back into the `.html` source. See [Features in detail](#-features-in-detail) for everything you can do.
 
 > **Opt-in by design.** The default editor for `.html` stays VS Code's text editor; the view changes only when you press one of those title-bar buttons. If the current editor has unsaved changes, VS Code's standard Save / Don't Save / Cancel prompt completes before the view switches.
@@ -130,6 +131,10 @@ Notes:
 - **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
   `<pre>` and `<table>` subtrees are treated as opaque, so their internal
   whitespace is preserved exactly.
+- **Mermaid diagrams:** use either `<pre class="mermaid">…</pre>` or
+  `<pre><code class="language-mermaid">…</code></pre>`. The view renders both as
+  diagrams and preserves the chosen source form. Do not add a Mermaid `<script>`;
+  the renderer is bundled with the extension.
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
@@ -187,7 +192,8 @@ per-element intent. The properties that carry real, user-meaningful meaning
 
 Avoid font, spacing, border, and layout styling; let the bundled CSS own the
 look. Never add `class` for styling — there is no external stylesheet to match
-it, and pasted `class` attributes are dropped.
+it, and pasted `class` attributes are dropped. The only semantic class
+exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 
@@ -281,6 +287,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
   or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
   are dropped.
 - **No external CSS/JS:** external stylesheets and scripts are not loaded.
+  Mermaid support is provided by the extension's own bundled runtime.
 - **Forms render but don't submit:** a `<form>` shows but submission is disabled.
 
 ## Quick checklist before delivering
@@ -289,7 +296,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
       `script`/`iframe`/`style`/`on*`/unsafe URLs.
 - [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
-      and no styling `class` attributes.
+      and no styling `class` attributes (apart from the two Mermaid tokens).
 - [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
       `details` has `<summary>` first and `open` only when it should start open.
 - [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
@@ -316,6 +323,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
 | ▦ **Tables** | Insert, edit, merge/split, header toggle, and drag-resize columns |
+| 📊 **Mermaid** | Insert, render, edit, and delete bundled, theme-aware Mermaid diagrams without a CDN |
 | 📋 **Clipboard** | Copy clean HTML (selection or whole body) and paste sanitized rich HTML or plain text |
 
 ---
@@ -326,7 +334,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 
 - Targets `.html` files.
 - Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
-- Switching between the active HTML text tab and the WYSIWYG view closes the current tab first and opens its replacement in the same editor group. Canceling VS Code's close prompt leaves the current tab open and does not switch views. If the replacement is already open, it is revealed without closing the current tab.
+- Switching between the active HTML text tab and the WYSIWYG view opens the replacement in the invoking editor group before closing the current tab, so the correct group — including one in an auxiliary window — stays open. Canceling VS Code's close prompt removes the replacement and restores the original state. If the replacement is already open, it is revealed without closing the current tab.
 - The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
 - Undo/redo uses VS Code's standard history (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for WYSIWYG edits. History entries remain available after saving.
 - The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first). The same merge covers every path where view content meets the source — undo/redo after a save, a switch between views, and a hot-exit restore.
@@ -348,7 +356,32 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - **Lists:** `ul`, `ol`, `li` (created and nested from within the editor — see *List editing*)
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` (with `colspan`, `rowspan`, `scope`)
 - **Media:** `img` (insert from the toolbar using a relative path or HTTP/HTTPS URL, with optional alt text; relative paths such as `./images/foo.png` are resolved from the HTML file's directory)
+- **Diagrams:** `<pre class="mermaid">` and `<pre><code class="language-mermaid">` source blocks
 - **Custom tags:** `<comment>`, `<comment-body>`, `<comment-reply>` (below)
+
+### 📊 Mermaid diagrams
+
+Use either supported source form; no `<script>` or CDN reference belongs in the document:
+
+```html
+<pre class="mermaid">graph TD
+  A --> B
+</pre>
+
+<pre><code class="language-mermaid">sequenceDiagram
+  A->>B: Hello
+</code></pre>
+```
+
+The WYSIWYG view lazily loads its bundled Mermaid runtime, renders the diagram
+with the active VS Code light/dark theme, and keeps the source form unchanged on
+save. Use the **Mermaid** toolbar button to insert a diagram at the current
+caret; its source dialog opens immediately, and Cancel leaves the document
+unchanged. Click an existing diagram (or focus it and press Enter/Space) to edit
+its source or delete the entire diagram with **Delete diagram**. Apply, insert,
+and delete each create one undoable edit. Invalid syntax remains safely editable
+and is shown as an error card. Generated SVG is presentation-only and is never
+written to the HTML or copied in place of the Mermaid source.
 
 ### 💬 Inline comment annotations
 
@@ -447,7 +480,7 @@ Tables can be created and edited from the WYSIWYG view. Insert tables from the t
 
 ### 📋 Clipboard copy/paste
 
-**Copy as HTML** copies clean HTML to the clipboard: the current selection, or — when nothing is selected — the whole document body. (Copy/cut from within the editor also writes this same clean HTML rather than the browser's style-laden contenteditable markup.) Comment annotations are private to the editor, so they are stripped from the copied HTML — only the commented-on text, with its inline markup, is exported.
+**Copy as HTML** copies clean HTML to the clipboard: the current selection, or — when nothing is selected — the whole document body. (Copy/cut from within the editor also writes this same clean HTML rather than the browser's style-laden contenteditable markup.) Comment annotations are private to the editor, so they are stripped from the copied HTML — only the commented-on text, with its inline markup, is exported. Mermaid previews are likewise reduced back to their original source blocks.
 
 Pasted HTML is sanitized before insertion. Block-level fragments pasted into a paragraph or heading are inserted beside the current block instead of creating invalid nested blocks, and visually unselected empty boundary blocks are trimmed from copied selections.
 
