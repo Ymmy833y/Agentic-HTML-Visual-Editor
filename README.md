@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.9-F59E0B?style=for-the-badge" alt="Version 0.1.9" />
+  <img src="https://img.shields.io/badge/version-0.1.10-F59E0B?style=for-the-badge" alt="Version 0.1.10" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -334,7 +334,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 
 - Targets `.html` files.
 - Edits in the WYSIWYG view are held in the view and synced into the underlying HTML source when you save (`Ctrl+S` / `Cmd+S`, or the toolbar save button); the save button shows a dot while unsaved changes exist.
-- Switching between the active HTML text tab and the WYSIWYG view closes the current tab first and opens its replacement in the same editor group. Canceling VS Code's close prompt leaves the current tab open and does not switch views. If the replacement is already open, it is revealed without closing the current tab.
+- Switching between the active HTML text tab and the WYSIWYG view opens the replacement in the invoking editor group before closing the current tab, so the correct group — including one in an auxiliary window — stays open. Canceling VS Code's close prompt removes the replacement and restores the original state. If the replacement is already open, it is revealed without closing the current tab.
 - The WYSIWYG tab has its own native dirty indicator (●), independent of the text editor tab: editing only the HTML source marks only the text tab dirty, editing only the WYSIWYG view marks only the WYSIWYG tab dirty, and editing both marks both.
 - Undo/redo uses VS Code's standard history (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) for WYSIWYG edits. History entries remain available after saving.
 - The sync is applied as a three-way diff (like git): if the HTML source was changed directly while you were editing in the view, non-overlapping changes from both sides are merged, and where both sides changed the same lines, both versions are kept (document side first). The same merge covers every path where view content meets the source — undo/redo after a save, a switch between views, and a hot-exit restore.

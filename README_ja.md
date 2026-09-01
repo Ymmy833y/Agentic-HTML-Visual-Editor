@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.9-F59E0B?style=for-the-badge" alt="Version 0.1.9" />
+  <img src="https://img.shields.io/badge/version-0.1.10-F59E0B?style=for-the-badge" alt="Version 0.1.10" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -336,7 +336,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 
 - `.html` を対象とする。
 - WYSIWYG ビュー上の編集内容はビュー内に保持され、保存操作（`Ctrl+S` / `Cmd+S`、またはツールバーの保存ボタン）で裏の HTML ソースへ同期される。未保存の変更がある間は保存ボタンにドットが表示される。
-- 操作中の HTML テキストタブと WYSIWYG ビューを切り替えるときは、現在のタブを先に閉じてから同じエディタグループに切り替え先を開く。VSCode の確認でキャンセルした場合は現在のタブを維持し、切り替えない。切り替え先がすでに開いている場合は、現在のタブを閉じずに既存のタブを表示する。
+- 操作中の HTML テキストタブと WYSIWYG ビューを切り替えるときは、呼び出し元のエディタグループに切り替え先を開いてから現在のタブを閉じるため、別ウィンドウ内のグループも含めて正しいグループが維持される。VSCode の確認でキャンセルした場合は切り替え先を閉じて元の状態へ戻す。切り替え先がすでに開いている場合は、現在のタブを閉じずに既存のタブを表示する。
 - WYSIWYG タブはテキストエディタタブとは独立した固有の未保存インジケーター（●）を持つ。HTML ソースだけを編集した場合はテキストタブのみ、WYSIWYG ビューだけを編集した場合は WYSIWYG タブのみ、両方を編集した場合は両方のタブが未保存になる。
 - undo/redo は VSCode 標準の履歴（`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`）を使う。保存後も WYSIWYG 編集の履歴は残る。
 - 同期は git と同様の 3-way 差分適用で行われる。ビューの編集中に HTML ソースが直接変更されていた場合、重ならない変更は両方マージされ、同じ行が両側で変更されていた場合は両方の内容が残る（ドキュメント側が先）。このマージは、ビューの内容とソースが突き合わされるすべての経路（保存後の undo/redo、ビューの切り替え、ホット終了からの復元）に共通で適用される。

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-09-01
+
+### Added
+
+- Mermaid diagram support for `<pre class="mermaid">` and `<pre><code class="language-mermaid">` source blocks: the WYSIWYG view lazily loads a bundled Mermaid runtime, renders theme-aware previews, and provides toolbar insertion plus accessible source editing and deletion; each operation is undoable, invalid syntax remains editable, and generated SVG is never saved or copied in place of the original source
+
+### Changed
+
+- Rename the editor-switching command IDs from `ahve.openInVisualEditor` / `ahve.openInTextEditor` to `ahve.openInWysiwygEditor` / `ahve.openInHtmlEditor`, matching their visible command titles
+- Consolidate clipboard export around **Copy as HTML** and remove the separate `ahve.copyAsConfluenceHtml` command
+- Restrict VSIX contents to the runtime bundles, extension and Marketplace assets, manifest, documentation, and license files required by the published extension
+
+### Fixed
+
+- Keep HTML/WYSIWYG switching in the editor group and window where it was invoked, including when the same file is open in multiple groups or the command is used from an auxiliary window; opening the replacement before closing the source also keeps a last-tab group alive, while canceling the close restores the original state
+
 ## [0.1.9] - 2026-08-08
 
 ### Fixed
