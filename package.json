@@ -140,7 +140,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.85.0",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^5.0.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.28.1",
@@ -159,7 +159,7 @@
     "serialize-javascript": "7.0.5",
     "diff": "8.0.3",
     "undici": "7.29.0",
-    "js-yaml": "4.3.1"
+    "js-yaml": "4.3.2"
   },
   "dependencies": {
     "mermaid": "^11.17.2",
