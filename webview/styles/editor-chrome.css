@@ -390,3 +390,43 @@
 ::highlight(ahve-search-current) {
   background-color: var(--ahve-search-current);
 }
+
+/* Code-block copy controls live outside #ahve-root so they never enter saved HTML. */
+.ahve-code-copy-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.ahve-code-copy-btn {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--ahve-muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.ahve-code-copy-btn:hover,
+.ahve-code-copy-btn:focus-visible {
+  background: var(--ahve-code-bg);
+  color: var(--ahve-fg);
+  border-color: var(--ahve-border);
+}
+.ahve-code-copy-btn:focus-visible {
+  outline: 1px solid var(--ahve-accent);
+  outline-offset: 1px;
+}
+.ahve-code-copy-btn[data-state='copied'] {
+  color: var(--vscode-testing-iconPassed, var(--ahve-accent));
+}
+.ahve-code-copy-btn[hidden] {
+  display: none;
+}

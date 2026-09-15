@@ -54,16 +54,49 @@ async function editViewAndWaitDirty(
   api: AhveTestApi,
   uri: vscode.Uri,
   html: string,
+  timeoutMs?: number,
 ): Promise<void> {
   assert.strictEqual(api.setWysiwygTestHtml(uri, html), true, 'the WYSIWYG panel should be live');
   await waitFor(
     () => findCustomTab(uri)?.isDirty === true,
     'the WYSIWYG tab should be dirty after a view edit',
+    timeoutMs,
   );
 }
 
 suite('Save paths', () => {
   suiteSetup(activateExtension);
+
+  test('a view edit sent before the view has booted still reaches it', async () => {
+    const uri = fixtureUri('save-early-edit.html');
+    const initial = htmlDocument(['<p>before the early edit</p>']);
+    const viewEdited = htmlDocument(['<p>after the early edit</p>']);
+    await writeFileText(uri, initial);
+
+    try {
+      const api = testApi();
+      // Deliberately no settle delay: the edit is posted while the Webview is
+      // still starting up. It must not overtake the view's `ready`/`init`
+      // handshake — a view with no sync baseline drops the edit, and the `init`
+      // that follows remounts the document over it, leaving the tab clean.
+      await vscode.commands.executeCommand(
+        'vscode.openWith',
+        uri,
+        'ahve.editor',
+        vscode.ViewColumn.One,
+      );
+      await editViewAndWaitDirty(api, uri, viewEdited, 15000);
+
+      const view = await api.getWysiwygTestHtml(uri);
+      assert.ok(
+        view?.includes('after the early edit'),
+        'the early edit should be the content the view holds',
+      );
+    } finally {
+      await revertAndCloseAllEditors();
+      await deleteIfExists(uri);
+    }
+  });
 
   test('merges a concurrent external change with the unsaved view edit', async () => {
     const uri = fixtureUri('save-merge.html');

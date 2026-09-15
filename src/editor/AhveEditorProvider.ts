@@ -10,6 +10,7 @@ import { mergeHistoryTransition } from './history';
 import { openRelativeFileLink } from './relativeFileLinks';
 import type { AhveSessionRegistry } from './session-registry';
 import type {
+  ClipboardWriteKind,
   ExtensionToWebviewMessage,
   SerializedEditState,
   WebviewToExtensionMessage,
@@ -84,24 +85,27 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     return true;
   }
 
+  /**
+   * Test hook: mounts `html` in the view as an edit. The message waits for the
+   * view's `ready`/`init` handshake — a hook that overtakes `init` would be
+   * dropped by a view that has no sync baseline yet, and the `init` that follows
+   * would remount the document over it, leaving the tab clean.
+   */
   public setTestViewHtml(uri: vscode.Uri, html: string): boolean {
-    const document = this.sessions.find(uri);
-    if (!document?.panel) return false;
-    void document.panel.webview.postMessage({ type: 'testSetHtml', html });
-    return true;
+    return this.sessions.find(uri)?.postWhenViewReady({ type: 'testSetHtml', html }) ?? false;
   }
 
   public async getTestViewHtml(uri: vscode.Uri): Promise<string | null> {
     const document = this.sessions.find(uri);
     if (!document) return null;
+    // A snapshot request before `init` is answered with null; wait the handshake
+    // out so a single read does not have to be retried.
+    await document.whenViewReady();
     return (await document.requestFileData()).html;
   }
 
   public requestTestViewSave(uri: vscode.Uri): boolean {
-    const document = this.sessions.find(uri);
-    if (!document?.panel) return false;
-    void document.panel.webview.postMessage({ type: 'testRequestSave' });
-    return true;
+    return this.sessions.find(uri)?.postWhenViewReady({ type: 'testRequestSave' }) ?? false;
   }
 
   public openTestRelativeFile(uri: vscode.Uri, href: string): Promise<boolean> {
@@ -114,10 +118,9 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
    * the real document uri.
    */
   public openTestRelativeFileViaWebview(uri: vscode.Uri, href: string): boolean {
-    const document = this.sessions.find(uri);
-    if (!document?.panel) return false;
-    void document.panel.webview.postMessage({ type: 'testOpenRelativeFile', href });
-    return true;
+    return (
+      this.sessions.find(uri)?.postWhenViewReady({ type: 'testOpenRelativeFile', href }) ?? false
+    );
   }
 
   public async openCustomDocument(
@@ -150,6 +153,8 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
     _token: vscode.CancellationToken,
   ): void {
     document.panel = webviewPanel;
+    // A resolve always starts a fresh webview, which redoes the handshake below.
+    document.resetViewReady();
 
     webviewPanel.webview.options = {
       enableScripts: true,
@@ -194,6 +199,9 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
               document.lastKnown = undefined;
             }
             post({ type: 'init', html: payload.html, restored: payload.restored });
+            // The view now has a sync baseline, so messages that depend on one
+            // (the test hooks) may be delivered.
+            document.markViewReady();
             break;
           }
           case 'editCommitted': {
@@ -234,7 +242,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             await openRelativeFileLink(document.uri, message.href);
             break;
           case 'clipboardWrite':
-            await writeClipboard(message.text);
+            await writeClipboard(message.text, message.kind);
             break;
         }
       },
@@ -551,9 +559,9 @@ function detectEndOfLine(text: string): vscode.EndOfLine {
   return text.includes('\r\n') ? vscode.EndOfLine.CRLF : vscode.EndOfLine.LF;
 }
 
-async function writeClipboard(text: string): Promise<void> {
+async function writeClipboard(text: string, kind: ClipboardWriteKind): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  vscode.window.setStatusBarMessage('Copied as HTML', 2000);
+  vscode.window.setStatusBarMessage(kind === 'code' ? 'Copied code' : 'Copied as HTML', 2000);
 }
 
 function makeNonce(): string {

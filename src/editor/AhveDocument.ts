@@ -53,12 +53,69 @@ export class AhveDocument implements vscode.CustomDocument {
   private readonly pendingHistoryFlushes = new Map<number, () => void>();
   private nextRequestId = 1;
 
+  /** Resolves when the current view has completed its `ready` → `init` handshake. */
+  private viewReady: Promise<void>;
+  private resolveViewReady: () => void = () => undefined;
+
   constructor(
     public readonly uri: vscode.Uri,
     pendingRestore: UnsavedBackup | undefined,
     private readonly onDispose?: () => void,
   ) {
     this.pendingRestore = pendingRestore;
+    this.viewReady = this.armViewReady();
+  }
+
+  private armViewReady(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.resolveViewReady = resolve;
+    });
+  }
+
+  /**
+   * Re-arms the readiness gate. Called whenever a panel is resolved: moving or
+   * reloading a panel recreates its webview, which redoes the handshake.
+   */
+  public resetViewReady(): void {
+    this.viewReady = this.armViewReady();
+  }
+
+  /** The host has answered the view's `ready` with `init`; the view is usable. */
+  public markViewReady(): void {
+    this.resolveViewReady();
+  }
+
+  /**
+   * Resolves once the view has been initialized. Resolves right away when there
+   * is no panel (nothing to wait for), and after `timeoutMs` when the handshake
+   * never completes (webview blocked or torn down) so no caller hangs on it.
+   */
+  public whenViewReady(timeoutMs = 10000): Promise<void> {
+    if (!this.panel) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      void this.viewReady.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Posts `message` once the view has finished its handshake. A message that
+   * overtakes `init` reaches a view whose sync state is not set up yet: the edit
+   * it triggers has no baseline and is dropped, and the `init` that follows
+   * remounts the document over it. Returns whether there is a live panel at all.
+   */
+  public postWhenViewReady(message: ExtensionToWebviewMessage): boolean {
+    const panel = this.panel;
+    if (!panel) return false;
+    void this.whenViewReady().then(() => {
+      // The panel may have been replaced or disposed while the gate was closed.
+      if (this.panel !== panel) return;
+      void panel.webview.postMessage(message);
+    });
+    return true;
   }
 
   /**
@@ -160,6 +217,9 @@ export class AhveDocument implements vscode.CustomDocument {
     this.pendingHistoryApplies.clear();
     for (const resolve of this.pendingHistoryFlushes.values()) resolve();
     this.pendingHistoryFlushes.clear();
+    // Release anyone waiting on the handshake instead of making them sit out the
+    // timeout; they check the panel identity before doing anything.
+    this.resolveViewReady();
     this.panel = undefined;
     this.onDispose?.();
   }

@@ -15,6 +15,8 @@ export interface SerializedEditState {
   selection: SerializedSelection | null;
 }
 
+export type ClipboardWriteKind = 'html' | 'code';
+
 export type ExtensionToWebviewMessage =
   // `restored` carries unsaved content recovered from a previous view session
   // (already three-way merged against the current document). The view mounts it as
@@ -68,4 +70,4 @@ export type WebviewToExtensionMessage =
   // Relative links open outside the Webview so that navigation never replaces the
   // editor's page. The host resolves and validates the href string it receives.
   | { type: 'openRelativeFile'; href: string }
-  | { type: 'clipboardWrite'; text: string };
+  | { type: 'clipboardWrite'; text: string; kind: ClipboardWriteKind };
