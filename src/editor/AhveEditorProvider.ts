@@ -10,6 +10,7 @@ import { mergeHistoryTransition } from './history';
 import { openRelativeFileLink } from './relativeFileLinks';
 import type { AhveSessionRegistry } from './session-registry';
 import type {
+  ClipboardWriteKind,
   ExtensionToWebviewMessage,
   SerializedEditState,
   WebviewToExtensionMessage,
@@ -234,7 +235,7 @@ export class AhveEditorProvider implements vscode.CustomEditorProvider<AhveDocum
             await openRelativeFileLink(document.uri, message.href);
             break;
           case 'clipboardWrite':
-            await writeClipboard(message.text);
+            await writeClipboard(message.text, message.kind);
             break;
         }
       },
@@ -551,9 +552,9 @@ function detectEndOfLine(text: string): vscode.EndOfLine {
   return text.includes('\r\n') ? vscode.EndOfLine.CRLF : vscode.EndOfLine.LF;
 }
 
-async function writeClipboard(text: string): Promise<void> {
+async function writeClipboard(text: string, kind: ClipboardWriteKind): Promise<void> {
   await vscode.env.clipboard.writeText(text);
-  vscode.window.setStatusBarMessage('Copied as HTML', 2000);
+  vscode.window.setStatusBarMessage(kind === 'code' ? 'Copied code' : 'Copied as HTML', 2000);
 }
 
 function makeNonce(): string {

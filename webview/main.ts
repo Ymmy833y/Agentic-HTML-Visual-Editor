@@ -25,6 +25,7 @@ import { openImageDialog } from './ui/image-dialog';
 import { prepareCopy } from './features/clipboard/copy';
 import { cleanupPastedFragment } from './features/clipboard/paste-sanitize';
 import { insertFragmentAtCursor } from './features/clipboard/insert';
+import { mountCodeBlockCopy, type CodeBlockCopyController } from './features/code-block/code-block-copy';
 import * as cdom from './features/comment/comment-dom';
 import { addComment } from './features/comment/comment-commands';
 import { mountCommentPopup } from './features/comment/comment-popup';
@@ -82,6 +83,7 @@ let suffix = '';
 // below, before any host message can trigger a remount.
 let cellSelection: CellSelectionHandle | null = null;
 let mermaidController: MermaidController | null = null;
+let codeBlockCopyController: CodeBlockCopyController | null = null;
 
 // --- Sync state ---
 // The document's text as of when the current DOM was mounted or last synced. This is
@@ -127,6 +129,7 @@ function mountFromSource(source: string): void {
   // reference can never become the origin of a range in the new tree.
   cellSelection?.reset();
   mermaidController?.refresh();
+  codeBlockCopyController?.refresh();
 }
 
 function serialize(): string | null {
@@ -169,6 +172,12 @@ mermaidController = mountMermaid(root, {
   runtimeUrl: mermaidRuntimeUrl,
   nonce: bootstrapNonce,
   onEdit: (label) => editor.notifyChanged(label),
+});
+
+codeBlockCopyController = mountCodeBlockCopy(root, {
+  onCopy: (text) => {
+    vscode.postMessage({ type: 'clipboardWrite', text, kind: 'code' });
+  },
 });
 
 // Asks the extension host to run VSCode's save flow for this document. The host then
@@ -248,7 +257,7 @@ async function handleImage(): Promise<void> {
 
 function doCopy(): void {
   if (!root) return;
-  vscode.postMessage({ type: 'clipboardWrite', text: prepareCopy(root) });
+  vscode.postMessage({ type: 'clipboardWrite', text: prepareCopy(root), kind: 'html' });
 }
 
 const commentPopup = mountCommentPopup(root, {
@@ -718,6 +727,7 @@ window.addEventListener('beforeunload', () => {
   commentPopup.flushPending();
   history.flush();
   editor.flush();
+  codeBlockCopyController?.dispose();
   mermaidController?.dispose();
 });
 
