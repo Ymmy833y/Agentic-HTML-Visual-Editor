@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-09-15
+
+### Added
+
+- Copy button beside every code block in the WYSIWYG view: it copies the block's text exactly as written (no HTML markup, no selection needed), confirms with a transient *Copied* state and a status-bar message, and follows the block as the document scrolls or the window resizes. The buttons are drawn in a layer outside the editable content, so they never reach the saved HTML; Mermaid source blocks are excluded because they are edited through their own dialog
+
+### Changed
+
+- Let the WYSIWYG content area span the full width of the editor pane instead of capping it at 960px, so a wide window or a split group is used in full
+
 ## [0.1.10] - 2026-09-01
 
 ### Added

@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.10-F59E0B?style=for-the-badge" alt="Version 0.1.10" />
+  <img src="https://img.shields.io/badge/version-0.1.11-F59E0B?style=for-the-badge" alt="Version 0.1.11" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -23,6 +23,7 @@
 
 ## 📑 目次
 
+- [📑 目次](#-目次)
 - [✨ この拡張が解決すること](#-この拡張が解決すること)
 - [🚀 はじめに](#-はじめに)
 - [🤖 AI エージェントとの使い方](#-ai-エージェントとの使い方)
@@ -83,7 +84,7 @@
 ````md
 ---
 name: html-result-output
-description: Use when writing an HTML result/deliverable file (design notes, research reports, task lists, summaries) that the user will open in the Agentic HTML Visual Editor VSCode extension. Covers the supported tag set (including collapsible details, strikethrough, and GitHub-style alert blockquotes), the custom <comment> annotation tags, what the extension strips or forbids, and how to keep the markup minimal and semantic.
+description: Use when writing an HTML result/deliverable file (design notes, research reports, task lists, summaries) that the user will open in the Agentic HTML Visual Editor VSCode extension. Covers the supported tag set (including collapsible details, strikethrough, GitHub-style alert blockquotes, and Mermaid diagram source blocks), the custom <comment> annotation tags, what the extension strips or forbids, and how to keep the markup minimal and semantic.
 ---
 
 # Authoring HTML result files for Agentic HTML Visual Editor
@@ -124,6 +125,7 @@ Stay inside this set — anything else may be stripped or render unstyled:
 - **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`,
   `col` — with `colspan`, `rowspan`, `scope`
 - **Media:** `img` (see below)
+- **Diagrams:** `pre` carrying Mermaid source (see *Mermaid diagrams* below)
 - **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
 
 Notes:
@@ -133,17 +135,17 @@ Notes:
 - **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
   `<pre>` and `<table>` subtrees are treated as opaque, so their internal
   whitespace is preserved exactly.
-- **Mermaid diagrams:** use either `<pre class="mermaid">…</pre>` or
-  `<pre><code class="language-mermaid">…</code></pre>`. The view renders both as
-  diagrams and preserves the chosen source form. Do not add a Mermaid `<script>`;
-  the renderer is bundled with the extension.
+- **Mermaid diagrams:** emit the source as a `<pre>` block — the two supported
+  forms and the rules that govern them are in *Mermaid diagrams* below.
 - **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
   URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
   file's own directory. Optional `width`/`height` may be set via inline `style`.
-- **Links:** follow any link in the WYSIWYG view with Ctrl+click (Cmd+click on
-  macOS), leaving an ordinary click available for editing. A relative link to a
-  local file (e.g. `<a href="./notes.html">`) opens that file in a VSCode tab;
-  use relative hrefs to cross-link companion documents.
+- **Links:** in the view a link is followed with **Ctrl+click** (Cmd+click on
+  macOS); a plain click places the caret so the link text stays editable. A
+  relative link to a local file (e.g. `<a href="./notes.html">`) opens that file
+  in a VSCode tab instead of navigating the view away, resolved within the
+  document's workspace folder; other links keep their native behavior. Use
+  relative hrefs to cross-link companion documents.
 
 ## Collapsible sections (`details` / `summary`)
 
@@ -178,6 +180,43 @@ fixed English label, icon, and accent colour. A plain `<blockquote>` (no
 `data-alert`) remains an ordinary quotation; an unrecognized `data-alert` value
 also renders as an ordinary blockquote.
 
+## Mermaid diagrams
+
+Write a diagram as Mermaid **source** in either supported form. The view renders
+it with its own bundled Mermaid runtime and preserves the form you chose:
+
+```html
+<pre class="mermaid">graph TD
+  A[Draft] --> B[Review]
+</pre>
+
+<pre><code class="language-mermaid">sequenceDiagram
+  Agent->>Human: deliverable.html
+</code></pre>
+```
+
+Rules:
+
+- **Never add a `<script>` or a CDN reference.** The runtime ships with the
+  extension and loads on demand; a `<script>` is stripped on render anyway.
+- **Emit source, never SVG.** The rendered diagram is presentation only — it is
+  never written back to the file and never copied. Do not paste generated SVG
+  into the document as a substitute for the source block.
+- **Don't pin a theme** (`%%{init: {'theme': …}}%%`). The view renders in the
+  active VSCode light/dark theme, and a pinned theme fights it.
+- **Keep labels plain text.** Rendering runs with `securityLevel: 'strict'` and
+  `htmlLabels: false`, so `click` directives are inert and HTML inside a label
+  shows up as literal text.
+- **Escape `<` and `&`** as `&lt;` / `&amp;` inside the source, as in any
+  `<pre>` — otherwise the parser rewrites them and the saved file drifts.
+- **Stay inside the runtime limits:** 50,000 characters of source and 500 edges
+  per diagram. Split a bigger picture into several diagrams.
+- Any diagram type the bundled Mermaid 11 supports (flowchart, sequence, class,
+  state, ER, gantt, pie, mindmap, timeline, …) renders. Invalid syntax is not
+  destructive: the block shows an error card and the source stays editable.
+- The `<pre>` is opaque like a code block, so its indentation — which Mermaid is
+  sensitive to — survives the round trip exactly as written.
+
 ## Styling
 
 The extension bundles a modern default stylesheet, so unstyled semantic markup
@@ -196,6 +235,8 @@ Avoid font, spacing, border, and layout styling; let the bundled CSS own the
 look. Never add `class` for styling — there is no external stylesheet to match
 it, and pasted `class` attributes are dropped. The only semantic class
 exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
+Likewise never author a `data-ahve-*` attribute: those are the view's own
+transient UI state, written and removed as you edit and stripped on save.
 
 ## IMPORTANT — Custom `<comment>` annotation tags
 
@@ -291,6 +332,9 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 - **No external CSS/JS:** external stylesheets and scripts are not loaded.
   Mermaid support is provided by the extension's own bundled runtime.
 - **Forms render but don't submit:** a `<form>` shows but submission is disabled.
+- **Comment annotations are stripped from exported HTML** — see the note above.
+- **Mermaid previews are reduced back to their source block** on save and on
+  copy, so the file never accumulates rendered output.
 
 ## Quick checklist before delivering
 
@@ -301,6 +345,8 @@ Do not emit these — they are removed on render (and some are security-sensitiv
       and no styling `class` attributes (apart from the two Mermaid tokens).
 - [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
       `details` has `<summary>` first and `open` only when it should start open.
+- [ ] Mermaid diagrams are source blocks in one of the two supported forms —
+      no `<script>`, no CDN, no generated SVG, no pinned theme.
 - [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
       order (target → body → replies), and `contenteditable="false"` on its
       body/replies.
@@ -326,7 +372,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
 | ▦ **テーブル** | 挿入・編集・結合/分割・ヘッダー切替・ドラッグでの列幅調整 |
 | 📊 **Mermaid** | CDN 不要で、VS Code テーマに対応した Mermaid 図の挿入・表示・編集・削除 |
-| 📋 **クリップボード** | クリーンな HTML のコピーと、サニタイズ済みリッチ HTML / プレーンテキスト貼り付け |
+| 📋 **クリップボード** | クリーンな HTML のコピー、コードブロックのワンクリックコピー、サニタイズ済みリッチ HTML / プレーンテキスト貼り付け |
 
 ---
 
@@ -482,6 +528,8 @@ WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバ
 ### 📋 クリップボードのコピー/貼り付け
 
 **Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。Mermaid プレビューも同様に、生成 SVG ではなく元のソースブロックへ戻してコピーされる。
+
+**コードブロックのコピー** は、各コードブロックの横に表示されるボタンから行う。選択操作なしにブロックの中身をそのままのテキスト（HTML マークアップなし）でコピーし、ボタンは一時的に *Copied* 表示へ切り替わって完了を知らせる。ボタンは編集対象の本文の外側に描画されるため保存 HTML には一切含まれず、Mermaid のソースブロックは対象外（専用のダイアログから編集する）。
 
 貼り付けられた HTML は挿入前にサニタイズされる。段落や見出しの中にブロックレベルの断片を貼り付けた場合は、無効な入れ子ブロックを作らず現在のブロックの隣に挿入される。コピー時には、見た目上選択されていない空の境界ブロックも除去される。
 
