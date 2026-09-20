@@ -12,6 +12,11 @@ async function highlightSize(page: Page, name: string): Promise<number> {
   }, name);
 }
 
+/** Mirrors test-fixtures/sample.html: a resolved thread annotating a phrase. */
+const THREAD_DOC =
+  '<p>It shows <comment id="c-i27twz0q" data-resolved="">this phrase' +
+  '<comment-body>the note</comment-body></comment> inline.</p>';
+
 test.describe('In-document search (Ctrl+F)', () => {
   test('Ctrl+F opens the widget and Escape closes it', async ({ page }) => {
     await mountEditor(page, '<p>alpha beta gamma</p>');
@@ -116,6 +121,79 @@ test.describe('In-document search (Ctrl+F)', () => {
     await page.keyboard.press('Escape');
     expect(await highlightSize(page, 'ahve-search')).toBe(0);
     expect(await highlightSize(page, 'ahve-search-current')).toBe(0);
+  });
+
+  test('a thread-id query highlights the annotated text and opens the comment dialog', async ({
+    page,
+  }) => {
+    await mountEditor(page, THREAD_DOC);
+    await focusEditor(page);
+    await page.keyboard.press('Control+f');
+    await page.locator('.ahve-search-input').fill('c-i27twz');
+
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/1');
+    expect(await highlightSize(page, 'ahve-search')).toBe(1);
+
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+    await expect(popup.locator('.ahve-cp-body-display')).toHaveText('the note');
+  });
+
+  test('moving from a thread-id hit to a text hit closes the dialog again', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p>alpha</p><p>tag <comment id="c-alpha123">marked' +
+        '<comment-body>the note</comment-body></comment> end</p>',
+    );
+    await focusEditor(page);
+    await page.keyboard.press('Control+f');
+    await page.locator('.ahve-search-input').fill('alpha');
+
+    const popup = page.locator('#ahve-comment-popup');
+    // Document order: the text hit in the first paragraph comes first.
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/2');
+    await expect(popup).toBeHidden();
+
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.ahve-search-count')).toHaveText('2/2');
+    await expect(popup).toBeVisible();
+
+    await page.keyboard.press('Enter'); // wrap back to the text hit
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/2');
+    await expect(popup).toBeHidden();
+  });
+
+  test('pressing a widget button does not close the dialog it revealed', async ({ page }) => {
+    await mountEditor(page, THREAD_DOC);
+    await focusEditor(page);
+    await page.keyboard.press('Control+f');
+    await page.locator('.ahve-search-input').fill('c-i27twz');
+
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+
+    // The single hit means ↓ lands back on the same comment, so nothing
+    // re-opens the popup: it has to survive the mousedown on its own.
+    await page.locator('#ahve-search .ahve-search-btn', { hasText: '↓' }).click();
+    await expect(page.locator('.ahve-search-count')).toHaveText('1/1');
+    await expect(popup).toBeVisible();
+  });
+
+  test('Escape closes the widget first and the revealed dialog second', async ({ page }) => {
+    await mountEditor(page, THREAD_DOC);
+    await focusEditor(page);
+    await page.keyboard.press('Control+f');
+    await page.locator('.ahve-search-input').fill('c-i27twz');
+
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#ahve-search')).toBeHidden();
+    await expect(popup).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(popup).toBeHidden();
   });
 
   test('closing the widget clears a tooltip anchored to one of its buttons', async ({ page }) => {

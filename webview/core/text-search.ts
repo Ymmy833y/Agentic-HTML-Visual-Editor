@@ -1,9 +1,14 @@
-// Plain-text search over the editor's rendered content.
+// Search over the editor's rendered content, plus comment thread ids.
 //
 // Only the visible text is searched: tag names, attributes (e.g. an <a href>
 // URL), and structure are never matched — searching the raw HTML is the job of
 // VSCode's standard text editor. Text inside <comment-body>/<comment-reply>
 // (shown in the comment popup, not inline) is skipped.
+//
+// The one attribute that is searched is a <comment> element's `id`: a thread id
+// is how a human and an agent refer to the same annotation across the document
+// and the chat, so it has to be reachable from the find widget even though it
+// is never painted. See findCommentIdMatches for what that hit looks like.
 //
 // Matches are returned as live Range objects so the caller can paint them with
 // the CSS Custom Highlight API without mutating the DOM. A match may span
@@ -13,10 +18,26 @@
 
 import { isInCommentMeta } from '../shared/dom-utils';
 import { isInMermaidSource } from '../features/mermaid/mermaid-dom';
+import {
+  commentsInDocumentOrder,
+  firstNonEmptyTargetText,
+  lastNonEmptyTargetText,
+} from '../features/comment/comment-dom';
 
 export interface SearchOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
+}
+
+export interface SearchMatch {
+  /** The text to highlight and scroll to. */
+  range: Range;
+  /**
+   * The comment this hit came from, when the query matched its thread id rather
+   * than any visible text. The caller opens the comment popup for it: the id
+   * itself is invisible, so the popup is what "found it" looks like.
+   */
+  comment?: Element;
 }
 
 interface Segment {
@@ -28,12 +49,15 @@ interface Segment {
 }
 
 /**
- * Find every match of query in root's visible text. Returns ranges in document
- * order. An empty (or whitespace-only) query returns no matches.
+ * Find every match of query in root's visible text and comment thread ids.
+ * Returns matches in document order. An empty query returns no matches.
  */
-export function findMatches(root: HTMLElement, query: string, opts: SearchOptions): Range[] {
+export function findMatches(root: HTMLElement, query: string, opts: SearchOptions): SearchMatch[] {
   if (query === '') return [];
+  return merge(findTextMatches(root, query, opts), findCommentIdMatches(root, query, opts));
+}
 
+function findTextMatches(root: HTMLElement, query: string, opts: SearchOptions): SearchMatch[] {
   const segments: Segment[] = [];
   let flat = '';
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -53,7 +77,7 @@ export function findMatches(root: HTMLElement, query: string, opts: SearchOption
   const haystack = opts.caseSensitive ? flat : flat.toLowerCase();
   const needle = opts.caseSensitive ? query : query.toLowerCase();
 
-  const ranges: Range[] = [];
+  const matches: SearchMatch[] = [];
   let from = 0;
   for (;;) {
     const idx = haystack.indexOf(needle, from);
@@ -65,12 +89,93 @@ export function findMatches(root: HTMLElement, query: string, opts: SearchOption
       const [eNode, eOff] = locate(segments, matchEnd);
       range.setStart(sNode, sOff);
       range.setEnd(eNode, eOff);
-      ranges.push(range);
+      matches.push({ range });
     }
     // Advance past this match; guard against a zero-length needle.
     from = idx + Math.max(needle.length, 1);
   }
-  return ranges;
+  return matches;
+}
+
+/**
+ * One hit per comment whose thread id contains the query.
+ *
+ * A thread id is an opaque token, so it matches on a plain substring: the
+ * whole-word option is deliberately ignored (it would reject a partial id like
+ * "c-i27twz", which is exactly the kind of query this exists for), while the
+ * case-sensitivity option still applies so the two toggles do not disagree.
+ * Resolved threads match too — they stay on screen, only dimmed.
+ */
+function findCommentIdMatches(
+  root: HTMLElement,
+  query: string,
+  opts: SearchOptions,
+): SearchMatch[] {
+  const needle = opts.caseSensitive ? query : query.toLowerCase();
+  const matches: SearchMatch[] = [];
+  for (const comment of commentsInDocumentOrder(root)) {
+    const id = comment.getAttribute('id') ?? '';
+    const haystack = opts.caseSensitive ? id : id.toLowerCase();
+    // includes(), not a loop: a query occurring twice in one id is still one
+    // thread, and one thread is one hit.
+    if (haystack.includes(needle)) {
+      matches.push({ range: annotatedRange(comment), comment });
+    }
+  }
+  return matches;
+}
+
+/**
+ * What an id hit highlights: the comment's annotated text — the content before
+ * its <comment-body>, which is the part the reader sees. A comment whose
+ * annotated text is empty has nothing to paint, so the range collapses to a
+ * boundary before it; the hit still scrolls into view and still opens the popup.
+ */
+function annotatedRange(comment: Element): Range {
+  const range = document.createRange();
+  const first = firstNonEmptyTargetText(comment);
+  const last = lastNonEmptyTargetText(comment);
+  if (first && last) {
+    range.setStart(first, 0);
+    range.setEnd(last, last.data.length);
+  } else {
+    range.setStartBefore(comment);
+    range.collapse(true);
+  }
+  return range;
+}
+
+/**
+ * Interleave the two kinds of hit. Both lists are already in document order, so
+ * this is a linear merge. When a text hit and an id hit cover exactly the same
+ * range — the annotated text equals the query and that same string also occurs
+ * in the id — they are one hit to the reader, and the id hit wins so the popup
+ * still opens.
+ */
+function merge(text: SearchMatch[], ids: SearchMatch[]): SearchMatch[] {
+  if (ids.length === 0) return text;
+  const out: SearchMatch[] = [];
+  let t = 0;
+  let i = 0;
+  while (t < text.length && i < ids.length) {
+    const order = compareRanges(text[t].range, ids[i].range);
+    if (order < 0) {
+      out.push(text[t++]);
+    } else {
+      if (order === 0) t++;
+      out.push(ids[i++]);
+    }
+  }
+  while (t < text.length) out.push(text[t++]);
+  while (i < ids.length) out.push(ids[i++]);
+  return out;
+}
+
+// Document order, with the end point breaking a tie on the start point so that
+// only genuinely identical ranges compare equal.
+function compareRanges(a: Range, b: Range): number {
+  const start = a.compareBoundaryPoints(Range.START_TO_START, b);
+  return start !== 0 ? start : a.compareBoundaryPoints(Range.END_TO_END, b);
 }
 
 // A match is a whole word when the characters bordering it are not word

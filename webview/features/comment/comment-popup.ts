@@ -154,6 +154,11 @@ export function mountCommentPopup(
     // A modal confirm dialog (e.g. the counterpart-edit guard) renders above the
     // popup; clicking it must not be treated as an outside click that closes us.
     if (target instanceof Element && target.closest('.ahve-dialog-overlay')) return;
+    // The search widget opens this popup when the query hits a comment thread
+    // id. Pressing its buttons (next/previous, the toggles) would otherwise
+    // close the very comment it just revealed, and the re-open that follows
+    // would commit whatever edit was in progress.
+    if (target instanceof Element && target.closest('#ahve-search')) return;
     close();
   });
 
