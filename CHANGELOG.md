@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-09-23
+
+### Added
+
+- Find a comment thread by its `id` from the in-document search (Ctrl+F): a query found in a `<comment>`'s `id` highlights that comment's annotated text, scrolls to it, and opens its popup, interleaved in document order with ordinary text matches. Ids match as a plain substring, so a partial id such as `c-a1b2` works (the whole-word toggle is ignored for ids, match case still applies), and resolved threads are included. Escape closes the search panel first and leaves the revealed popup open for reading
+- Step between comments with the arrow keys while the comment popup is open: `↑` / `←` shows the previous comment and `↓` / `→` the next, the same as the popup's ↑ / ↓ buttons, without moving the editor caret underneath. The keys are left alone inside the body/reply text boxes, with a modifier held, during IME composition, and while a confirmation dialog covers the popup
+
 ## [0.1.11] - 2026-09-15
 
 ### Added
