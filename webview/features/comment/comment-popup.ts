@@ -1,6 +1,7 @@
 // Comment popup: shows the body and replies for a single <comment> element,
 // lets the user edit them inline, add or remove replies, navigate to the
-// previous/next comment, and delete the whole comment.
+// previous/next comment (header buttons or arrow keys), and delete the whole
+// comment.
 
 import * as cdom from './comment-dom';
 import { removeComment } from './comment-commands';
@@ -57,6 +58,14 @@ const SELECTABLE_DISPLAY = '.ahve-cp-body-display:not(.ahve-cp-empty), .ahve-cp-
 /** Pointer travel (px) up to which a press/release still counts as a click. */
 const CLICK_SLOP = 4;
 
+/** Arrow keys that step to the previous (-1) or next (1) comment while the popup is shown. */
+const ARROW_DIRECTION: Partial<Record<string, -1 | 1>> = {
+  ArrowUp: -1,
+  ArrowLeft: -1,
+  ArrowDown: 1,
+  ArrowRight: 1,
+};
+
 export function mountCommentPopup(
   root: HTMLElement,
   opts: CommentPopupOptions,
@@ -73,8 +82,10 @@ export function mountCommentPopup(
   const header = document.createElement('div');
   header.className = 'ahve-cp-header';
 
-  const prevBtn = headerBtn('↑', 'Previous comment', () => navigate(-1));
-  const nextBtn = headerBtn('↓', 'Next comment', () => navigate(1));
+  const prevBtn = headerBtn('↑', 'Previous comment (↑/←)', () => navigate(-1));
+  prevBtn.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowLeft');
+  const nextBtn = headerBtn('↓', 'Next comment (↓/→)', () => navigate(1));
+  nextBtn.setAttribute('aria-keyshortcuts', 'ArrowDown ArrowRight');
   const spacer = document.createElement('span');
   spacer.className = 'ahve-cp-spacer';
   const resolveBtn = headerBtn('✓', 'Toggle resolved', () => toggleResolved());
@@ -144,6 +155,25 @@ export function mountCommentPopup(
       close();
     }
   });
+
+  // The plain arrow keys step between comments like the ↑/↓ buttons. Focus
+  // stays in the editor while the popup is open, so the key is taken in the
+  // capture phase and stopped there: the editor's own ArrowLeft/ArrowRight
+  // handling at comment boundaries must not also move the caret under the popup.
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (popup.hidden) return;
+      const direction = arrowNavigation(e);
+      if (direction === null) return;
+      // Consumed even when there is no comment further in that direction, so
+      // the caret never moves under the popup at either end of the list.
+      e.preventDefault();
+      e.stopPropagation();
+      navigate(direction);
+    },
+    true,
+  );
 
   document.addEventListener('mousedown', (e) => {
     if (popup.hidden || current === null) return;
@@ -496,6 +526,29 @@ export function mountCommentPopup(
     if (!next) return;
     next.scrollIntoView({ behavior: 'smooth', block: 'center' });
     open(next);
+  }
+
+  /**
+   * The direction an arrow keystroke navigates in, or null when the key is not
+   * the popup's to take: a modified or composing key, a text field moving its
+   * own caret, a modal dialog covering the popup, or other UI such as the
+   * toolbar or the search widget.
+   */
+  function arrowNavigation(e: KeyboardEvent): -1 | 1 | null {
+    const direction = ARROW_DIRECTION[e.key];
+    if (direction === undefined) return null;
+    if (e.isComposing || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
+    // Checked directly rather than through the key target: a click on a
+    // modal's non-focusable text leaves focus on <body>.
+    if (document.querySelector('.ahve-dialog-overlay')) return null;
+    const target = e.target;
+    if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return null;
+    if (!(target instanceof Node)) return null;
+    // <body> holds focus once a committed body/reply editor is removed.
+    if (target === document.body || root.contains(target) || popup.contains(target)) {
+      return direction;
+    }
+    return null;
   }
 
   function reposition(): void {

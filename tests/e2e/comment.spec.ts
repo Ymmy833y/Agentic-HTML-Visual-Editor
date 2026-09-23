@@ -355,7 +355,7 @@ test.describe('Comment', () => {
 
     await popup.locator('button', { hasText: '↑' }).hover();
     const tooltip = page.locator('#ahve-tooltip');
-    await expect(tooltip).toHaveText('Previous comment');
+    await expect(tooltip).toHaveText('Previous comment (↑/←)');
     await expect(tooltip).toHaveClass(/ahve-tooltip-visible/);
 
     // Escape cancels the auto-opened body edit AND closes the popup while
@@ -365,6 +365,170 @@ test.describe('Comment', () => {
 
     await expect(popup).toBeHidden();
     await expect(tooltip).not.toHaveClass(/ahve-tooltip-visible/);
+  });
+});
+
+// While the popup is shown, the plain arrow keys step between comments: up/left
+// to the previous one, down/right to the next. Focus stays in the editor while
+// the popup is open, so each case asserts that the real key did not ALSO move
+// the editor caret — the part jsdom cannot observe.
+test.describe('Comment popup keyboard navigation', () => {
+  const THREE_COMMENTS =
+    '<p><comment id="c-1">one<comment-body data-author="human">first</comment-body></comment></p>' +
+    '<p><comment id="c-2">two<comment-body data-author="human">second</comment-body></comment></p>' +
+    '<p><comment id="c-3">three<comment-body data-author="human">third</comment-body></comment></p>';
+
+  interface CaretSnapshot {
+    text: string | null;
+    offset: number;
+    collapsed: boolean;
+  }
+
+  function caretSnapshot(page: Page): Promise<CaretSnapshot> {
+    return page.evaluate(() => {
+      const sel = window.getSelection()!;
+      return {
+        text: sel.anchorNode?.textContent ?? null,
+        offset: sel.anchorOffset,
+        collapsed: sel.isCollapsed,
+      };
+    });
+  }
+
+  test('arrow keys step between comments without moving the editor caret', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    await page.locator('#ahve-root comment#c-2').click();
+    const shown = page.locator('#ahve-comment-popup .ahve-cp-body-display');
+    await expect(shown).toHaveText('second');
+    const before = await caretSnapshot(page);
+    expect(before.text).toBe('two');
+
+    await page.keyboard.press('ArrowDown');
+    await expect(shown).toHaveText('third');
+    await page.keyboard.press('ArrowUp');
+    await expect(shown).toHaveText('second');
+    await page.keyboard.press('ArrowLeft');
+    await expect(shown).toHaveText('first');
+    await page.keyboard.press('ArrowRight');
+    await expect(shown).toHaveText('second');
+
+    expect(await caretSnapshot(page)).toEqual(before);
+  });
+
+  test('at the first and last comment the arrow keys are consumed', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    const shown = page.locator('#ahve-comment-popup .ahve-cp-body-display');
+
+    await page.locator('#ahve-root comment#c-3').click();
+    await expect(shown).toHaveText('third');
+    const atLast = await caretSnapshot(page);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
+    await expect(shown).toHaveText('third');
+    expect(await caretSnapshot(page)).toEqual(atLast);
+
+    await page.locator('#ahve-root comment#c-1').click();
+    await expect(shown).toHaveText('first');
+    const atFirst = await caretSnapshot(page);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowLeft');
+    await expect(shown).toHaveText('first');
+    expect(await caretSnapshot(page)).toEqual(atFirst);
+  });
+
+  test('the body editor keeps the arrow keys for its own caret', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    await page.locator('#ahve-root comment#c-2').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await popup.locator('.ahve-cp-body-display').click();
+    const input = popup.locator('textarea.ahve-cp-body-input');
+    await expect(input).toBeFocused();
+
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    expect(await input.evaluate((ta: HTMLTextAreaElement) => ta.selectionStart)).toBe(4);
+    await page.keyboard.press('ArrowRight');
+    expect(await input.evaluate((ta: HTMLTextAreaElement) => ta.selectionStart)).toBe(5);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+
+    // Navigating would have committed the editor and shown another comment.
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('second');
+  });
+
+  test('the reply input keeps the arrow keys and its draft', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    await page.locator('#ahve-root comment#c-2').click();
+    const popup = page.locator('#ahve-comment-popup');
+    const replyInput = popup.locator('.ahve-cp-reply-form textarea.ahve-cp-reply-input');
+    await replyInput.click();
+    await page.keyboard.type('draft');
+
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    expect(await replyInput.evaluate((ta: HTMLTextAreaElement) => ta.selectionStart)).toBe(3);
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+
+    // Navigating would have submitted the draft as a reply to c-2.
+    await expect(replyInput).toBeFocused();
+    await expect(replyInput).toHaveValue('draft');
+    await expect(popup.locator('.ahve-cp-body-display')).toHaveText('second');
+    await expect(page.locator('#ahve-root comment#c-2 > comment-reply')).toHaveCount(0);
+  });
+
+  test('Shift+Arrow still extends the editor selection', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    await page.locator('#ahve-root comment#c-2').click();
+    const shown = page.locator('#ahve-comment-popup .ahve-cp-body-display');
+    await expect(shown).toHaveText('second');
+
+    await page.keyboard.press('Shift+ArrowLeft');
+
+    expect((await caretSnapshot(page)).collapsed).toBe(false);
+    await expect(shown).toHaveText('second');
+  });
+
+  test('once the popup is closed the arrow keys move the caret again', async ({ page }) => {
+    await mountEditor(page, THREE_COMMENTS);
+    await page.locator('#ahve-root comment#c-1').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await expect(popup).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(popup).toBeHidden();
+
+    await page.keyboard.press('ArrowDown');
+
+    const paragraph = await page.evaluate(() => {
+      const node = window.getSelection()!.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      const p = el?.closest('p');
+      return p ? Array.from(document.querySelectorAll('#ahve-root > p')).indexOf(p) : -1;
+    });
+    expect(paragraph).toBe(1);
+    await expect(popup).toBeHidden();
+  });
+
+  test('a confirm dialog above the popup keeps the arrow keys', async ({ page }) => {
+    await mountEditor(
+      page,
+      '<p><comment id="c-1">one<comment-body data-author="ai">ai note</comment-body></comment></p>' +
+        '<p><comment id="c-2">two<comment-body data-author="human">second</comment-body></comment></p>',
+    );
+    await page.locator('#ahve-root comment#c-1').click();
+    const popup = page.locator('#ahve-comment-popup');
+    await popup.locator('.ahve-cp-body-display').click();
+    const dialog = page.locator('.ahve-dialog-overlay');
+    await expect(dialog).toBeVisible();
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowRight');
+    await expect(dialog).toBeVisible();
+    await dialog.locator('button', { hasText: 'Cancel' }).click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(popup.locator('.ahve-cp-body-display')).toHaveText('ai note');
   });
 });
 
