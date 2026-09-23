@@ -355,7 +355,12 @@ mountFloatingMenu(root, {
 
 // In-document search (Ctrl+F). The highlights are painted with the CSS Custom
 // Highlight API, so they never touch the editor's DOM or the serialized output.
-const searchWidget = mountSearchWidget(root);
+// A hit on a comment thread id has nothing visible to point at, so the comment
+// popup is how the widget shows what it found.
+const searchWidget = mountSearchWidget(root, {
+  revealComment: (comment) => commentPopup.open(comment),
+  hideComment: () => commentPopup.close(),
+});
 
 // Override the browser's default copy/cut: contenteditable's serialization inlines
 // computed styles (font-family, color, …) and appends CF_HTML fragment comments. Here

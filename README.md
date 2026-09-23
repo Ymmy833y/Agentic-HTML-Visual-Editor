@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=A%20WYSIWYG%20bridge%20between%20AI%20agents%20and%20humans&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.11-F59E0B?style=for-the-badge" alt="Version 0.1.11" />
+  <img src="https://img.shields.io/badge/version-0.1.12-F59E0B?style=for-the-badge" alt="Version 0.1.12" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Zero%20RTE%20frameworks-from%20scratch-FB923C?style=for-the-badge" alt="No rich-text framework" />
@@ -366,7 +366,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | ✅ **Lists** | Create, nest and toggle `ul`/`ol` from the toolbar, keyboard or markdown triggers |
 | ℹ️ **Alerts** | GitHub-style Note, Tip, Important, Warning, and Caution blockquotes |
 | ⌨️ **Shortcuts** | Keyboard, toolbar, floating menu, and markdown-style auto-formatting |
-| 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles |
+| 🔍 **Search** | In-document find (Ctrl+F) with match count, case & whole-word toggles, and comment lookup by thread id |
 | ▸ **Details** | Real, persisted open/closed `<details>` / `<summary>` sections |
 | ▦ **Tables** | Insert, edit, merge/split, header toggle, and drag-resize columns |
 | 📊 **Mermaid** | Insert, render, edit, and delete bundled, theme-aware Mermaid diagrams without a CDN |
@@ -444,6 +444,8 @@ A review-style annotation that is fully expressed in HTML: the body and replies 
 - **Resolved state:** a `<comment>` may carry a boolean `data-resolved` attribute (toggled from the popup). Resolved comments recede to a dashed, muted box; unresolved ones keep a solid coloured box.
 - **Editing the counterpart's notes:** when a human edits or deletes a comment the AI authored, the view asks for confirmation first, so review notes are not overwritten by accident.
 - **Reading a thread:** drag across a body or reply in the popup to select its text — so it can be copied — while a plain click still opens that entry for editing.
+- **Finding a thread by id:** type a comment's `id` (or part of it, e.g. `c-a1b2`) into the in-document search to jump to that comment and open its popup — see [In-document search](#-in-document-search).
+- **Moving between comments:** while the popup is open, `↑` / `←` shows the previous comment and `↓` / `→` the next one, in document order — the same as the popup's ↑ / ↓ buttons. The editor caret stays where it was; press Esc to close the popup and use the arrow keys for the caret again. Inside the body or reply text boxes the arrow keys keep moving the text cursor.
 - **Deleting around a comment:** Backspace and Delete near a comment, including word-wise `Ctrl+Backspace` / `Ctrl+Delete`, remove visible characters only; the hidden body and replies are never taken along as collateral.
 - **Typing at the boundary:** with the caret at a comment's leading or trailing edge you can choose whether the next characters join the comment or stay outside it — the caret takes on the comment's colour when typing will land inside, and the default colour when it will land outside. Comments stay whole and never nest, even as you edit the text around them.
 
@@ -514,6 +516,7 @@ Press `Ctrl+F` to open a search panel pinned to the top-right of the view:
 - Type to highlight every match; the count (e.g. `2/7`) shows the current position.
 - Enter / Shift+Enter jump to the next / previous match; Esc closes the panel and leaves the caret on the current match.
 - Toggle **match case** and **match whole word**. Opening the panel with text selected prefills the query.
+- **Comment thread ids are searchable too.** A query found in a `<comment>`'s `id` — the handle a human and an AI agent use to refer to the same thread — highlights that comment's annotated text and opens its popup. A partial id matches (whole word is ignored for ids; match case still applies), and resolved threads are included. Esc closes the search panel first and leaves the popup open; a second Esc closes the popup.
 - Matches are painted with the CSS Custom Highlight API, so highlighting never mutates the editor DOM or the saved HTML. (Search only — there is no find-and-replace yet.)
 
 ### ▸ Collapsible sections

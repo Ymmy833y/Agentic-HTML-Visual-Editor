@@ -3,7 +3,7 @@
 // DOM is never mutated — nothing leaks into the serialized HTML and a save-echo
 // remount only needs a refresh() to rebuild the (now-stale) match ranges.
 
-import { findMatches, type SearchOptions } from '../core/text-search';
+import { findMatches, type SearchMatch, type SearchOptions } from '../core/text-search';
 import { hideTooltipFor, setupTooltip } from './tooltip';
 
 const HIGHLIGHT_ALL = 'ahve-search';
@@ -13,6 +13,13 @@ const DEBOUNCE_MS = 120;
 const supportsHighlight =
   typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
 
+export interface SearchWidgetOptions {
+  /** Show the comment dialog for a hit on a comment thread id. */
+  revealComment(comment: Element): void;
+  /** Hide the dialog this widget opened, once the current hit is no longer one. */
+  hideComment(): void;
+}
+
 export interface SearchWidgetHandle {
   open(): void;
   close(): void;
@@ -21,10 +28,16 @@ export interface SearchWidgetHandle {
   refresh(): void;
 }
 
-export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
+export function mountSearchWidget(
+  root: HTMLElement,
+  callbacks: SearchWidgetOptions,
+): SearchWidgetHandle {
   let opened = false;
-  let matches: Range[] = [];
+  let matches: SearchMatch[] = [];
   let currentIndex = -1;
+  // The comment this widget last asked to be shown, so it never closes a dialog
+  // the user opened and never re-opens the one already on screen.
+  let revealed: Element | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   const opts: SearchOptions = { caseSensitive: false, wholeWord: false };
 
@@ -84,6 +97,10 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
       navigate(e.shiftKey ? -1 : 1);
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      // Dismiss one layer at a time: a comment dialog opened by a thread-id hit
+      // stays up so the user can read what they just found, and a second Escape
+      // — now that this handler is gone — reaches the popup's own handler.
+      e.stopPropagation();
       close();
     }
   });
@@ -127,11 +144,14 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
       const sel = window.getSelection();
       if (sel) {
         sel.removeAllRanges();
-        sel.addRange(current.cloneRange());
+        sel.addRange(current.range.cloneRange());
       }
     }
     matches = [];
     currentIndex = -1;
+    // A comment dialog opened for a thread-id hit outlives the widget, so it is
+    // not hidden here — only forgotten, so a later search can show it again.
+    revealed = null;
     root.focus();
   }
 
@@ -159,6 +179,7 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
 
     applyHighlights();
     updateCount(query);
+    syncComment();
     if (resetToFirst && currentIndex >= 0) scrollToCurrent();
   }
 
@@ -167,7 +188,26 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
     currentIndex = (currentIndex + delta + matches.length) % matches.length;
     applyHighlights();
     updateCount(input.value);
+    syncComment();
     scrollToCurrent();
+  }
+
+  /**
+   * Keep the comment dialog in step with the current hit: a thread-id hit shows
+   * the comment it points at, and moving off one hides the dialog this widget
+   * opened. Showing the same comment twice is skipped — refresh() runs on every
+   * keystroke in the document, and re-opening commits the dialog's in-progress
+   * edits, which would swallow a reply being typed.
+   */
+  function syncComment(): void {
+    const comment = matches[currentIndex]?.comment ?? null;
+    if (comment === revealed) return;
+    revealed = comment;
+    if (comment) {
+      callbacks.revealComment(comment);
+    } else {
+      callbacks.hideComment();
+    }
   }
 
   function applyHighlights(): void {
@@ -176,10 +216,10 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
       clearHighlights();
       return;
     }
-    CSS.highlights.set(HIGHLIGHT_ALL, new Highlight(...matches.map((r) => r.cloneRange())));
+    CSS.highlights.set(HIGHLIGHT_ALL, new Highlight(...matches.map((m) => m.range.cloneRange())));
     const current = matches[currentIndex];
     if (current) {
-      CSS.highlights.set(HIGHLIGHT_CURRENT, new Highlight(current.cloneRange()));
+      CSS.highlights.set(HIGHLIGHT_CURRENT, new Highlight(current.range.cloneRange()));
     } else {
       CSS.highlights.delete(HIGHLIGHT_CURRENT);
     }
@@ -202,7 +242,7 @@ export function mountSearchWidget(root: HTMLElement): SearchWidgetHandle {
   }
 
   function scrollToCurrent(): void {
-    const current = matches[currentIndex];
+    const current = matches[currentIndex]?.range;
     if (!current) return;
     const anchor =
       current.startContainer.nodeType === Node.ELEMENT_NODE

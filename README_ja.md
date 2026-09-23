@@ -3,7 +3,7 @@
 <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.11-F59E0B?style=for-the-badge" alt="Version 0.1.11" />
+  <img src="https://img.shields.io/badge/version-0.1.12-F59E0B?style=for-the-badge" alt="Version 0.1.12" />
   <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
   <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
@@ -368,7 +368,7 @@ Do not emit these — they are removed on render (and some are security-sensitiv
 | ✅ **リスト** | ツールバー・キーボード・マークダウン風入力で `ul`/`ol` を作成・ネスト・切替 |
 | ℹ️ **アラート** | GitHub 風の Note、Tip、Important、Warning、Caution 引用 |
 | ⌨️ **ショートカット** | キーボード・ツールバー・フローティングメニュー・マークダウン風オートフォーマット |
-| 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル対応 |
+| 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル、スレッド ID によるコメント検索に対応 |
 | ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
 | ▦ **テーブル** | 挿入・編集・結合/分割・ヘッダー切替・ドラッグでの列幅調整 |
 | 📊 **Mermaid** | CDN 不要で、VS Code テーマに対応した Mermaid 図の挿入・表示・編集・削除 |
@@ -445,6 +445,8 @@ HTML だけでレビュー風の注釈を表現するインラインカスタム
 - **解決状態:** `<comment>` はブール値の `data-resolved` 属性を持てる（ポップアップから切替）。解決済みのコメントは破線・淡色の枠に後退し、未解決のものは作成者色の実線枠を保つ。
 - **相手の注釈を編集する場合:** 人間が AI の書いたコメントを編集・削除しようとすると、まず確認が求められ、レビュー注釈を誤って上書きしないようにする。
 - **スレッドを読む:** ポップアップ内の本文や返信はドラッグでテキスト選択でき（コピー用途）、通常のクリックは従来どおりその項目の編集を開く。
+- **ID でスレッドを探す:** ドキュメント内検索にコメントの `id`（`c-a1b2` のような一部でもよい）を入力すると、そのコメントへ移動してポップアップが開く。詳しくは [ドキュメント内検索](#-ドキュメント内検索) を参照。
+- **コメント間の移動:** ポップアップ表示中は `↑` / `←` で前のコメント、`↓` / `→` で次のコメントを文書順に表示する（ポップアップの ↑ / ↓ ボタンと同じ動作）。エディタのカーソルは元の位置に残る。矢印キーでカーソルを動かすには Esc でポップアップを閉じる。本文・返信の入力欄の中では、矢印キーは従来どおり入力欄内のカーソルを動かす。
 - **コメント周辺の削除:** コメント付近での Backspace / Delete は、単語単位の `Ctrl+Backspace` / `Ctrl+Delete` も含めて、表示されている文字だけを削除する。非表示の本文・返信が巻き添えで消えることはない。
 - **境界での入力:** カーソルがコメントの先頭・末尾の端にあるとき、続けて入力する文字をコメントの内側に含めるか外側に出すかを選べる。内側に入る場合はカーソルがコメントの色に、外側に出る場合は既定の色になるため、どちら側に入力されるかが一目で分かる。コメント周辺のテキストを編集してもコメントは丸ごと保持され、入れ子にならない。
 
@@ -515,6 +517,7 @@ Ctrl+F でビュー右上に検索パネルを開ける:
 - 入力すると一致箇所をすべてハイライトし、件数（例 `2/7`）で現在位置を示す。
 - Enter / Shift+Enter で次／前の一致へ移動、Esc でパネルを閉じてカーソルを現在の一致位置に残す。
 - **大文字小文字の区別**・**単語単位**のトグルに対応。テキストを選択した状態で開くとその語が検索欄に自動入力される。
+- **コメントのスレッド ID も検索対象。** 検索語が `<comment>` の `id`（人間と AI エージェントが同じスレッドを指すときに使う識別子）に含まれていれば、そのコメントの対象テキストをハイライトし、ポップアップを開く。ID は部分一致で検索され（単語単位のトグルは ID には適用されず、大文字小文字の区別は適用される）、解決済みのスレッドも対象になる。Esc はまず検索パネルだけを閉じてポップアップを残し、もう一度 Esc を押すとポップアップが閉じる。
 - ハイライトは CSS Custom Highlight API で描画するため、エディタの DOM や保存される HTML を一切変更しない（検索のみ。置換は未提供）。
 
 ### ▸ 折りたたみセクション
