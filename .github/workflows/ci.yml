@@ -71,8 +71,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      # The shard count must match the length of the matrix above.
+      - run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
 
   web:
     strategy:
