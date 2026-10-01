@@ -1,0 +1,526 @@
+/* Default styles for the document body. */
+
+/* The body spans the full width of the editor, with only the padding around it. A maximum width would
+   leave empty margins on both sides in a wide window or a split editor. */
+#editor-root {
+  padding: 0.75em 2.5em 6em;
+  /* Remove the editing outline because it looks like part of the document while reading. */
+  outline: none;
+}
+
+/* Include the editor root itself. A descendant selector alone leaves bare text directly under the
+   editor root with the browser's default selection color. */
+#editor-root::selection,
+#editor-root ::selection {
+  background: var(--ahve-selection);
+}
+
+/* Headings */
+#editor-root h1,
+#editor-root h2,
+#editor-root h3,
+#editor-root h4,
+#editor-root h5,
+#editor-root h6 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0.75em 0 0.5em;
+}
+
+#editor-root h1 {
+  font-size: 2em;
+  border-bottom: 1px solid var(--ahve-border);
+  padding-bottom: 0.3em;
+}
+
+#editor-root h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--ahve-border);
+  padding-bottom: 0.25em;
+}
+
+#editor-root h3 {
+  font-size: 1.25em;
+}
+
+#editor-root h4 {
+  font-size: 1em;
+}
+
+#editor-root h5 {
+  font-size: 0.9em;
+  color: var(--ahve-muted);
+}
+
+#editor-root h6 {
+  font-size: 0.85em;
+  color: var(--ahve-muted);
+  letter-spacing: 0.05em;
+}
+
+/* Paragraphs and generic blocks */
+#editor-root p {
+  margin: 0.6em 0;
+}
+
+#editor-root div {
+  margin: 0.4em 0;
+}
+
+/* Inline elements */
+#editor-root a {
+  color: var(--ahve-accent);
+  text-decoration: none;
+}
+
+#editor-root a:hover {
+  text-decoration: underline;
+}
+
+#editor-root strong {
+  font-weight: 700;
+}
+
+#editor-root em {
+  font-style: italic;
+}
+
+#editor-root s {
+  text-decoration: line-through;
+}
+
+#editor-root code {
+  background: var(--ahve-code-bg);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-family: var(--ahve-font-family-mono);
+  font-size: 0.9em;
+}
+
+/* Code blocks */
+#editor-root pre {
+  background: var(--ahve-code-bg);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: auto;
+  font-family: var(--ahve-font-family-mono);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+/* The pre element supplies the block background and padding. Repeating them on the nested code
+   element would look like a double frame. */
+#editor-root pre code {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Mermaid diagrams
+   A diagram source block stays in the tree as written. The drawn image is painted by the pseudo-element after it,
+   from a rule the view generates for each drawing, so it is never saved, copied, searched or selected. The marks
+   below live in the internal namespace; esbuild does not handle @namespace, so it is matched with *. */
+
+/* Every diagram source block shows its diagram, never its source. The text stays in the tree but is invisible, and
+   the browser puts no caret in invisible text, so the caret passes the block by instead of entering the source. The
+   source is edited in the dialog a click opens. The padding of a code block is in em, which would collapse with the
+   font size, so it is given in rem. */
+#editor-root pre[*|data-ahve-diagram-block] {
+  position: relative;
+  visibility: hidden;
+  font-size: 0;
+  line-height: 0;
+  padding: 1rem;
+  cursor: pointer;
+}
+
+/* The faint frame around a diagram. The invisible pre paints no border or background, so the frame is a visible
+   pseudo-element laid over the whole block. It also takes the clicks on the padding, which reach the block and open
+   its dialog. */
+#editor-root pre[*|data-ahve-diagram-block]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  visibility: visible;
+  border: 1px solid var(--ahve-border);
+  border-radius: 0.25rem;
+}
+
+/* What is shown in place of the source: the image, the error card or the empty card below. The pre may have no font
+   size here, so lengths are taken from the root. */
+#editor-root pre[*|data-ahve-diagram-block]::after {
+  content: '';
+  display: block;
+  visibility: visible;
+  min-height: 2rem;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+/* The image. The generated rule supplies the picture, its width and its proportions; it never grows past the column. */
+#editor-root pre[*|data-ahve-diagram]::after {
+  min-height: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+/* A source that could not be drawn, and an empty source, show a card with a notice. No message is spelled here; only
+   the values the view hands over are shown. */
+#editor-root pre[*|data-ahve-diagram-error]::after,
+#editor-root pre[*|data-ahve-diagram-empty]::after {
+  min-height: 0;
+  padding-left: 0.75em;
+  font-family: var(--ahve-font-family);
+  font-size: 1rem;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+#editor-root pre[*|data-ahve-diagram-error]::after {
+  content: var(--ahve-diagram-error-label, '');
+  border-left: 3px solid var(--ahve-alert-caution);
+  color: var(--ahve-alert-caution);
+}
+
+#editor-root pre[*|data-ahve-diagram-empty]::after {
+  content: var(--ahve-diagram-empty-label, '');
+  border-left: 3px solid var(--ahve-border);
+  color: var(--ahve-muted);
+}
+
+/* A diagram wholly inside a range selection. The hidden source shows no selection color, so the frame shows what a
+   deletion would remove. Same shape as the mark of the cell range, drawn around the frame of the block. */
+#editor-root pre[*|data-ahve-diagram-selected]::before {
+  outline: 2px solid var(--ahve-accent);
+  outline-offset: 2px;
+}
+
+/* Blockquotes */
+#editor-root blockquote {
+  border-left: 4px solid var(--ahve-border);
+  color: var(--ahve-muted);
+  margin: 1em 0;
+  padding: 0.4em 1em;
+}
+
+#editor-root blockquote > :first-child {
+  margin-top: 0;
+}
+
+#editor-root blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Alert blockquotes
+   Rules are added for the five known values alone. An unknown value, and no attribute at all, keep the appearance
+   of the ordinary blockquote above. One attribute selector is written per value because a prefix or substring
+   match would also pick up values differing in case or carrying surrounding whitespace, which would put the line
+   the display draws and the line the decisions draw out of step. All that differs per kind is the accent color,
+   the icon, and the label, so those three are put on the element as theme tokens and the geometry is read from the
+   shared rules below. */
+#editor-root blockquote[data-alert="note"] {
+  --ahve-alert-accent: var(--ahve-alert-note);
+  --ahve-alert-label: var(--ahve-alert-label-note, '');
+  /* The shape is laid down as a `data:` SVG used as a mask and painted in the accent color. No color is spelled
+     inside the SVG, so the shape does not sink into the background under a high contrast theme either. An "i" cut
+     out of a circle. */
+  --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M8%201.5a6.5%206.5%200%20100%2013%206.5%206.5%200%20000-13zM7.25%204h1.5v1.5h-1.5zM7.25%206.75h1.5v4.75h-1.5z%27/%3E%3C/svg%3E");
+}
+
+/* The shape of a light bulb. */
+#editor-root blockquote[data-alert="tip"] {
+  --ahve-alert-accent: var(--ahve-alert-tip);
+  --ahve-alert-label: var(--ahve-alert-label-tip, '');
+  --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M8%201.25a4%204%200%2000-2.25%207.3V10.5h4.5V8.55A4%204%200%20008%201.25zM5.75%2011.75h4.5v1.25h-4.5zM6.5%2014h3v1.25h-3z%27/%3E%3C/svg%3E");
+}
+
+/* An exclamation mark cut out of a speech balloon. */
+#editor-root blockquote[data-alert="important"] {
+  --ahve-alert-accent: var(--ahve-alert-important);
+  --ahve-alert-label: var(--ahve-alert-label-important, '');
+  --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M1.5%202h13v9.5H7.75L4.5%2014.5V11.5H1.5zM7.25%204h1.5v4h-1.5zM7.25%208.75h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
+}
+
+/* An exclamation mark cut out of a triangle. */
+#editor-root blockquote[data-alert="warning"] {
+  --ahve-alert-accent: var(--ahve-alert-warning);
+  --ahve-alert-label: var(--ahve-alert-label-warning, '');
+  --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M8%201.5%2015%2014H1zM7.25%205.5h1.5v4h-1.5zM7.25%2010.25h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
+}
+
+/* An exclamation mark cut out of an octagon. */
+#editor-root blockquote[data-alert="caution"] {
+  --ahve-alert-accent: var(--ahve-alert-caution);
+  --ahve-alert-label: var(--ahve-alert-label-caution, '');
+  --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M5.5%201.5h5l4%204v5l-4%204h-5l-4-4v-5zM7.25%204.5h1.5v4h-1.5zM7.25%209.25h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
+}
+
+/* Where the label line sits, and the positioning context the pseudo-elements are placed against. The colors are
+   read from the theme tokens alone and no priority is forced, so a style written directly on the blockquote wins. */
+#editor-root blockquote[data-alert="note"],
+#editor-root blockquote[data-alert="tip"],
+#editor-root blockquote[data-alert="important"],
+#editor-root blockquote[data-alert="warning"],
+#editor-root blockquote[data-alert="caution"] {
+  position: relative;
+  padding-top: 2.2em;
+  border-left-color: var(--ahve-alert-accent);
+  color: var(--ahve-fg);
+}
+
+/* The icon. It is shown at the head of the label line, sized in proportion to the font size. A pseudo-element is
+   not in the tree, so it is the target of neither saving, copying, searching, nor selecting. `mask` is also
+   written with a prefix because the lowest supported VS Code does not understand the unprefixed spelling. */
+#editor-root blockquote[data-alert="note"]::before,
+#editor-root blockquote[data-alert="tip"]::before,
+#editor-root blockquote[data-alert="important"]::before,
+#editor-root blockquote[data-alert="warning"]::before,
+#editor-root blockquote[data-alert="caution"]::before {
+  content: '';
+  position: absolute;
+  top: 0.55em;
+  left: 1em;
+  width: 1.05em;
+  height: 1.05em;
+  background-color: var(--ahve-alert-accent);
+  -webkit-mask-image: var(--ahve-alert-icon);
+  mask-image: var(--ahve-alert-icon);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The label. No message is spelled here; only the value handed over is shown. The fallback is the empty string,
+   so nothing is shown until one arrives. */
+#editor-root blockquote[data-alert="note"]::after,
+#editor-root blockquote[data-alert="tip"]::after,
+#editor-root blockquote[data-alert="important"]::after,
+#editor-root blockquote[data-alert="warning"]::after,
+#editor-root blockquote[data-alert="caution"]::after {
+  content: var(--ahve-alert-label);
+  position: absolute;
+  top: 0.4em;
+  left: 2.4em;
+  color: var(--ahve-alert-accent);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Horizontal rules */
+#editor-root hr {
+  border: 0;
+  border-top: 1px solid var(--ahve-border);
+  margin: 2em 0;
+}
+
+/* Lists */
+#editor-root ul,
+#editor-root ol {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+
+#editor-root li {
+  margin: 0.2em 0;
+}
+
+#editor-root li > ul,
+#editor-root li > ol {
+  margin: 0.2em 0;
+}
+
+/* Tables */
+/* Do not use display: block to make the table itself scroll horizontally. It creates an anonymous
+   table inside that shrinks to the content width, so both width and percentage widths written
+   directly on col elements use that reduced width instead of the available width. When a table is
+   too wide, the entire view scrolls horizontally. */
+#editor-root table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+
+#editor-root th,
+#editor-root td {
+  border: 1px solid var(--ahve-border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+
+#editor-root th {
+  background: var(--ahve-code-bg);
+  font-weight: 600;
+}
+
+/* Removes the outer margin above the first block and below the last block of a cell. When the content of a bare cell is
+   wrapped in a paragraph, this keeps the paragraph's margin from pushing the text down and making the row taller (the
+   same shape as the first and last children of a blockquote). There is no priority override, so the document's style
+   attribute wins. */
+#editor-root :is(td, th) > :first-child {
+  margin-top: 0;
+}
+
+#editor-root :is(td, th) > :last-child {
+  margin-bottom: 0;
+}
+
+/* Keeps the content of a cell from widening the table beyond its available width. A table is always rendered as a
+   table, so a long word or URL that widens the minimum width of a cell pushes the whole table out. This is prevented by
+   treating words as breakable anywhere, without writing table-layout or the like into the document. Words are not broken
+   in columns without a width when the table fits when rendered without breaking. */
+#editor-root :is(td, th) {
+  overflow-wrap: anywhere;
+}
+
+/* A code block inside a cell gets a minimum width of 0 only, and lines that do not fit scroll horizontally inside it.
+   Making the content width itself 0 would collapse the code block's column down to the width of its padding just
+   because a neighboring column holds a long sentence. */
+#editor-root :is(td, th) pre {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Mark of the cell range. Draws an outline inside the cell instead of filling the background. A fill would be hidden on
+   cells whose style attribute sets a background color, and would show the range by a difference in color alone. The
+   outline is drawn on top, so it shows without a priority override. esbuild does not handle @namespace, so the
+   namespace is matched with *, and a cell on which the author wrote an ordinary attribute with the same spelling looks
+   the same (it is not counted in the range). */
+#editor-root :is(td, th)[*|data-ahve-cell-range] {
+  outline: 2px solid var(--ahve-accent);
+  outline-offset: -2px;
+}
+
+/* Comment annotations
+   Shows the annotated text with a background and an underline; a background color difference alone cannot be told apart in
+   high contrast themes. No priority override, so an inline style wins. Nested comments are highlighted by the same rule, both
+   inner and outer. */
+/* The background, border and underline show the thread author's color. An outline does not change the line layout, so
+   adding an annotation does not move the text. The corners are slightly rounded, and the outline and background follow
+   them; the same radius applies to every author and to resolved comments. */
+#editor-root comment {
+  background-color: var(--ahve-comment-highlight);
+  text-decoration-line: underline;
+  text-decoration-color: var(--ahve-comment-mark);
+  outline: 1px solid var(--ahve-comment-mark);
+  border-radius: 3px;
+}
+
+/* The thread author is the author of the first entry in document order; comments where it is ai get the background,
+   border and underline in the AI color. The value match is case-sensitive, so values such as AI count as the human side.
+   Only direct entries are looked at, so for nested comments (hand-written) the inner and outer are each decided by their
+   own first entry. */
+#editor-root comment:has(> :nth-child(1 of comment-body, comment-reply)[data-author="ai"]) {
+  background-color: var(--ahve-comment-ai-highlight);
+  outline-color: var(--ahve-comment-ai);
+  text-decoration-color: var(--ahve-comment-ai);
+}
+
+/* A resolved comment recedes: the background and underline are removed, leaving only a dashed border in the author's
+   color dulled toward gray, so it is still clear that the text is annotated. A color difference alone cannot be told
+   apart in high contrast themes, so the line style shows it too. */
+#editor-root comment[data-resolved] {
+  background-color: transparent;
+  text-decoration-line: none;
+  outline-style: dashed;
+  outline-color: var(--ahve-comment-resolved);
+}
+
+/* The AI check above is more specific than the resolved rule, so the background is removed again here. */
+#editor-root comment[data-resolved]:has(> :nth-child(1 of comment-body, comment-reply)[data-author="ai"]) {
+  background-color: transparent;
+  outline-color: var(--ahve-comment-ai-resolved);
+}
+
+/* Entries (body and replies) are not shown in the document flow, only in the popup. Hidden regardless of contenteditable,
+   so the caret cannot enter them either. */
+#editor-root :is(comment-body, comment-reply) {
+  display: none;
+}
+
+/* While the caret is inside the annotated text, draw it in the same color as the thread author's outline to show that further input goes inside.
+   At an outside neighbor the mark is removed and the caret returns to the default color. The mark sits on the editor root and the elements inside inherit the color.
+   esbuild does not handle @namespace, so the namespace is matched with * (same as the cell range mark). No priority override. */
+#editor-root[*|data-ahve-comment-caret="human"] {
+  caret-color: var(--ahve-comment-mark);
+}
+
+#editor-root[*|data-ahve-comment-caret="ai"] {
+  caret-color: var(--ahve-comment-ai);
+}
+
+/* Images */
+#editor-root img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* Collapsible sections */
+#editor-root details {
+  border: 1px solid var(--ahve-border);
+  border-radius: 6px;
+  margin: 1em 0;
+  padding: 0.4em 1em;
+}
+
+/* A summary that is not a title keeps no pressable look. Only the title's marker area toggles it. */
+#editor-root summary {
+  font-weight: 600;
+}
+
+/* The marker area. Its width is expressed by a single leading inline padding, and the hit-test side
+   reads that same computed value. No browser-default toggle marker is shown, so the title carries
+   exactly one marker: this feature's own. */
+#editor-root details > summary:first-of-type {
+  position: relative;
+  display: block;
+  list-style: none;
+  padding-inline-start: 1.4em;
+}
+
+#editor-root details > summary:first-of-type::-webkit-details-marker {
+  display: none;
+}
+
+/* The closed-direction marker. Drawn as a pseudo-element that is not in the tree, so it is never a
+   target of saving, copying, searching, or selection. Its shape is laid out as a `data:` SVG used as
+   a mask, painted with a single color drawn from a theme token; since no color is written inside the
+   SVG itself, it does not sink into the background even in high-contrast themes. The box is given the
+   same width as the leading inline padding, so the cursor's pressable-looking range matches the
+   toggle hit area. */
+#editor-root details > summary:first-of-type::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  width: 1.4em;
+  height: 1.5em;
+  cursor: pointer;
+  background-color: var(--ahve-fg);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M6%203l6%205-6%205z%27/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M6%203l6%205-6%205z%27/%3E%3C/svg%3E");
+  -webkit-mask-size: 0.7em;
+  mask-size: 0.7em;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* The open direction. Placed after the closed-direction rule, replacing only the shape. */
+#editor-root details[open] > summary:first-of-type::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M3%205h10l-5%206z%27/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M3%205h10l-5%206z%27/%3E%3C/svg%3E");
+}
+
+#editor-root details[open] > summary {
+  margin-bottom: 0.4em;
+}
+
+#editor-root details > :last-child {
+  margin-bottom: 0;
+}

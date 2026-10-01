@@ -1,0 +1,5 @@
+/* Entry point that bundles the stylesheets into a single output. Do not add rules here. */
+@import './theme-tokens.css';
+@import './base.css';
+@import './document-styles.css';
+@import './editor-ui.css';

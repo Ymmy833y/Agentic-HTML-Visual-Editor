@@ -1,549 +1,268 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:F59E0B,100:F97316&height=200&section=header&text=Agentic%20HTML%20Visual%20Editor&fontColor=ffffff&fontSize=42&desc=AI%20%E3%82%A8%E3%83%BC%E3%82%B8%E3%82%A7%E3%83%B3%E3%83%88%E3%81%A8%E4%BA%BA%E9%96%93%E3%82%92%E3%81%A4%E3%81%AA%E3%81%90%20WYSIWYG&descSize=17&descAlignY=64" alt="Agentic HTML Visual Editor" />
+<img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor：AI エージェントと人間をつなぐ WYSIWYG エディタ" width="100%" />
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.12-F59E0B?style=for-the-badge" alt="Version 0.1.12" />
-  <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code ^1.85.0" />
-  <img src="https://img.shields.io/badge/TypeScript-F97316?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/RTE%20%E3%83%95%E3%83%AC%E3%83%BC%E3%83%A0%E3%83%AF%E3%83%BC%E3%82%AF-%E9%9D%9E%E4%BE%9D%E5%AD%98-FB923C?style=for-the-badge" alt="リッチテキストフレームワーク非依存" />
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v0.2.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
+  <img src="https://img.shields.io/badge/VS%20Code-1.86%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.86 以降" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT ライセンス" /></a>
 </p>
+
+<p><a href="README.md">English</a> | <strong>日本語</strong></p>
 
 </div>
 
-素の `.html` ファイルを **モダンで直感的な WYSIWYG エディタ**に変える VSCode 拡張です。AI コーディングエージェントには極力シンプルな HTML を出力させ、人間はそれを読みやすく編集できます。ディスク上の HTML が、両者にとっての単一かつ可搬な情報源であり続けます。
+Agentic HTML Visual Editor は、VS Code で **`.html` ファイルを WYSIWYG で編集する**拡張機能です。ディスク上の素の HTML ファイルが、AI エージェントと人間のどちらも読み書きする唯一の情報源になります。エージェントは小さく正しい HTML を書き、人間はマークアップに触れずに、読みやすい画面で編集とレビューをします。
 
 <p align="center">
-  <img src="https://i.imgur.com/d3e22EW.png" alt="サンプル文書を表示する WYSIWYG ビュー。インラインコメントのスレッドポップアップが開いている" width="820" />
+  <img src="assets/readme/overview.png" alt="サイドバーとレビューコメントのスレッドを開いた、VS Code 上の WYSIWYG 画面" width="880" />
   <br />
-  <em>HTML 文書を編集する WYSIWYG ビュー。インラインのレビューコメントスレッドを開いた状態。</em>
+  <em>HTML ファイルを文書のように編集できます。人間と AI エージェントのレビューコメントは、ファイルそのものに残ります。</em>
 </p>
 
 ---
 
 ## 📑 目次
 
-- [📑 目次](#-目次)
-- [✨ この拡張が解決すること](#-この拡張が解決すること)
+- [✨ この拡張機能を使う理由](#-この拡張機能を使う理由)
 - [🚀 はじめに](#-はじめに)
-- [🤖 AI エージェントとの使い方](#-ai-エージェントとの使い方)
-- [🚀 機能ひと目](#-機能ひと目)
-- [🧩 機能詳細](#-機能詳細)
-  - [✍️ WYSIWYG 編集（インライン編集型）](#️-wysiwyg-編集インライン編集型)
-  - [📊 Mermaid ダイアグラム](#-mermaid-ダイアグラム)
-  - [💬 インラインコメント注釈](#-インラインコメント注釈)
-  - [✅ リスト編集](#-リスト編集)
-  - [ℹ️ アラート引用](#ℹ️-アラート引用)
-  - [⌨️ ショートカット](#️-ショートカット)
-  - [🔍 ドキュメント内検索](#-ドキュメント内検索)
-  - [▸ 折りたたみセクション](#-折りたたみセクション)
-  - [▦ テーブル編集](#-テーブル編集)
-  - [📋 クリップボードのコピー/貼り付け](#-クリップボードのコピー貼り付け)
-- [🚫 非対応 / 範囲外](#-非対応--範囲外)
+- [🤖 Agent Skill](#-agent-skill)
+- [👀 機能の一覧](#-機能の一覧)
+- [🧩 機能の詳細](#-機能の詳細)
+- [⚡ キーボードショートカット](#-キーボードショートカット)
+- [💻 動作環境](#-動作環境)
+- [🚫 既知の制約](#-既知の制約)
+- [📝 変更履歴](#-変更履歴)
+- [📄 ライセンス](#-ライセンス)
 
 ---
 
-## ✨ この拡張が解決すること
+## ✨ この拡張機能を使う理由
 
-エージェントも人間も、同じ文書（設計メモ・調査レポート・タスクリスト）を読み書きする必要があります。Markdown はリッチなレイアウトに対して非可逆で、フル機能の HTML エディタは重く煩雑です。本拡張はその中間を取ります。
+設計メモ・調査レポート・タスクリストのような成果物を AI エージェントと人間が一緒に扱うとき、Markdown では凝ったレイアウトが保てません。かといって、多機能な HTML エディタは重くて煩雑です。この拡張機能は、その中間を狙っています。
 
-- **AI エージェントが出力するコンテキスト量を最小化** — エージェントは最小限の正しい HTML を書くだけ。
-- **人間にはモダンで読みやすいビュー**を提供し、HTML の知識なしで直感的に編集できる。
-- **HTML を単一・可搬な共通フォーマット**として扱い、常にソースファイルと同期させる。
+- **エージェント**：小さく正しい HTML を書くだけで済み、出力も短くなります。
+- **人間**：HTML を知らなくても、読みやすい画面で編集とレビューができます。
+- **ファイル**：中間形式やサイドカーファイルはなく、レビューコメントを含めて HTML だけで完結します。そのまま持ち運べます。
 
----
+典型的なやり取りは次のとおりです。
+
+1. AI エージェントが成果物を `.html` ファイルとして書きます。このエディタ向けの書き方は [Agent Skill](#-agent-skill) にまとまっています。
+2. 人間はそのファイルを WYSIWYG の画面で開き、編集して、レビューコメントを付けます。
+3. エージェントは、編集とコメントを HTML から直接読み取り、同じスレッドに返信します。
 
 ## 🚀 はじめに
 
-1. **インストール** — VS Code の拡張機能ビューで **Agentic HTML Visual Editor** を検索してインストールします（または [Marketplace ページ](https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor) を開く）。
-2. **任意の `.html` ファイルを開き、エディタのタイトルバーの _Open in WYSIWYG_**（`ahve.openInWysiwygEditor`）をクリックすると、そのタブがビジュアルエディタに切り替わります。**Open in HTML**（`ahve.openInHtmlEditor`）で元に戻せます。
-3. **ドキュメントのように編集** — 直接入力するほか、ツールバー・選択時のフローティングメニュー・マークダウン風入力が使えます。`Ctrl+S` / `Cmd+S` で変更を `.html` ソースへ書き戻します。できることの詳細は [機能詳細](#-機能詳細) を参照してください。
+1. `.html` ファイルを開きます。この拡張機能は既定のエディタを置き換えないので、これまでどおり標準のテキストエディタで開きます。
+2. エディタのタイトルバーの **WYSIWYG で開く** を押すか、コマンドパレットから **Visual Editor: WYSIWYG で開く** を実行します。タブは同じエディタグループのまま、WYSIWYG の画面に置き換わります。
+3. 編集したら `Ctrl+S`（macOS では `Cmd+S`）で保存します。元に戻す・やり直しはいつものキーで使え、保存をはさんでも効きます。
+4. HTML に戻すには、タイトルバーの **HTML で開く** を押します。
 
-> **オプトイン設計。** `.html` の既定エディタは VSCode の標準テキストエディタのままで、上記のタイトルバーのボタンを押したときだけビューが切り替わります。現在のエディタに未保存の変更がある場合は、VSCode 標準の保存・破棄・キャンセル確認が完了してから切り替わります。
+`.html` ファイルを毎回 WYSIWYG で開きたいときは、**エディターを再度開く…** から **'*.html' の既定のエディターを構成…** を選びます。
 
----
+## 🤖 Agent Skill
 
-## 🤖 AI エージェントとの使い方
+このリポジトリには Agent Skill が入っています。AI エージェントに、このエディタ向けの HTML の書き方とレビューコメントの扱い方を教えるものです。次のコマンドで導入します。
 
-典型的な往復は次のような流れになります。
-
-1. **AI エージェントに、このビュー向けの HTML の書き方を渡す。** 本リポジトリには執筆ガイド — `.claude/skills/html-result-output/SKILL.md` にある `html-result-output` **スキル** — が同梱されており、サポートするタグ集合、独自の `<comment>` 注釈タグ、拡張が除去・禁止するもの、マークアップを小さくセマンティックに保つ方法を定義しています。これは**特定のエージェントに依存しません**。どの AI にもこのルールを渡せば、このビューで正しく・最小限にレンダリングされる HTML を書けます。（スキルを自動認識するエージェントはフォルダから自動で読み込み、それ以外のエージェントには `SKILL.md` の内容をそのまま渡せば十分です。）
-2. **エージェントに成果物を `.html` ファイルとして書かせる。**
-3. **WYSIWYG で開いて読み、直接編集し、その場でインラインコメントを残す。** コメントをクリックするとスレッドが開き、返信したり解決済みにしたりできます。
-4. **エージェントに改訂を依頼する。** あなたの編集やコメントは HTML 自体に残るため、エージェントはマークアップからレビュースレッド全体を読み取って応答します。既存のものには手を触れず、新しい注釈や返信を追記します。
-
-> 折りたたみ内の全文は、原文の正確性維持のため英語のまま掲載しています。
-
-<details>
-<summary>📄 <strong>スキル全文を表示（SKILL.md）</strong></summary>
-
-<br />
-
-> The content below is the bundled `.claude/skills/html-result-output/SKILL.md`, reproduced here for reference.
-
-````md
----
-name: html-result-output
-description: Use when writing an HTML result/deliverable file (design notes, research reports, task lists, summaries) that the user will open in the Agentic HTML Visual Editor VSCode extension. Covers the supported tag set (including collapsible details, strikethrough, GitHub-style alert blockquotes, and Mermaid diagram source blocks), the custom <comment> annotation tags, what the extension strips or forbids, and how to keep the markup minimal and semantic.
----
-
-# Authoring HTML result files for Agentic HTML Visual Editor
-
-This project is a VSCode extension that renders and edits `.html` files in a
-WYSIWYG view. The HTML on disk is the single, portable source of truth shared
-by the AI agent and the human. When you (the agent) produce an HTML deliverable
-for the user, write it so it renders correctly in that view and stays minimal.
-
-## Core principles
-
-1. **Minimize output.** The whole point of the extension is to cut the context
-   an agent emits. Prefer the smallest correct markup. Do not add framework
-   wrappers, utility classes, `<div>` soup, inline scripts, or boilerplate the
-   view does not need.
-2. **Emit a full document with a `<body>`.** The renderer locates content by
-   splitting around the `<body>` tag. Always output a complete skeleton:
-   `<!DOCTYPE html>` → `<html>` → `<head>` (with `<meta charset>` and a
-   `<title>`) → `<body>` … `</body>`. Content placed outside `<body>` is not
-   rendered. Everything from the opening `<body …>` tag back to the doctype, and
-   the closing `</body>…</html>`, is preserved verbatim — only body content is
-   sanitized.
-3. **Don't ship your own CSS framework.** The extension bundles a modern
-   default stylesheet. Only use the `style` attribute for genuinely per-element
-   intent (see *Styling* below). Inline `style` wins over the bundled CSS, so use
-   it sparingly and deliberately.
-4. **Write semantic HTML.** Use headings, paragraphs, lists, and tables for
-   their meaning. The user reads and edits this; clean structure is the product.
-
-## Supported tags
-
-Stay inside this set — anything else may be stripped or render unstyled:
-
-- **Inline:** `strong`, `em`, `code`, `s` (strikethrough), `a`, `span`
-- **Block:** `h1`–`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
-- **Collapsible:** `details`, `summary` (see below)
-- **Lists:** `ul`, `ol`, `li` (nesting allowed)
-- **Tables:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`,
-  `col` — with `colspan`, `rowspan`, `scope`
-- **Media:** `img` (see below)
-- **Diagrams:** `pre` carrying Mermaid source (see *Mermaid diagrams* below)
-- **Custom:** `comment`, `comment-body`, `comment-reply` (see below)
-
-Notes:
-
-- **Prefer `strong`/`em` over `b`/`i`.** In the view, `<b>` is rewritten to
-  `<strong>` and `<i>` to `<em>` on edit, so emit the semantic tag directly.
-- **Code blocks:** wrap a `<code>` inside `<pre>`: `<pre><code>…</code></pre>`.
-  `<pre>` and `<table>` subtrees are treated as opaque, so their internal
-  whitespace is preserved exactly.
-- **Mermaid diagrams:** emit the source as a `<pre>` block — the two supported
-  forms and the rules that govern them are in *Mermaid diagrams* below.
-- **Images:** use `img` with a `src` and an `alt`. `src` may be an `http(s)://`
-  URL or a **relative path** (e.g. `./images/foo.png`) resolved from the HTML
-  file's own directory. Optional `width`/`height` may be set via inline `style`.
-- **Links:** in the view a link is followed with **Ctrl+click** (Cmd+click on
-  macOS); a plain click places the caret so the link text stays editable. A
-  relative link to a local file (e.g. `<a href="./notes.html">`) opens that file
-  in a VSCode tab instead of navigating the view away, resolved within the
-  document's workspace folder; other links keep their native behavior. Use
-  relative hrefs to cross-link companion documents.
-
-## Collapsible sections (`details` / `summary`)
-
-Use `details` + `summary` for content the reader can expand or collapse. Put the
-`<summary>` first as the clickable title; everything after it is the body. Add
-the boolean `open` attribute to render the section expanded initially; omit it
-for collapsed. The open/closed state is real and persisted back to the HTML.
-
-```html
-<details open>
-  <summary>Implementation notes</summary>
-  <p>Details that can be folded away.</p>
-</details>
+```
+npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-## GitHub-style alert blockquotes
+導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプトが付いていて、動かすには Python 3.11 以上が必要です。
 
-Use a `blockquote` with `data-alert` when content needs an emphasized Note,
-Tip, Important, Warning, or Caution presentation. One example per allowed value:
+## 👀 機能の一覧
 
-```html
-<blockquote data-alert="note">Useful information the reader should notice.</blockquote>
-<blockquote data-alert="tip">Advice for doing something better or more easily.</blockquote>
-<blockquote data-alert="important">Key information the reader must not miss.</blockquote>
-<blockquote data-alert="warning">Content that needs the reader's careful attention.</blockquote>
-<blockquote data-alert="caution">Risks or negative outcomes of a certain action.</blockquote>
-```
-
-Allowed values are `note`, `tip`, `important`, `warning`, and `caution`. Keep
-the label and icon **out** of the HTML — the WYSIWYG stylesheet supplies the
-fixed English label, icon, and accent colour. A plain `<blockquote>` (no
-`data-alert`) remains an ordinary quotation; an unrecognized `data-alert` value
-also renders as an ordinary blockquote.
-
-## Mermaid diagrams
-
-Write a diagram as Mermaid **source** in either supported form. The view renders
-it with its own bundled Mermaid runtime and preserves the form you chose:
-
-```html
-<pre class="mermaid">graph TD
-  A[Draft] --> B[Review]
-</pre>
-
-<pre><code class="language-mermaid">sequenceDiagram
-  Agent->>Human: deliverable.html
-</code></pre>
-```
-
-Rules:
-
-- **Never add a `<script>` or a CDN reference.** The runtime ships with the
-  extension and loads on demand; a `<script>` is stripped on render anyway.
-- **Emit source, never SVG.** The rendered diagram is presentation only — it is
-  never written back to the file and never copied. Do not paste generated SVG
-  into the document as a substitute for the source block.
-- **Don't pin a theme** (`%%{init: {'theme': …}}%%`). The view renders in the
-  active VSCode light/dark theme, and a pinned theme fights it.
-- **Keep labels plain text.** Rendering runs with `securityLevel: 'strict'` and
-  `htmlLabels: false`, so `click` directives are inert and HTML inside a label
-  shows up as literal text.
-- **Escape `<` and `&`** as `&lt;` / `&amp;` inside the source, as in any
-  `<pre>` — otherwise the parser rewrites them and the saved file drifts.
-- **Stay inside the runtime limits:** 50,000 characters of source and 500 edges
-  per diagram. Split a bigger picture into several diagrams.
-- Any diagram type the bundled Mermaid 11 supports (flowchart, sequence, class,
-  state, ER, gantt, pie, mindmap, timeline, …) renders. Invalid syntax is not
-  destructive: the block shows an error card and the source stays editable.
-- The `<pre>` is opaque like a code block, so its indentation — which Mermaid is
-  sensitive to — survives the round trip exactly as written.
-
-## Styling
-
-The extension bundles a modern default stylesheet, so unstyled semantic markup
-already looks good. Reach for the `style` attribute only for genuine
-per-element intent. The properties that carry real, user-meaningful meaning
-(and survive the paste sanitizer) are:
-
-- `color` and `background-color` — on any element.
-- `text-align` — on block elements (`p`, `h1`–`h6`, `blockquote`, `pre`, `div`,
-  `li`, `td`, `th`).
-- `width` (`min-width`/`max-width`) — on table-sizing elements (`table`, `col`,
-  `colgroup`, `th`, `td`).
-- `width`/`height` — on `img`.
-
-Avoid font, spacing, border, and layout styling; let the bundled CSS own the
-look. Never add `class` for styling — there is no external stylesheet to match
-it, and pasted `class` attributes are dropped. The only semantic class
-exceptions are `mermaid` and `language-mermaid` in the diagram forms above.
-Likewise never author a `data-ahve-*` attribute: those are the view's own
-transient UI state, written and removed as you edit and stripped on save.
-
-## IMPORTANT — Custom `<comment>` annotation tags
-
-The extension's headline feature is an inline, review-style annotation that
-lives **entirely in the HTML** so any reader — human or AI — can see the full
-thread by inspecting the markup. Treat these tags as first-class and important.
-
-### Structure
-
-```html
-<comment id="c-a1b2c3d4">target text
-<comment-body contenteditable="false" data-author="ai" data-updated="2026-07-16T09:00:00Z">body text</comment-body>
-<comment-reply contenteditable="false" data-author="ai" data-updated="2026-07-16T09:05:00Z">a reply</comment-reply>
-</comment>
-```
-
-- `<comment id="…">` wraps the **inline run of target text** being annotated.
-  In the view it renders as a highlighted, boxed run; clicking it opens a popup
-  showing the body and replies. The box colour is keyed off the entry author, so
-  human- and AI-authored comments are visually distinct.
-- `<comment-body>` — **zero or one** per comment. Holds the main note.
-- `<comment-reply>` — **zero or more** per comment, in document order. Each holds
-  one reply.
-
-### Document order
-
-Emit the children in this canonical order and keep it: **target text first,
-then `<comment-body>`, then `<comment-reply>` elements** (each reply in
-chronological order).
-
-### Author and timestamp metadata (required when you author)
-
-Each `<comment-body>` and `<comment-reply>` records who wrote it and when:
-
-- `data-author` — set to **`"ai"`** on every body/reply **you** write. (The
-  human side uses `"human"`, possibly a named username in the future. `"ai"` is
-  the fixed label for you, and the extension keys "is this the counterpart?"
-  off exactly this value.)
-- `data-updated` — an **ISO 8601** timestamp (e.g. `2026-07-16T09:00:00Z`).
-  Use the current date/time when you create the entry.
-
-The `<comment>` parent may carry a boolean `data-resolved` attribute marking the
-thread as resolved. **Resolving is the human reviewer's action — do not add or
-remove `data-resolved` yourself.**
-
-### Rules to follow when emitting comments
-
-- **`id` format:** `c-` followed by **8** lowercase alphanumeric characters
-  (`[a-z0-9]`), e.g. `c-a1b2c3d4`. Each `id` must be **unique within the
-  document**.
-- **`comment` is inline** — place it inside a block (a `<p>`, `<li>`, `<td>`,
-  etc.), wrapping only the phrase it annotates. Do not wrap whole blocks.
-- **Don't put block elements inside a comment.** Keep the target text and the
-  body/reply text as plain inline text; comments never nest.
-- **Lock the children:** put `contenteditable="false"` on every
-  `<comment-body>` and `<comment-reply>` so the user cannot accidentally type
-  into them in the view. (The extension re-applies this, but emit it anyway.)
-- **Stamp author + time:** every body/reply you write gets `data-author="ai"`
-  and a current `data-updated` ISO 8601 timestamp (see above).
-- **Append only — never modify existing comments.** When revising a document
-  that already has comments, you may **add** new `<comment>` elements and **add**
-  new `<comment-reply>` entries to existing comments. Do **not** edit, reword,
-  delete, re-author, or re-timestamp any existing `<comment>`, `<comment-body>`,
-  or `<comment-reply>` — especially ones authored by the human (`data-author`
-  other than `"ai"`). Leave their text, `data-author`, and `data-updated`
-  untouched. To respond to a human note, add a new `<comment-reply>`.
-
-### When to use a comment
-
-The body and replies are hidden from the document flow visually but remain in
-the HTML source, so they are the intended channel for agent↔human review notes
-inside the deliverable. Use a `<comment>` to flag something the user should
-decide, verify, or be aware of without disrupting the readable flow of the
-document — e.g. "I assumed X here", "needs a source", "two options, picked the
-first". This is preferable to inlining meta-notes into the prose.
-
-Note: comments are **private to the editor**. When the user copies or exports
-HTML, the `<comment-body>`/`<comment-reply>` are dropped and the `<comment>`
-wrapper is unwrapped, leaving only the commented-on text. Do not rely on comment
-content surviving a copy out of the editor.
-
-## What the extension forbids or strips
-
-Do not emit these — they are removed on render (and some are security-sensitive):
-
-- **Never executed / dropped tags:** `script`, `iframe`, `object`, `embed`,
-  `frame`, `frameset`, `noscript`, `link`, `style`, `base`, `meta` (inside
-  `<body>`).
-- **Event handlers:** any `on*` attribute (`onclick`, `onload`, …) is stripped.
-- **Unsafe URLs:** values in `href`, `src`, `xlink:href`, `srcset`, `action`,
-  or `formaction` starting with `javascript:`, `vbscript:`, or `data:text/html`
-  are dropped.
-- **No external CSS/JS:** external stylesheets and scripts are not loaded.
-  Mermaid support is provided by the extension's own bundled runtime.
-- **Forms render but don't submit:** a `<form>` shows but submission is disabled.
-- **Comment annotations are stripped from exported HTML** — see the note above.
-- **Mermaid previews are reduced back to their source block** on save and on
-  copy, so the file never accumulates rendered output.
-
-## Quick checklist before delivering
-
-- [ ] Full document with `<head>` (charset + title) and a real `<body>`.
-- [ ] Only supported tags; `strong`/`em` (not `b`/`i`); no
-      `script`/`iframe`/`style`/`on*`/unsafe URLs.
-- [ ] Inline `style` limited to meaningful properties; no bespoke CSS framework
-      and no styling `class` attributes (apart from the two Mermaid tokens).
-- [ ] Alerts use `<blockquote data-alert="…">` with no label/icon markup;
-      `details` has `<summary>` first and `open` only when it should start open.
-- [ ] Mermaid diagrams are source blocks in one of the two supported forms —
-      no `<script>`, no CDN, no generated SVG, no pinned theme.
-- [ ] Any `<comment>` you add has a unique `c-` + 8-char id, canonical child
-      order (target → body → replies), and `contenteditable="false"` on its
-      body/replies.
-- [ ] Every body/reply you author has `data-author="ai"` and a current
-      `data-updated` (ISO 8601). You did not touch any existing comment.
-- [ ] Markup is as small as it can be while staying semantic and readable.
-````
-
-</details>
-
----
-
-## 🚀 機能ひと目
-
-| 領域 | 概要 |
+| 領域 | できること |
 | --- | --- |
-| ✍️ **WYSIWYG 編集** | `.html` をインライン編集し、保存時に差分としてソースへ同期。ネイティブな undo/redo に対応 |
-| 💬 **コメント** | HTML ネイティブなレビュー風インライン注釈（作成者・日時・解決状態付き） |
-| ✅ **リスト** | ツールバー・キーボード・マークダウン風入力で `ul`/`ol` を作成・ネスト・切替 |
-| ℹ️ **アラート** | GitHub 風の Note、Tip、Important、Warning、Caution 引用 |
-| ⌨️ **ショートカット** | キーボード・ツールバー・フローティングメニュー・マークダウン風オートフォーマット |
-| 🔍 **検索** | ドキュメント内検索（Ctrl+F）。件数・大小文字・単語単位トグル、スレッド ID によるコメント検索に対応 |
-| ▸ **折りたたみ** | 開閉状態が保存される `<details>` / `<summary>` セクション |
-| ▦ **テーブル** | 挿入・編集・結合/分割・ヘッダー切替・ドラッグでの列幅調整 |
-| 📊 **Mermaid** | CDN 不要で、VS Code テーマに対応した Mermaid 図の挿入・表示・編集・削除 |
-| 📋 **クリップボード** | クリーンな HTML のコピー、コードブロックのワンクリックコピー、サニタイズ済みリッチ HTML / プレーンテキスト貼り付け |
+| 🔠 **書式** | 太字、斜体、取り消し線、インラインコード、リンク。見出し、段落、引用、コードブロック |
+| ✅ **リスト** | 箇条書きと番号付きリスト。`Tab` と `Shift+Tab` で階層を上げ下げ |
+| 🧮 **表** | グリッドからの挿入、行と列、ヘッダーセル、セルの結合、px か % の列幅 |
+| 🔽 **折りたたみ** | 画面上で実際に開閉でき、状態も保存される `<details>` |
+| 💡 **アラート** | GitHub 風の引用（note・tip・important・warning・caution） |
+| 💬 **レビューコメント** | HTML の中に残るスレッド。書いた人と日時、解決済みかどうかも記録 |
+| 🔗 **リンクと画像** | ダイアログでの挿入と編集。`Ctrl`+クリックでリンクを開く |
+| 📊 **Mermaid の図** | VS Code のテーマに合わせて表示し、ファイルにはソースを残す |
+| 🔍 **検索** | `Ctrl+F` で検索。大文字小文字の区別、単語単位、コメント ID での検索 |
+| 🧭 **サイドバー** | 見出しの一覧と、コメントスレッドの一覧 |
+| 📋 **クリップボード** | きれいな HTML でのコピー、余計なスタイルを除いた貼り付け、コードブロックのコピーボタン |
+| 💾 **壊さない保存** | 編集していない行はそのまま残し、ディスク上の変更とは行単位でマージ |
+| ⏪ **元に戻す操作と復旧** | 保存後も使える元に戻す・やり直し。再読み込みや再起動のあとも残る未保存の編集 |
+| 🌐 **言語とアクセシビリティ** | 英語と日本語の表示。キーボードだけで操作可能 |
 
----
+## 🧩 機能の詳細
 
-## 🧩 機能詳細
+### 🔠 書式とブロック
 
-### ✍️ WYSIWYG 編集（インライン編集型）
+- 太字、斜体、取り消し線、インラインコード、リンクは、ツールバーから付けられます。取り消し線以外の 4 つは、選択範囲の上に出るフローティングメニューにもあります。太字・斜体・リンクにはキーボードショートカットもあります。**書式のクリア** は、選択範囲のインライン書式をまとめて外します。
+- **ブロックの種類** のメニューで、見出し 1〜6、段落、引用、コードブロックを相互に変換できます。
+- ブロックの先頭で `## ` と打てば見出し、`- ` と打てば箇条書きになるなど、Markdown 風の入力で書式を付けられます。一覧は [キーボードショートカット](#-キーボードショートカット) にあります。
+- コードブロックの末尾の空行で `Enter` を押すと、ブロックを抜けて新しい段落に移ります。
+- 同梱のスタイルシートのおかげで、素の HTML でも最初から整った見た目になります。ファイルに書かれた `style` 属性は、このスタイルシートより優先されます。
 
-- `.html` を対象とする。
-- WYSIWYG ビュー上の編集内容はビュー内に保持され、保存操作（`Ctrl+S` / `Cmd+S`、またはツールバーの保存ボタン）で裏の HTML ソースへ同期される。未保存の変更がある間は保存ボタンにドットが表示される。
-- 操作中の HTML テキストタブと WYSIWYG ビューを切り替えるときは、呼び出し元のエディタグループに切り替え先を開いてから現在のタブを閉じるため、別ウィンドウ内のグループも含めて正しいグループが維持される。VSCode の確認でキャンセルした場合は切り替え先を閉じて元の状態へ戻す。切り替え先がすでに開いている場合は、現在のタブを閉じずに既存のタブを表示する。
-- WYSIWYG タブはテキストエディタタブとは独立した固有の未保存インジケーター（●）を持つ。HTML ソースだけを編集した場合はテキストタブのみ、WYSIWYG ビューだけを編集した場合は WYSIWYG タブのみ、両方を編集した場合は両方のタブが未保存になる。
-- undo/redo は VSCode 標準の履歴（`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`）を使う。保存後も WYSIWYG 編集の履歴は残る。
-- 同期は git と同様の 3-way 差分適用で行われる。ビューの編集中に HTML ソースが直接変更されていた場合、重ならない変更は両方マージされ、同じ行が両側で変更されていた場合は両方の内容が残る（ドキュメント側が先）。このマージは、ビューの内容とソースが突き合わされるすべての経路（保存後の undo/redo、ビューの切り替え、ホット終了からの復元）に共通で適用される。
-- ビューに未保存の変更がないときは、HTML ソースへの直接変更が即座にビューへ反映される。
-- 切り替え処理自体は HTML の内容を保存・複製・書き換えない。確認ダイアログの表示中やビューの起動中に AI エージェントが書き込んだ変更も、VSCode の最新ドキュメント状態から読み込まれる。
-- WYSIWYG エディタは VSCode 標準の保存ライフサイクルに参加する。未保存の WYSIWYG タブを閉じると保存・破棄の確認が表示され、**ファイルを元に戻す（Revert File）** で変更を破棄でき、自動保存（`files.autoSave`）も適用される。ウィンドウのリロード（ホット終了）時には、未保存の変更が未保存のまま復元される。
-- バンドル同梱の独自デフォルト CSS により、最初からモダンな見た目を提供する。
-- HTML に直書きされた `style` 属性も尊重する（デフォルト CSS より優先）。
-- リンクの追従は Ctrl+クリック（macOS では Cmd+クリック）で行うため、通常のクリックはリンク文字の編集に使える。リンクにホバーするとその旨のヒントが表示される。相対パスのファイルへのリンク（例 `./notes.html`）を Ctrl+クリックすると、ビューから離脱せずに VS Code のタブで開く。リンク先はドキュメントのワークスペースフォルダ内（ワークスペース外の場合は同じディレクトリ内）に限定して安全に解決される。それ以外のリンクは通常どおりの挙動を保つ。
-- **構造を壊さない削除:** `<details>`・`<pre>`・`<table>` の境界での Backspace / Delete は、details の本文を消したり、コード文字列を `<code>` の外へ出したり、隣接ブロックをブロック無しのテキストへ溶かしたりせず、両側をそのまま保つ。その位置で意味のある編集だけは実行される。構造の隣に残った空ブロックは削除され、カーソルは対応する構造の中（閉じた `<details>` なら summary、テーブルなら最寄りのセル）へ移動する。
-- **構造をまたぐ書式適用:** テーブル・コードブロック・`<details>`・コメントを含む複数ブロックにまたがる選択でも、書式が付くのは選択したテキストだけで、途中をまたいだだけの構造は元の位置に残る。同じインライン書式を 2 回適用すると元の状態に戻る。
-- **空のファイルからの編集:** 空の `.html` もそのまま編集できる。入力・Enter・Shift+Enter・IME 入力・貼り付けのいずれもブロックの無いテキストを残さず段落を作り、何も入力していない状態でもツールバーのブロック種別・リストボタンが機能する。
+### ✅ リスト
 
-**サポートする HTML**
+- 箇条書きと番号付きリストを作り、種類を切り替え、段落へ戻せます。
+- `Tab` で項目を 1 つ前の項目の下に入れ、`Shift+Tab` で 1 段戻します。最上位の項目では、段落になります。空の項目で `Enter` を押すと、リストを抜けます。
+- 選択範囲をまとめて変換すると、範囲に含まれるブロックはすべて変わります。またいでいるだけの表やコードブロックなどは、そのまま残ります。
+- 同じ種類のリストの隣で変換すると、そのリストに合流し、番号も続きます。
 
-- **インライン:** `strong`, `em`, `code`, `s`, `a`, `span` ほか
-- **ブロック:** `h1`〜`h6`, `p`, `blockquote`, `pre`, `hr`, `div`
-- **折りたたみ:** `details`, `summary`
-- **リスト:** `ul`, `ol`, `li`（エディタ上で作成・ネストできる。後述の *リスト編集* を参照）
-- **テーブル:** `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col`（`colspan`, `rowspan`, `scope` 属性に対応）
-- **メディア:** `img`（ツールバーから相対パスまたは HTTP/HTTPS URL と任意の alt テキストを指定して挿入できる。`./images/foo.png` のような相対パスは HTML ファイルのディレクトリから解決される）
-- **ダイアグラム:** `<pre class="mermaid">` と `<pre><code class="language-mermaid">` のソースブロック
-- **独自タグ:** `<comment>` / `<comment-body>` / `<comment-reply>`（後述）
+### 🧮 表
 
-### 📊 Mermaid ダイアグラム
+<p align="center">
+  <img src="assets/readme/tables.png" alt="表の操作メニューを開いた状態の表" width="720" />
+  <br />
+  <em>セルを右クリックすると、表の操作メニューが開きます。</em>
+</p>
 
-次のどちらかの形式を使う。ドキュメント側に `<script>` や CDN 参照を追加する必要はない。
+- グリッドから大きさを選んで、表を挿入できます。
+- 行と列を追加・削除でき、ヘッダー行とヘッダー列も切り替えられます。`th` と `scope` も正しく付け替えます。
+- セルの結合と分割ができます。`Shift`+クリックで選んだ長方形の範囲も、まとめて結合できます。
+- 列の境界をドラッグすると、px か % で列幅を変えられます。
+- `Tab` と `Shift+Tab` でセル間を移動します。セルの中でも、ブロックの書式とリストが使えます。
+- 表の操作はコンテキストメニューにまとまっています。キーボードでは `Shift+F10` かメニューキーで開きます。
 
-```html
-<pre class="mermaid">graph TD
-  A --> B
-</pre>
+### 🔽 折りたたみ
 
-<pre><code class="language-mermaid">sequenceDiagram
-  A->>B: Hello
-</code></pre>
-```
+- ツールバーから `<details>` / `<summary>` の折りたたみを挿入できます。画面上で実際に開閉でき、その状態は HTML に保存されます。
+- 左端の印を押すと開閉します。タイトルの文字を押すと、タイトルを編集できます。編集中に `Enter` を押すと、キャレットが本文に移ります。
 
-WYSIWYG ビューは同梱 Mermaid ランタイムを必要時だけ読み込み、現在の VS Code
-ライト／ダークテーマで図を描画する。保存時には元のソース形式を変更しない。
-ツールバーの **Mermaid** ボタンを使うと現在のカーソル位置へ図を挿入でき、ソース
-編集ダイアログが直ちに開く。Cancel では文書を変更しない。既存の図をクリック
-（またはフォーカスして Enter / Space）すると、ソースの編集または **Delete diagram**
-による図全体の削除ができる。Apply・挿入・削除はそれぞれ 1 回の undo 可能な編集と
-して記録される。構文エラーでもソースは失われず、エラーカードから再編集できる。
-生成 SVG は表示専用で、HTML やコピー結果には含まれない。
+### 💡 アラート
 
-### 💬 インラインコメント注釈
+- note・tip・important・warning・caution の引用は、`<blockquote data-alert="…">` として保存されます。ラベル、アイコン、色は画面で描画するだけで、ファイルには書き込みません。
+- **ブロックの種類** のメニューから選べるほか、ブロックの先頭で `>note`・`>tip`・`>important`・`>warning`・`>caution` のどれかと空白を打っても作れます。
+- 対応していない種別の値はファイルにそのまま残し、ふつうの引用として表示します。
 
-HTML だけでレビュー風の注釈を表現するインラインカスタム要素。本文と返信は WYSIWYG 上では非表示だが HTML ソースには残るため、人間も AI もマークアップを読めばスレッド全体を確認できる:
+### 💬 レビューコメント
 
-```html
-<comment id="...">対象テキスト<comment-body data-author="..." data-updated="...">本文</comment-body><comment-reply data-author="..." data-updated="...">返信</comment-reply>...</comment>
-```
+<p align="center">
+  <img src="assets/readme/comments.png" alt="AI エージェントと人間のコメントのスレッド" width="720" />
+  <br />
+  <em>AI エージェントと人間のやり取りが、スレッドとして HTML の中にそのまま残ります。</em>
+</p>
 
-- `<comment>` は注釈対象のテキスト範囲をインラインで囲み、WYSIWYG ではハイライト+枠線付きで表示される。ハイライトをクリックすると本文・返信スレッドのポップアップが開く。
-- `<comment-body>`（`<comment>` ごとに 0 または 1 個）は本文を保持。
-- `<comment-reply>`（`<comment>` ごとに 0 個以上）は返信を 1 件ずつ、DOM 順に保持。
-- **作成者・日時:** 各 body / reply は `data-author`（`human` または `ai`）と `data-updated`（ISO 8601 のタイムスタンプ）を保持する。WYSIWYG ビューで編集するとこれらは自動で記録され、枠の色は作成者に応じて変わるため、人間と AI のコメントを見分けられる。
-- **解決状態:** `<comment>` はブール値の `data-resolved` 属性を持てる（ポップアップから切替）。解決済みのコメントは破線・淡色の枠に後退し、未解決のものは作成者色の実線枠を保つ。
-- **相手の注釈を編集する場合:** 人間が AI の書いたコメントを編集・削除しようとすると、まず確認が求められ、レビュー注釈を誤って上書きしないようにする。
-- **スレッドを読む:** ポップアップ内の本文や返信はドラッグでテキスト選択でき（コピー用途）、通常のクリックは従来どおりその項目の編集を開く。
-- **ID でスレッドを探す:** ドキュメント内検索にコメントの `id`（`c-a1b2` のような一部でもよい）を入力すると、そのコメントへ移動してポップアップが開く。詳しくは [ドキュメント内検索](#-ドキュメント内検索) を参照。
-- **コメント間の移動:** ポップアップ表示中は `↑` / `←` で前のコメント、`↓` / `→` で次のコメントを文書順に表示する（ポップアップの ↑ / ↓ ボタンと同じ動作）。エディタのカーソルは元の位置に残る。矢印キーでカーソルを動かすには Esc でポップアップを閉じる。本文・返信の入力欄の中では、矢印キーは従来どおり入力欄内のカーソルを動かす。
-- **コメント周辺の削除:** コメント付近での Backspace / Delete は、単語単位の `Ctrl+Backspace` / `Ctrl+Delete` も含めて、表示されている文字だけを削除する。非表示の本文・返信が巻き添えで消えることはない。
-- **境界での入力:** カーソルがコメントの先頭・末尾の端にあるとき、続けて入力する文字をコメントの内側に含めるか外側に出すかを選べる。内側に入る場合はカーソルがコメントの色に、外側に出る場合は既定の色になるため、どちら側に入力されるかが一目で分かる。コメント周辺のテキストを編集してもコメントは丸ごと保持され、入れ子にならない。
+- `<comment>` の注釈は HTML の中にあるので、人間でも AI でも、マークアップからスレッド全体を読めます。
+- 文字を選び、ツールバーからコメントを付けます。色の付いた文字を押すと、そのスレッドが開きます。
+- 本文と返信は、追加・編集・削除ができます。書き込みごとに書いた人と日時が記録され、アバターの色で人間と AI エージェントの書き込みを見分けられます。
+- スレッドは解決済みにでき、解決済みのスレッドは目立たない表示になります。
+- AI エージェントの書き込みを編集・削除するときは、先に確認のダイアログが出ます。
+- ポップアップから、前後のスレッドに移動できます。
+- コメントの周りの文字を消しても、表示されていない本文と返信は巻き添えで消えません。周りを編集しても、コメントは丸ごと保たれます。
 
-### ✅ リスト編集
+### 🔗 リンクと画像
 
-箇条書き（`ul`）・番号付き（`ol`）リストは WYSIWYG ビュー上で作成・編集できる:
+- ダイアログでリンクと画像を挿入・編集できます。`Enter` で確定し、`Esc` で取り消します。
+- リンクは `Ctrl`+クリック（macOS では `Cmd`+クリック）で開きます。ふつうのクリックでは、リンクの文字をそのまま編集できます。
+- ローカルのファイルへの相対リンクは、この HTML ファイルが属するワークスペースフォルダの中を指していれば、VS Code のタブで開きます。
 
-- **ツールバー:** 箇条書き／番号付きボタンで、現在のブロックをリスト化、`ul`/`ol` の切替、リスト→段落への解除ができる。
-- **マークダウン風:** 段落の先頭で `- ` / `* `（箇条書き）または `1. `（番号付き）を入力するとリスト化する。
-- **ネスト:** Tab で現在の項目を直前の項目の下にネスト、Shift+Tab で 1 段戻す（最上位項目は段落へ昇格）。空の項目で Enter を押すとリストから抜ける。
-- **選択範囲の変換:** リストボタンは、選択が含むすべてのブロック（ブロックで囲まれていないテキストも含む）をリスト化し、途中をまたいだだけのテーブル・コードブロック・`<details>`・引用はその場に残す。同じ種類の既存リストに隣接する変換は、そのリストへ統合され採番も引き継がれる。
-- **リスト内へのブロック挿入:** リスト項目から水平線や `<details>` を挿入すると、不正な入れ子にせずリストを前後に分割する。番号付きリストは分割後も採番が続き、空になった項目（および項目が無くなったリスト）は削除される。
+### 📊 Mermaid の図
 
-### ℹ️ アラート引用
+<p align="center">
+  <img src="assets/readme/diagrams.png" alt="ダークテーマで表示した Mermaid のフローチャート" width="720" />
+  <br />
+  <em>図は VS Code のテーマに合わせて描かれます。画像はダークテーマの例です。</em>
+</p>
 
-GitHub 風アラートは、通常の引用に小さな意味属性を付けた HTML として保存する。
+- `<pre class="mermaid">` と `<pre><code class="language-mermaid">` のブロックは、ライトテーマとダークテーマに合わせた図として表示されます。
+- ツールバーから図を挿入できます。既存の図を押すと、ダイアログでソースを編集できます。
+- ファイルに残るのはソースだけで、描画した図は保存しません。構文に誤りがあるとエラーが表示されますが、ソースは引き続き編集できます。
 
-```html
-<blockquote data-alert="note">Useful information.</blockquote>
-```
+### 🔍 検索
 
-WYSIWYG 画面では固定の英語ラベル、アイコン、種類ごとのアクセント色を表示するが、表示用マークアップは保存 HTML へ追加しない。値は `note`、`tip`、`important`、`warning`、`caution` に対応する。未知の値は HTML に保持し、通常の引用として表示する。
+- `Ctrl+F` で検索パネルが開きます。一致した箇所をすべて強調表示し、`7 件中 2 件` のように現在の位置を示します。
+- `Enter` で次の一致、`Shift+Enter` で前の一致に移ります。`Esc` でパネルを閉じると、キャレットは現在の一致の位置に残ります。
+- 大文字と小文字の区別、単語単位の一致を切り替えられます。文字を選択した状態でパネルを開くと、その文字が最初から検索語に入ります。
+- 検索の対象は、見えている文字とコメントの ID です。`id` に一致したときは、そのコメントに移動してスレッドを開きます。
+- 強調表示が、文書や保存される HTML を書き換えることはありません。
 
-- **ツールバー:** ブロック種別メニューを開き、**Blockquote** にカーソルを合わせて右側のサブメニューを表示する。先頭の **Normal** を選ぶと通常の引用になり、その下から5種類のアラートを選択できる。
-- **マークダウン風:** ブロック先頭で `>` に続けて上記いずれかの種類名と半角スペースを入力する（例 `>warning `）。従来の `> ` は引き続き通常の引用を作成する。
+### 🧭 サイドバー
 
-### ⌨️ ショートカット
+- 画面の左端のサイドバーに、見出しが階層つきで、コメントスレッドが文書の順に並びます。スレッドには、最初に書いた人の色の点が付き、解決済みになるとチェックの印に変わります。
+- 項目を選ぶと、その位置に移動します。サイドバーは、ツールバー左端のボタンで開閉します。
 
-よく使う表記をキーボード・ツールバー・マークダウン風トリガーから呼び出せる。
+### 📋 クリップボード
 
-**キーボード**
+- コピーと切り取りでは、コメントの付属情報を含まないきれいな HTML が書き出され、注釈を付けた文字だけが残ります。
+- Office、Google ドキュメント、ブラウザからの貼り付けでは、それぞれ固有の目印と計算済みのスタイルが取り除かれ、意味のあるスタイル（文字色、背景色、行揃え、表と画像の寸法）だけが残ります。`Ctrl+Shift+V` なら、プレーンテキストとして貼り付けます。
+- **HTML としてコピー** は、選択範囲をコピーします。何も選択していなければ、本文全体をコピーします。
+- コードブロックにポインターを重ねるとコピーボタンが表示され、コードをプレーンテキストでコピーできます。
+
+### 💾 壊さない保存
+
+- 編集していない行は、空白、属性の引用符、タグの大文字小文字、空要素の書き方まで含めて、ディスク上のとおりに残ります。
+- 編集中にディスク上のファイルが変わった場合も、保存のときに双方の変更を行単位でマージします。
+- イベントハンドラ属性と危険な URL は、画面の中でだけ無効にし、保存のときは元のとおりに書き戻します。
+- UTF-8 以外の文字コードのファイルも、文字を壊さずに開き、UTF-8 で保存します。
+
+### ⏪ 元に戻す操作と復旧
+
+- 元に戻す・やり直しは保存をまたいで効き、キャレットも変更した位置に戻ります。
+- 未保存の編集は、ウィンドウの再読み込みや再起動のあとも残ります。
+
+### 🧰 ツールバーとメニュー
+
+- ツールバーはキャレットの位置に追従し、現在のブロックの種類と書式を表示します。
+- 選択範囲の上にはフローティングメニューが現れます。未保存の変更があると、保存ボタンに点が付きます。
+
+### 🌐 言語とアクセシビリティ
+
+- 画面の文言は英語と日本語に対応し、VS Code の表示言語に合わせて切り替わります。
+- 文書もエディタの画面も、VS Code のライト、ダーク、ハイコントラストのテーマに合わせて表示されます。
+- ツールバー、メニュー、ダイアログ、コメントのポップアップは、キーボードだけで操作でき、フォーカスの枠も見えます。`Alt+F10` でツールバーにフォーカスを移せます。
+
+## ⚡ キーボードショートカット
+
+macOS では `Ctrl` の代わりに `Cmd`、`Alt` の代わりに `Option` を使います。
 
 | ショートカット | 動作 |
 | --- | --- |
-| `Ctrl+B` | 太字（`<strong>`） |
-| `Ctrl+I` | 斜体（`<em>`） |
-| `Ctrl+K` | リンク挿入（`<a>`） |
+| `Ctrl+B` / `Ctrl+I` | 太字 / 斜体 |
+| `Ctrl+K` | リンクの挿入 |
 | `Ctrl+\` | インライン書式のクリア |
-| `Ctrl+Shift+1`〜`6` / `Ctrl+Alt+1`〜`6` | 見出し H1〜H6 に設定 |
-| `Ctrl+Shift+0` / `Ctrl+Alt+0` | 段落化 |
-| `Ctrl+Shift+V` | プレーンテキストとして貼付け |
-| `Ctrl+Z` | WYSIWYG 編集を undo |
-| `Ctrl+Y` / `Ctrl+Shift+Z` | WYSIWYG 編集を redo |
-| `Tab` / `Shift+Tab` | リスト項目のネスト昇降、またはテーブルセル間の移動 |
-| `Ctrl+F` | ドキュメント内検索 |
-| `Ctrl+クリック` / `Cmd+クリック` | リンクを開く（通常のクリックは編集） |
+| `Ctrl+Shift+1`〜`6` / `Ctrl+Alt+1`〜`6` | 見出し 1〜6 |
+| `Ctrl+Shift+0` / `Ctrl+Alt+0` | 段落 |
+| `Ctrl+Shift+V` | プレーンテキストとして貼り付け |
+| `Tab` / `Shift+Tab` | リスト項目の階層の上げ下げ、または表のセル間の移動 |
+| `Ctrl+F` | 文書内の検索 |
+| `Ctrl`+クリック | リンクを開く |
+| `Alt+F10` | ツールバーにフォーカスを移す |
+| `Shift+F10` / メニューキー | キャレットがセルにあるとき、表のメニューを開く |
 
-**マークダウン風オートフォーマット**（ブロック先頭で）
+ブロックの先頭で次のように入力すると、そのブロックの書式が変わります。
 
 | 入力 | 結果 |
 | --- | --- |
-| `# `〜`###### ` | 見出し H1〜H6 |
-| `- ` / `* ` | 箇条書き |
-| `1. ` | 番号付き |
-| `> ` | 引用 |
-| `>note ` / `>tip ` / `>important ` / `>warning ` / `>caution ` | アラート引用 |
-| ` ``` ` + Enter | コードブロック |
-| `---` + Enter | 水平線 |
+| `#`〜`######` のあとに空白 | 見出し 1〜6 |
+| `-` か `*` のあとに空白 | 箇条書き |
+| `1.` のあとに空白 | 番号付きリスト |
+| `>` のあとに空白 | 引用 |
+| `>note`・`>tip`・`>important`・`>warning`・`>caution` のあとに空白 | アラート |
+| バッククォート 3 つのあとに `Enter` | コードブロック（引用の中で打つと、引用の中のコードブロックになる） |
+| `---` のあとに `Enter` | 水平線 |
 
-- **フローティングメニュー:** 選択範囲に応じて関連操作を提示。
-- **ツールバー:** 主要タグと操作へのワンクリックアクセス（保存、Blockquote／Alertスタイルを含むブロック種別、太字／斜体／取り消し線／インラインコード／コードブロック、書式クリア、リンク、画像、リスト、水平線、details、テーブル、コメント、コピー）。
-- **コードブロックを抜ける:** コードブロックの空の最終行で Enter を押すと、ブロックを抜けて `<pre>` の直後の新しい段落へ移動する（空のリスト項目で Enter を押すとリストを抜けるのと同様）。
+## 💻 動作環境
 
-### 🔍 ドキュメント内検索
+- VS Code 1.86 以降が必要です。
+- Windows、macOS、Linux のデスクトップ版 VS Code に加えて、Web 版 VS Code（vscode.dev など）、仮想ワークスペース、信頼していないワークスペース、リモート開発でも使えます。
 
-Ctrl+F でビュー右上に検索パネルを開ける:
+## 🚫 既知の制約
 
-- 入力すると一致箇所をすべてハイライトし、件数（例 `2/7`）で現在位置を示す。
-- Enter / Shift+Enter で次／前の一致へ移動、Esc でパネルを閉じてカーソルを現在の一致位置に残す。
-- **大文字小文字の区別**・**単語単位**のトグルに対応。テキストを選択した状態で開くとその語が検索欄に自動入力される。
-- **コメントのスレッド ID も検索対象。** 検索語が `<comment>` の `id`（人間と AI エージェントが同じスレッドを指すときに使う識別子）に含まれていれば、そのコメントの対象テキストをハイライトし、ポップアップを開く。ID は部分一致で検索され（単語単位のトグルは ID には適用されず、大文字小文字の区別は適用される）、解決済みのスレッドも対象になる。Esc はまず検索パネルだけを閉じてポップアップを残し、もう一度 Esc を押すとポップアップが閉じる。
-- ハイライトは CSS Custom Highlight API で描画するため、エディタの DOM や保存される HTML を一切変更しない（検索のみ。置換は未提供）。
+- スクリプトは実行せず、外部の CSS や JavaScript も読み込みません。フォームは表示しますが、送信はできません。
+- 次のどちらかに当てはまる文書は、WYSIWYG で開けません。本文に `script`・`iframe`・`object`・`embed`・`noscript`・`link`・`style`・`base`・`meta` のいずれかがある場合と、`<body>` の開始タグと終了タグが 1 つずつそろっていない場合です。理由はダイアログに表示され、そこからテキストエディタに切り替えられます。
+- 検索に置換機能はなく、拡張機能の設定もありません。
+- インライン書式の適用とクリアには、選択範囲が必要です。キャレットだけの状態では何も起きません。
+- キーボードショートカットは変更できません。GNOME では `Alt+F10` がウィンドウの最大化に使われているため、このキーは画面に届きません。macOS では、`Option+F10` と `Shift+F10` に `Fn` キーも必要です。
+- ディスク上と画面上で同じ行が変更されたまま保存すると、どちらかを選ばせずに両方を残します。並びは、ディスク上の内容が先、画面の内容が後です。
+- 構文解析の段階で、画面が保持できないものがいくつか取り除かれます。`<pre>` の直後の改行、重複した属性の 2 つ目以降、対応する開始タグのない終了タグ、本文の中の `<body>` タグと `<html>` タグ、`frame` と `frameset` です。ファイルに反映されるのは、これらを含む行を編集したときだけです。
+- HTML ソースの整形、Markdown との相互変換、複数人での同時編集、利用状況の収集、HTML 以外のファイル形式は、対象外です。
 
-### ▸ 折りたたみセクション
+## 📝 変更履歴
 
-ツールバーの **Details** ボタンから `<details>`/`<summary>` ブロックを挿入できる。WYSIWYG ビューでは実際の開閉状態をそのまま保持し、summary 左端の開閉マーカーをクリックして展開・折りたたみできる（タイトル文字のクリックは編集のみ）。開閉状態は HTML に保存される。summary 内で Enter を押すと、summary を分割せずに本文へカーソルが移動する。
+[CHANGELOG.md](CHANGELOG.md) を参照してください。
 
-### ▦ テーブル編集
+## 📄 ライセンス
 
-WYSIWYG ビュー上でテーブルの作成・編集ができる。ツールバー（グリッドピッカー）からの挿入、右クリックメニューでの行列の追加・削除、行・列ヘッダーの切替、セルの結合・分割、列幅のドラッグ調整（px / % モード切替対応）に対応する。セルを Shift+クリックすると、直前にクリックしたセルまでの矩形範囲全体を選択でき（範囲全体がハイライトされる）、その範囲を 1 つのセルに結合できる。
-
-### 📋 クリップボードのコピー/貼り付け
-
-**Copy as HTML** はクリーンな HTML をクリップボードへコピーする。選択範囲があればその範囲、無ければ本文全体をコピーする。（エディタ内でのコピー／カットも、ブラウザの contenteditable が生成するスタイル付きマークアップではなく、この同じクリーン HTML を書き出す。）コメント注釈はこのエディタ固有のものなので、コピーする HTML からは除去され、コメント対象のテキスト（インライン書式付き）だけが書き出される。Mermaid プレビューも同様に、生成 SVG ではなく元のソースブロックへ戻してコピーされる。
-
-**コードブロックのコピー** は、各コードブロックの横に表示されるボタンから行う。選択操作なしにブロックの中身をそのままのテキスト（HTML マークアップなし）でコピーし、ボタンは一時的に *Copied* 表示へ切り替わって完了を知らせる。ボタンは編集対象の本文の外側に描画されるため保存 HTML には一切含まれず、Mermaid のソースブロックは対象外（専用のダイアログから編集する）。
-
-貼り付けられた HTML は挿入前にサニタイズされる。段落や見出しの中にブロックレベルの断片を貼り付けた場合は、無効な入れ子ブロックを作らず現在のブロックの隣に挿入される。コピー時には、見た目上選択されていない空の境界ブロックも除去される。
-
----
-
-## 🚫 非対応 / 範囲外
-
-- `<script>` の実行
-- 外部 CSS / JS の読み込み
-- フォーム送信（`<form>` 自体は表示するが送信は無効）
+[MIT](LICENSE) ライセンスです。この拡張機能に同梱している第三者のソフトウェアは、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) に記載しています。
 
 <div align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:F97316,100:F59E0B&height=120&section=footer" alt="" />
+  <img src="assets/readme/footer.png" alt="" width="100%" />
 </div>

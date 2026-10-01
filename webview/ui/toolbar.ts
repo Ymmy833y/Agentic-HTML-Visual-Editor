@@ -1,578 +1,583 @@
-// The fixed toolbar shown above the WYSIWYG root. Each button dispatches a command and
-// then notifies the caller, so the resulting edit can be serialized and sent back to
-// the extension host.
+import { EDITOR_ROOT_ELEMENT_ID } from '../../common/index';
+import type { Localizer, MessageKey } from '../../common/index';
+import { TOOLBAR_SLOT_GROUPS } from './toolbar-slots';
+import type { ToolbarSlot } from './toolbar-slots';
+import type { ToolbarActivation, ToolbarActivationTarget, ToolbarPopupClosure } from './toolbar-activation';
+import type { TooltipController } from './tooltip';
 
-import { clearFormatting, collectSegments, segmentsCovered, toggleInline } from '../commands/inline-format';
-import { insertDetails, insertHr, setAlertType, setBlockTag, toggleList, type BlockTag } from '../commands/block-format';
-import { findInlineAncestor, getCurrentAlertType, getCurrentBlockTag, getNearestListType } from '../commands/query';
-import type { CommandContext } from '../shared/command-context';
-import { ALERT_DEFINITIONS, type AlertType } from '../shared/alert-types';
-import { setupTooltip } from './tooltip';
+/** The ID of the toolbar element. Kept identical to the spelling in the stylesheet. */
+export const TOOLBAR_ELEMENT_ID = 'editor-toolbar';
 
-// --- SVG icon strings (16×16, currentColor) ---
+// Icons are built with `createElementNS`, so the namespace is spelled out here exactly once.
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
-const ICON_STRIKETHROUGH = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10"/><path d="M5.5 5.5c0-1 .9-2.5 2.5-2.5s2.5 1 2.5 2.5"/><path d="M10.5 10.5c0 1-.9 2.5-2.5 2.5s-2.5-1-2.5-2.5"/></svg>`;
+/** The class put on the indicator mark. Kept identical to the spelling in the stylesheet. */
+const INDICATOR_CLASS = 'toolbar-indicator';
 
-const ICON_CODEBLOCK = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4L2 8l3 4"/><path d="M11 4l3 4-3 4"/><path d="M9.5 3l-3 10"/></svg>`;
+// Class of the element that holds the item label. Kept in line with the stylesheet's spelling.
+const LABEL_CLASS = 'toolbar-label';
 
-const ICON_CLIPBOARD = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>`;
-
-// A floppy disk — the universal iconography for "save".
-const ICON_SAVE = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 1.5H3.5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V5L11 1.5Z"/><path d="M5 1.5V5h5V1.5"/><path d="M4.5 14.5V9.5h7v5"/></svg>`;
-
-// A tilted eraser pressed against a baseline, with a divider marking where the worn tip
-// meets the body — universally readable as "erase / clear".
-const ICON_CLEAR_FORMAT = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5L14 6.5L7.5 13H4L2 11L10 2.5Z"/><path d="M7 5.5L11 9.5"/><path d="M2.5 14h11"/></svg>`;
-
-// Bulleted list: three rows, each a dot marker followed by a line.
-const ICON_UL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="2.5" cy="4" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="2.5" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M6 4h8"/><path d="M6 8h8"/><path d="M6 12h8"/></svg>`;
-
-// Numbered list: three rows, each a numeral (1/2/3) followed by a line.
-const ICON_OL = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 4h8"/><path d="M6 8h8"/><path d="M6 12h8"/><text x="0.5" y="5.5" font-size="5" fill="currentColor" stroke="none">1</text><text x="0.5" y="9.5" font-size="5" fill="currentColor" stroke="none">2</text><text x="0.5" y="13.5" font-size="5" fill="currentColor" stroke="none">3</text></svg>`;
-
-// ---
-
-// The labels shown in the block-type dropdown.
-const BLOCK_LABELS: Record<string, string> = {
-  p: 'Plain',
-  h1: 'H1', h2: 'H2', h3: 'H3', h4: 'H4', h5: 'H5', h6: 'H6',
-  blockquote: 'Blockquote',
-};
-const DROPDOWN_BLOCK_VALUES = new Set(Object.keys(BLOCK_LABELS));
-
-type DropdownOption = { value: string; label: string } | null;
-
-const BLOCK_OPTIONS: DropdownOption[] = [
-  { value: 'p',          label: 'Plain' },
-  { value: 'h1',         label: 'H1' },
-  { value: 'h2',         label: 'H2' },
-  { value: 'h3',         label: 'H3' },
-  { value: 'h4',         label: 'H4' },
-  { value: 'h5',         label: 'H5' },
-  { value: 'h6',         label: 'H6' },
-  null,                              // a visual divider
-  { value: 'blockquote', label: 'Blockquote' },
-];
-
-type AlertDropdownOption = { value: AlertType | null; label: string };
-
-const ALERT_OPTIONS: AlertDropdownOption[] = [
-  { value: null, label: 'Normal' },
-  ...ALERT_DEFINITIONS.map((definition) => ({
-    value: definition.type,
-    label: definition.label,
-  })),
-];
-
-export interface ToolbarOptions {
-  /** Called after a synchronous command has finished mutating the DOM. */
-  onCommand: () => void;
-  /** Opens the link dialog and applies its result. */
-  onLink: () => void;
-  /** Opens the image dialog and inserts its result. */
-  onImage: () => void;
-  /** Opens the Mermaid source dialog and inserts its result. */
-  onMermaid: () => void;
-  /** Adds a comment on the current selection and opens its popup. */
-  onAddComment: () => void;
-  /** Copies the current selection (or the whole document) as HTML. */
-  onCopy: () => void;
-  /** Opens the table picker anchored to the clicked toolbar button. */
-  onInsertTable: (anchor: HTMLElement) => void;
-  /** Syncs the view's content into the document and saves the file. */
-  onSave: () => void;
+/** An item that runs the registrant's operation when pressed. */
+export interface ToolbarButtonItem {
+  readonly kind: 'button';
+  /** The message key used for the accessible name and the tooltip. */
+  readonly messageKey: MessageKey;
+  /** The icon path, drawn in a 24×24 view box. */
+  readonly iconPath: string;
+  /**
+   * The message key read as the item's description while the indicator is shown. The indicator of
+   * an item that leaves this out has no description.
+   */
+  readonly indicatorDescriptionKey?: MessageKey;
+  /** The operation called on press. */
+  run(): void;
 }
 
-export interface ToolbarHandle {
-  element: HTMLElement;
-  /** Shows or hides the unsaved indicator on the save button. */
-  setDirty(dirty: boolean): void;
+/**
+ * The popup kind of a popup item.
+ *
+ * The values use the same spelling as the values of aria-haspopup. Different spellings would require a
+ * translation table.
+ */
+export type ToolbarPopupKind = 'menu' | 'dialog';
+
+/** An item that opens its contents when pressed. */
+export interface ToolbarPopupItem {
+  readonly kind: 'popup';
+  /** The message key used for the accessible name and the tooltip. */
+  readonly messageKey: MessageKey;
+  /** The icon path, drawn in a 24×24 view box. */
+  readonly iconPath: string;
+  /**
+   * The message key read as the item's description while the indicator is shown. The indicator of
+   * an item that leaves this out has no description.
+   */
+  readonly indicatorDescriptionKey?: MessageKey;
+  /**
+   * The popup kind. Defaults to menu when left out.
+   *
+   * Assistive technology is told that the item has a popup of this kind. Announcing popup contents that
+   * are not a menu as a menu would mislead the user about which keys work inside.
+   */
+  readonly popupKind?: ToolbarPopupKind;
+  /**
+   * Builds and places the popup contents, then returns that element.
+   *
+   * The operations inside the popup are also called through the toolbar activation. If the owner of
+   * the contents called them directly, the input stop and composition checks would not apply to
+   * them.
+   *
+   * @param container The item's container. A press outside the element placed here closes the popup.
+   */
+  buildPopup(container: HTMLElement): HTMLElement;
+  /**
+   * The receiver of the closed notification (optional). It only receives the popup closure and has no
+   * say in whether the popup closes.
+   *
+   * Must not throw. It is called partway through the closing path, so throwing would stop the cleanup
+   * after closing.
+   *
+   * @param closure The popup closure.
+   */
+  handleClosed?(closure: ToolbarPopupClosure): void;
 }
 
-export function createToolbar(root: HTMLElement, opts: ToolbarOptions): ToolbarHandle {
-  const bar = document.createElement('div');
-  bar.id = 'ahve-toolbar';
-  bar.setAttribute('role', 'toolbar');
-  bar.setAttribute('aria-label', 'Editor toolbar');
+/** The value carried by a single registration. */
+export type ToolbarItem = ToolbarButtonItem | ToolbarPopupItem;
 
-  const ctx: CommandContext = { root };
+/** The state of an item. A field left out keeps its previous value. */
+export interface ToolbarItemState {
+  /** Whether the item is pressed. */
+  readonly pressed?: boolean;
+  /** Whether the item is disabled. */
+  readonly disabled?: boolean;
+  /** Whether to show the indicator. */
+  readonly indicator?: boolean;
+  /**
+   * The item label. `null` restores the label given at registration.
+   *
+   * The accessible name and the tooltip are left unchanged. Mixing the current value into the
+   * accessible name would deliver the operation's name and the current value to assistive
+   * technology as a single, indistinguishable string.
+   */
+  readonly label?: string | null;
+  /**
+   * The icon path, drawn in a 24×24 view box. `null` restores the icon given at registration.
+   *
+   * The accessible name and the tooltip are left unchanged. The icon is hidden from assistive
+   * technology, so replacing it changes only what the item looks like.
+   */
+  readonly iconPath?: string | null;
+}
 
-  // A snapshot of the selection taken just before the dropdown receives focus.
-  // The dropdown button is *not* subject to e.preventDefault(), so focus can leave the
-  // editor briefly; the range is restored before a command is applied.
-  let savedRange: Range | null = null;
+/**
+ * A registered toolbar item exposed to the outside.
+ *
+ * Excludes the operation and the popup contents. Including them would create a second definition
+ * of an entry point for the same operation.
+ */
+export interface RegisteredToolbarItem {
+  /** The item's kind. */
+  readonly kind: ToolbarItem['kind'];
+  /** Message key used for the accessible name and the tooltip. */
+  readonly messageKey: MessageKey;
+  /** Icon path drawn in a 24×24 view box. */
+  readonly iconPath: string;
+}
 
-  // --- Buttons whose active state must be tracked ---
+/** The ports the toolbar takes from outside. */
+interface ToolbarPorts {
+  readonly localizer: Localizer;
+  readonly activation: ToolbarActivation;
+  readonly tooltip: TooltipController;
+}
 
-  const boldBtn = textBtn('B', 'Bold (Ctrl+B)', () => {
-    toggleInline('strong', ctx);
-    opts.onCommand();
-  }, 'ahve-tb-bold');
+/** One registered item. */
+interface RegisteredItem {
+  readonly slot: ToolbarSlot;
+  readonly item: ToolbarItem;
+  readonly container: HTMLElement;
+  readonly button: HTMLButtonElement;
+  /** The message resolved at registration. A replaced item label is restored to this. */
+  readonly label: string;
+  /**
+   * The indicator description resolved at registration. `undefined` for an item without the key.
+   */
+  readonly indicatorDescription: string | undefined;
+  state: ToolbarItemState;
+}
 
-  const italicBtn = textBtn('I', 'Italic (Ctrl+I)', () => {
-    toggleInline('em', ctx);
-    opts.onCommand();
-  }, 'ahve-tb-italic');
+/**
+ * The fixed toolbar placed outside the editor root.
+ *
+ * Exactly one is created per view, and it is the only thing that decides the order. Items are put
+ * into the slot order rather than the order in which they were registered.
+ */
+export class Toolbar {
+  private readonly entries = new Map<ToolbarSlot, RegisteredItem>();
 
-  const strikeBtn = iconBtn(ICON_STRIKETHROUGH, 'Strikethrough', () => {
-    toggleInline('s', ctx);
-    opts.onCommand();
-  });
+  /**
+   * @param element The toolbar element.
+   * @param ports The ports for message resolution, activation and tooltips.
+   */
+  constructor(
+    private readonly element: HTMLElement,
+    private readonly ports: ToolbarPorts,
+  ) {}
 
-  const codeInlineBtn = textBtn('< >', 'Inline code', () => {
-    toggleInline('code', ctx);
-    opts.onCommand();
-  }, 'ahve-tb-code');
-
-  const codeBlockBtn = iconBtn(ICON_CODEBLOCK, 'Code block', () => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const tag = getCurrentBlockTag(sel.getRangeAt(0).startContainer, root);
-    setBlockTag(tag === 'pre' ? 'p' : 'pre', ctx);
-    opts.onCommand();
-  });
-
-  const clearFormatBtn = iconBtn(ICON_CLEAR_FORMAT, 'Clear formatting (Ctrl+\\)', () => {
-    clearFormatting(ctx);
-    opts.onCommand();
-  });
-
-  const ulBtn = iconBtn(ICON_UL, 'Bulleted list', () => {
-    toggleList('ul', ctx);
-    opts.onCommand();
-  }, 'ahve-tb-ul');
-
-  const olBtn = iconBtn(ICON_OL, 'Numbered list', () => {
-    toggleList('ol', ctx);
-    opts.onCommand();
-  }, 'ahve-tb-ol');
-
-  // --- Custom block-type dropdown (Plain / H1–H6 / Blockquote) ---
-  const { wrapper: blockWrap, updateLabel } = buildBlockDropdown(
-    ctx, opts, root, () => savedRange,
-  );
-
-  // --- Save button with an unsaved indicator ---
-  // Mirrors the editor tab's native dirty dot inside the view, right next to the action
-  // that clears it.
-  const saveBtn = iconBtn(ICON_SAVE, 'Save (Ctrl+S)', () => opts.onSave(), 'ahve-tb-save');
-
-  // --- Assembling the groups ---
-  group(bar, [saveBtn]);
-  group(bar, [blockWrap]);
-  group(bar, [boldBtn, italicBtn, strikeBtn, codeInlineBtn, codeBlockBtn, clearFormatBtn]);
-  group(bar, [linkBtn(opts.onLink), imageBtn(opts.onImage), mermaidBtn(opts.onMermaid)]);
-  group(bar, [ulBtn, olBtn]);
-  group(bar, [
-    textBtn('HR', 'Horizontal rule', () => { insertHr(ctx); opts.onCommand(); }),
-    textBtn('Details', 'Insert collapsible section', () => { insertDetails(ctx); opts.onCommand(); }),
-    tableBtn(opts.onInsertTable),
-    commentBtn(opts.onAddComment),
-  ]);
-  bar.appendChild(iconBtn(ICON_CLIPBOARD, 'Copy as HTML', () => opts.onCopy(), undefined, 'ahve-tb-copy'));
-
-  const last = bar.lastElementChild;
-  if (last && last.classList.contains('ahve-tb-sep')) last.remove();
-
-  // How the toolbar handles mousedown:
-  //   - Inside the block dropdown's wrapper: save the current selection and let the
-  //     click propagate naturally, so the button's click handler fires.
-  //   - Otherwise: stop the default behavior and keep focus in the editor.
-  bar.addEventListener('mousedown', (e) => {
-    if (blockWrap.contains(e.target as Node)) {
-      const sel = window.getSelection();
-      if (sel?.rangeCount) savedRange = sel.getRangeAt(0).cloneRange();
-      return; // deliberately *no* preventDefault — the click must reach the button
+  /**
+   * Registers an item into a slot.
+   *
+   * @param slot The slot.
+   * @param item The item to register.
+   * @returns Whether the registration succeeded. Re-registering into an occupied slot is refused.
+   */
+  register(slot: ToolbarSlot, item: ToolbarItem): boolean {
+    if (this.entries.has(slot)) {
+      return false;
     }
-    e.preventDefault();
-  });
 
-  const syncActiveStates = (): void => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    if (!root.contains(range.startContainer)) return;
+    const document = this.element.ownerDocument;
+    const label = this.ports.localizer.getMessage(item.messageKey);
 
-    const node = range.startContainer;
-    const blockTag = getCurrentBlockTag(node, root);
-    const alertType = getCurrentAlertType(node, root);
+    const button = document.createElement('button');
+    button.type = 'button';
+    // An icon alone is not announced, so the resolved message becomes the accessible name.
+    button.setAttribute('aria-label', label);
+    button.append(createItemIcon(document, item.iconPath));
 
-    updateLabel(DROPDOWN_BLOCK_VALUES.has(blockTag) ? blockTag : 'p', alertType);
+    // Tab stops on only one item in the item bar. Whether registered before or after attaching, an
+    // existing stop is not moved.
+    const hasStop = [...this.entries.values()].some((entry) => entry.button.getAttribute('tabindex') === '0');
+    button.tabIndex = hasStop ? -1 : 0;
 
-    // For a collapsed caret, decide by the presence of an ancestor; for a range,
-    // require every text run to carry the style (matching the toggle semantics: active
-    // ↔ "pressing removes it"). Split once for all four buttons rather than per button:
-    // this walk descends into every structural child the range touches and issues a
-    // subtree query per inline node, so its cost scales with the size of the selection
-    // rather than the number of root children.
-    const segments = range.collapsed ? null : collectSegments(range, root);
-    const covered = (tagName: string): boolean =>
-      segments === null
-        ? !!findInlineAncestor(node, tagName, root)
-        : segmentsCovered(segments, tagName, root);
+    if (item.kind === 'popup') {
+      // A registration that passes no popup kind is announced as having a menu, as before.
+      button.setAttribute('aria-haspopup', item.popupKind ?? 'menu');
+      button.setAttribute('aria-expanded', 'false');
+    }
 
-    boldBtn.classList.toggle('ahve-tb-active', covered('STRONG'));
-    italicBtn.classList.toggle('ahve-tb-active', covered('EM'));
-    strikeBtn.classList.toggle('ahve-tb-active', covered('S'));
-    codeInlineBtn.classList.toggle('ahve-tb-active', covered('CODE'));
-    codeBlockBtn.classList.toggle('ahve-tb-active', blockTag === 'pre');
+    const container = document.createElement('div');
+    container.dataset.slot = slot;
+    container.append(button);
 
-    const listType = getNearestListType(node, root);
-    ulBtn.classList.toggle('ahve-tb-active', listType === 'ul');
-    olBtn.classList.toggle('ahve-tb-active', listType === 'ol');
-    bar.querySelector<HTMLElement>('.ahve-tb-link')
-      ?.classList.toggle('ahve-tb-active', !!findInlineAncestor(node, 'A', root));
-  };
+    const indicatorDescription = item.indicatorDescriptionKey === undefined
+      ? undefined
+      : this.ports.localizer.getMessage(item.indicatorDescriptionKey);
+    const entry: RegisteredItem = { slot, item, container, button, label, indicatorDescription, state: {} };
+    this.entries.set(slot, entry);
 
-  // Sync the toolbar's active states every time the caret moves in the editor, but
-  // coalesce them into a single animation frame.
-  //
-  // selectionchange fires on every mouse move during a drag and on every arrow-key
-  // press, while the read above walks every node the selection touches and runs a
-  // subtree query per inline node — so a drag across a long document used to pay for
-  // that walk dozens of times a second to paint at most one set of button states. A
-  // frame is the smallest interval at which the result could become visible, so
-  // collapsing that burst into one frame loses nothing.
-  //
-  // Only the *last* event in a frame matters: each run reads the live selection rather
-  // than the event that scheduled it, so the intermediate selections have nothing to
-  // contribute, and running on the leading edge would only show a state the user is no
-  // longer in. Hence the trailing edge — the toolbar always describes the selection the
-  // document actually holds.
-  let syncFrame: number | null = null;
-  document.addEventListener('selectionchange', () => {
-    if (syncFrame !== null) return;
-    syncFrame = window.requestAnimationFrame(() => {
-      syncFrame = null;
-      syncActiveStates();
+    // Button presses and slot activations from outside take the same path. Splitting them would let
+    // an added check land on only one side.
+    // Enter and Space from the keyboard also come through here, as the click raised by the button's
+    // default press.
+    button.addEventListener('click', () => {
+      this.activateSlot(slot);
     });
-  });
 
-  return {
-    element: bar,
-    setDirty(dirty: boolean): void {
-      saveBtn.classList.toggle('ahve-tb-unsaved', dirty);
-    },
-  };
-}
-
-// --- The custom block-type dropdown ---
-//
-// It uses position:fixed placement computed from getBoundingClientRect(), so the panel
-// can escape the toolbar's overflow:auto clipping context.
-
-function buildBlockDropdown(
-  ctx: CommandContext,
-  opts: ToolbarOptions,
-  root: HTMLElement,
-  getSavedRange: () => Range | null,
-): {
-  wrapper: HTMLElement;
-  updateLabel: (blockTag: string, alertType: AlertType | null) => void;
-} {
-  const wrapper = document.createElement('div');
-  wrapper.className = 'ahve-tb-blk-wrap';
-
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'ahve-tb-btn ahve-tb-blk-btn';
-  button.setAttribute('aria-haspopup', 'listbox');
-  button.setAttribute('aria-expanded', 'false');
-
-  const labelSpan = document.createElement('span');
-  labelSpan.textContent = 'Plain';
-
-  const arrowSpan = document.createElement('span');
-  arrowSpan.className = 'ahve-tb-blk-arrow';
-  arrowSpan.setAttribute('aria-hidden', 'true');
-  arrowSpan.textContent = '▾';
-
-  button.appendChild(labelSpan);
-  button.appendChild(arrowSpan);
-
-  // The dropdown panel is appended to <body>, so the toolbar's overflow:auto can never
-  // clip it. Its position is updated with getBoundingClientRect() when it opens.
-  const drop = document.createElement('div');
-  drop.className = 'ahve-tb-blk-drop';
-  drop.setAttribute('role', 'listbox');
-  drop.hidden = true;
-  document.body.appendChild(drop);
-
-  const alertDrop = document.createElement('div');
-  alertDrop.className = 'ahve-tb-blk-drop ahve-tb-alert-submenu';
-  alertDrop.setAttribute('role', 'listbox');
-  alertDrop.setAttribute('aria-label', 'Blockquote style');
-  alertDrop.hidden = true;
-  document.body.appendChild(alertDrop);
-
-  let blockquoteItem: HTMLElement | null = null;
-  let submenuCloseTimer: number | null = null;
-
-  const restoreEditorSelection = (): void => {
-    const saved = getSavedRange();
-    root.focus({ preventScroll: true });
-    if (!saved) return;
-    const sel = window.getSelection();
-    if (sel) {
-      sel.removeAllRanges();
-      sel.addRange(saved);
-    }
-  };
-
-  const cancelSubmenuClose = (): void => {
-    if (submenuCloseTimer === null) return;
-    window.clearTimeout(submenuCloseTimer);
-    submenuCloseTimer = null;
-  };
-
-  const closeAlertSubmenu = (): void => {
-    cancelSubmenuClose();
-    alertDrop.hidden = true;
-    blockquoteItem?.setAttribute('aria-expanded', 'false');
-  };
-
-  const scheduleSubmenuClose = (): void => {
-    cancelSubmenuClose();
-    submenuCloseTimer = window.setTimeout(closeAlertSubmenu, 120);
-  };
-
-  const positionAlertSubmenu = (): void => {
-    if (!blockquoteItem) return;
-    const anchor = blockquoteItem.getBoundingClientRect();
-    alertDrop.hidden = false;
-    const menuWidth = alertDrop.getBoundingClientRect().width;
-    const preferredLeft = anchor.right + 3;
-    const left = preferredLeft + menuWidth <= window.innerWidth
-      ? preferredLeft
-      : Math.max(3, anchor.left - menuWidth - 3);
-    const maxTop = Math.max(3, window.innerHeight - alertDrop.getBoundingClientRect().height - 3);
-    alertDrop.style.left = `${left}px`;
-    alertDrop.style.top = `${Math.min(anchor.top, maxTop)}px`;
-  };
-
-  const openAlertSubmenu = (): void => {
-    cancelSubmenuClose();
-    positionAlertSubmenu();
-    blockquoteItem?.setAttribute('aria-expanded', 'true');
-  };
-
-  for (const opt of ALERT_OPTIONS) {
-    const item = document.createElement('div');
-    item.className = 'ahve-tb-blk-opt';
-    item.setAttribute('role', 'option');
-    item.setAttribute('aria-selected', 'false');
-    item.dataset.alertValue = opt.value ?? '';
-    item.textContent = opt.label;
-    item.addEventListener('mousedown', (e) => e.preventDefault());
-    item.addEventListener('click', () => {
-      restoreEditorSelection();
-      setAlertType(opt.value, ctx);
-      opts.onCommand();
-      closeDropdown();
-    });
-    alertDrop.appendChild(item);
-  }
-  alertDrop.addEventListener('mouseenter', cancelSubmenuClose);
-  alertDrop.addEventListener('mouseleave', scheduleSubmenuClose);
-
-  for (const opt of BLOCK_OPTIONS) {
-    if (opt === null) {
-      const divider = document.createElement('div');
-      divider.className = 'ahve-tb-blk-divider';
-      drop.appendChild(divider);
-    } else {
-      const item = document.createElement('div');
-      item.className = 'ahve-tb-blk-opt';
-      item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', 'false');
-      item.dataset.value = opt.value;
-      if (opt.value === 'blockquote') {
-        blockquoteItem = item;
-        item.classList.add('ahve-tb-blk-has-submenu');
-        item.setAttribute('aria-haspopup', 'listbox');
-        item.setAttribute('aria-expanded', 'false');
-        const text = document.createElement('span');
-        text.textContent = opt.label;
-        const arrow = document.createElement('span');
-        arrow.className = 'ahve-tb-blk-submenu-arrow';
-        arrow.setAttribute('aria-hidden', 'true');
-        arrow.textContent = '›';
-        item.append(text, arrow);
-        item.addEventListener('mouseenter', openAlertSubmenu);
-        item.addEventListener('mouseleave', scheduleSubmenuClose);
-      } else {
-        item.textContent = opt.label;
-        item.addEventListener('mouseenter', closeAlertSubmenu);
-      }
-      item.addEventListener('mousedown', (e) => {
-        // Stop this click's default behavior so focus is not lost before the click
-        // handler fires.
-        e.preventDefault();
-      });
-      item.addEventListener('click', () => {
-        // Restore the editor's selection (opening the dropdown may have lost it).
-        restoreEditorSelection();
-        setBlockTag(opt.value as BlockTag, ctx);
-        opts.onCommand();
-        closeDropdown();
-      });
-      drop.appendChild(item);
-    }
+    this.ports.tooltip.registerTarget(button, label);
+    this.render();
+    return true;
   }
 
-  const openDropdown = (): void => {
-    const rect = button.getBoundingClientRect();
-    drop.style.top  = `${rect.bottom + 3}px`;
-    drop.style.left = `${rect.left}px`;
-    drop.hidden = false;
-    button.setAttribute('aria-expanded', 'true');
-  };
-
-  const closeDropdown = (): void => {
-    closeAlertSubmenu();
-    drop.hidden = true;
-    button.setAttribute('aria-expanded', 'false');
-  };
-
-  button.addEventListener('click', () => {
-    if (drop.hidden) openDropdown();
-    else closeDropdown();
-  });
-
-  // Close on a click outside the button and the dropdown panels.
-  document.addEventListener('mousedown', (e) => {
-    if (
-      !drop.hidden &&
-      !wrapper.contains(e.target as Node) &&
-      !drop.contains(e.target as Node) &&
-      !alertDrop.contains(e.target as Node)
-    ) {
-      closeDropdown();
+  /**
+   * Updates the state of a registered item. An empty slot does nothing.
+   *
+   * @param slot The slot.
+   * @param state The state to update. A field left out keeps its previous value.
+   */
+  updateItemState(slot: ToolbarSlot, state: ToolbarItemState): void {
+    const entry = this.entries.get(slot);
+    if (entry === undefined) {
+      return;
     }
-  });
 
-  // Recompute the position when the window is resized while the panel is open.
-  window.addEventListener('resize', () => {
-    if (!drop.hidden) {
-      const rect = button.getBoundingClientRect();
-      drop.style.top  = `${rect.bottom + 3}px`;
-      drop.style.left = `${rect.left}px`;
-      if (!alertDrop.hidden) positionAlertSubmenu();
+    entry.state = { ...entry.state, ...state };
+    const button = entry.button;
+
+    applyPressedAttributes(button, entry.state.pressed);
+    // Disabled is not expressed with `disabled`, so that the tooltip can still be shown while the
+    // pointer rests on a disabled item.
+    button.setAttribute('aria-disabled', String(entry.state.disabled === true));
+    button.toggleAttribute('data-disabled', entry.state.disabled === true);
+
+    // No element is created for an item that has never been given a label. Creating one would leave
+    // an empty gap beside the icon.
+    const label = entry.state.label;
+    if (label !== undefined) {
+      readOrCreateLabel(entry).textContent = label ?? entry.label;
     }
-  });
 
-  wrapper.appendChild(button);
-
-  const updateLabel = (blockTag: string, alertType: AlertType | null): void => {
-    labelSpan.textContent = BLOCK_LABELS[blockTag] ?? 'Plain';
-    for (const item of drop.querySelectorAll<HTMLElement>('[data-value]')) {
-      item.setAttribute('aria-selected', item.dataset.value === blockTag ? 'true' : 'false');
-    }
-    for (const item of alertDrop.querySelectorAll<HTMLElement>('[data-alert-value]')) {
-      const value = item.dataset.alertValue ?? '';
-      const selected = blockTag === 'blockquote' && (
-        alertType === null ? value === '' : value === alertType
+    // Only an update that names the icon redraws it. An update that leaves it out, such as a pressed
+    // state change, keeps whatever icon is drawn now.
+    if (state.iconPath !== undefined) {
+      button.querySelector(':scope > svg')?.replaceWith(
+        createItemIcon(button.ownerDocument, state.iconPath ?? entry.item.iconPath),
       );
-      item.setAttribute('aria-selected', selected ? 'true' : 'false');
     }
-  };
 
-  return { wrapper, updateLabel };
+    // The popup contents also live in the container, so only its direct children are examined.
+    const indicator = entry.container.querySelector(`:scope > .${INDICATOR_CLASS}`);
+    if (entry.state.indicator === true) {
+      if (indicator === null) {
+        // The presence of the dot itself carries the meaning. Only changing a color would not be
+        // distinguishable in a high contrast theme.
+        const mark = button.ownerDocument.createElement('span');
+        mark.className = INDICATOR_CLASS;
+        mark.setAttribute('aria-hidden', 'true');
+        entry.container.append(mark);
+      }
+    } else {
+      indicator?.remove();
+    }
+
+    updateDescription(entry);
+  }
+
+  /**
+   * Returns the buttons of the registered items in slot order.
+   *
+   * Popup contents, separators and indicators are not included. Moves within the item bar count in
+   * this order.
+   *
+   * @returns The item buttons.
+   */
+  readButtons(): HTMLButtonElement[] {
+    return TOOLBAR_SLOT_GROUPS.flat().flatMap((slot) => {
+      const entry = this.entries.get(slot);
+      return entry === undefined ? [] : [entry.button];
+    });
+  }
+
+  /**
+   * Returns the button of the item in the slot.
+   *
+   * @param slot The slot.
+   * @returns The item's button, or `undefined` if not registered.
+   */
+  readButton(slot: ToolbarSlot): HTMLButtonElement | undefined {
+    return this.entries.get(slot)?.button;
+  }
+
+  /**
+   * Reflects on the item that its popup has opened, and gives the contents the same name as the
+   * item. Does nothing for an unregistered slot.
+   *
+   * @param slot The slot of the opened item.
+   * @param contents The element of the opened contents.
+   */
+  handlePopupOpened(slot: ToolbarSlot, contents: HTMLElement): void {
+    const entry = this.entries.get(slot);
+    if (entry === undefined) {
+      return;
+    }
+    entry.button.setAttribute('aria-expanded', 'true');
+    contents.setAttribute('aria-label', entry.label);
+  }
+
+  /**
+   * Reflects on the item that its popup has closed. Does nothing for an unregistered slot.
+   *
+   * After reflecting the closed state on the item, hands the popup closure to the owner of that item's
+   * popup contents. From the popup closure, the owner decides whether to return to the editor root when
+   * the popup closed with focus still inside.
+   *
+   * @param slot The slot of the closed item.
+   * @param closure The popup closure.
+   */
+  handlePopupClosed(slot: ToolbarSlot, closure: ToolbarPopupClosure): void {
+    const entry = this.entries.get(slot);
+    if (entry === undefined) {
+      return;
+    }
+    entry.button.setAttribute('aria-expanded', 'false');
+    if (entry.item.kind === 'popup') {
+      entry.item.handleClosed?.(closure);
+    }
+  }
+
+  /**
+   * Returns the registered toolbar item.
+   *
+   * Reads the current registration on every call. Keeping a copy of the value would hide items
+   * registered later.
+   *
+   * @param slot The slot.
+   * @returns The registered toolbar item, or `undefined` if not registered.
+   */
+  readItem(slot: ToolbarSlot): RegisteredToolbarItem | undefined {
+    const entry = this.entries.get(slot);
+    if (entry === undefined) {
+      return undefined;
+    }
+    const item = entry.item;
+    return { kind: item.kind, messageKey: item.messageKey, iconPath: item.iconPath };
+  }
+
+  /**
+   * Activates the item in the given slot. Does nothing for an unregistered slot.
+   *
+   * The toolbar activation checks input stop, disabled, and composition. Adding checks here would
+   * make it diverge from a button press.
+   *
+   * @param slot The slot to activate.
+   */
+  activateSlot(slot: ToolbarSlot): void {
+    const entry = this.entries.get(slot);
+    if (entry === undefined) {
+      return;
+    }
+    this.ports.activation.activateItem(slot, toActivationTarget(entry));
+  }
+
+  /** Lays the registered items and the separators out again in the slot order. */
+  private render(): void {
+    const children: Element[] = [];
+    for (const group of TOOLBAR_SLOT_GROUPS) {
+      const containers = group.flatMap((slot) => {
+        const entry = this.entries.get(slot);
+        return entry === undefined ? [] : [entry.container];
+      });
+      if (containers.length === 0) {
+        // A group with no registrations gets no separator, or a line would be left standing where
+        // there is no operation.
+        continue;
+      }
+      if (children.length > 0) {
+        children.push(createSeparator(this.element.ownerDocument));
+      }
+      children.push(...containers);
+    }
+    this.element.replaceChildren(...children);
+  }
 }
 
-// --- Button construction helpers ---
+/**
+ * Creates the toolbar element and attaches it immediately before the editor root.
+ *
+ * This is called only when the mount succeeded. An unopenable document has no editor root, so
+ * nothing is attached for it.
+ *
+ * @param view The view's window.
+ * @param localizer The localizer.
+ * @param activation The toolbar activation.
+ * @param tooltip The tooltip controller.
+ * @returns The attached toolbar, or `undefined` when there is no editor root.
+ */
+export function attachToolbar(
+  view: Window,
+  localizer: Localizer,
+  activation: ToolbarActivation,
+  tooltip: TooltipController,
+): Toolbar | undefined {
+  const root = view.document.getElementById(EDITOR_ROOT_ELEMENT_ID);
+  if (root === null) {
+    return undefined;
+  }
 
-function textBtn(
-  label: string,
-  title: string,
-  onClick: () => void,
-  id?: string,
-): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn';
-  if (id) b.id = id;
-  setupTooltip(b, title);
-  b.textContent = label;
-  b.addEventListener('click', onClick);
-  return b;
+  const element = view.document.createElement('div');
+  element.id = TOOLBAR_ELEMENT_ID;
+  element.setAttribute('role', 'toolbar');
+  // The floating menu has the same role, so the two are told apart by name.
+  element.setAttribute('aria-label', localizer.getMessage('toolbar.name'));
+
+  // Keeps a press from moving focus off the editor root; once focus is lost, an operation can no
+  // longer be run against the selection. The strip spans the full width, so binding this per button
+  // would leave the padding, the separators and the space to the right of the last item uncovered,
+  // and an item pressed after one of those would run against a selection that is already gone. The
+  // listener is bound in the capture phase so that it still takes effect when an element inside
+  // stops propagation.
+  element.addEventListener('mousedown', (event) => {
+    // An input field in popup contents cannot take a value unless the press moves focus to it, so the
+    // default is not stopped. Only popup contents put input fields in the strip; presses on items,
+    // padding and separators are still stopped as before.
+    if (event.target instanceof HTMLInputElement) {
+      return;
+    }
+    event.preventDefault();
+  }, true);
+
+  // Placed outside the editor root. Inside it, the toolbar would appear in the output.
+  root.before(element);
+  return new Toolbar(element, { localizer, activation, tooltip });
 }
 
-function iconBtn(
-  svgHtml: string,
-  title: string,
-  onClick: () => void,
-  id?: string,
-  extraClass?: string,
-): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-icon' + (extraClass ? ' ' + extraClass : '');
-  if (id) b.id = id;
-  setupTooltip(b, title);
-  b.innerHTML = svgHtml;
-  b.addEventListener('click', onClick);
-  return b;
+/**
+ * Expresses the pressed state with attributes and a marker.
+ *
+ * The fixed toolbar and the floating menu use the same procedure. If only one of them changed the
+ * spelling, the same state would look different on the two surfaces. A button that was not given a
+ * pressed state gets no `aria-pressed`; adding it would make a one-off operation such as save be
+ * read aloud as a toggle button.
+ *
+ * @param button The target button.
+ * @param pressed Whether it is pressed. Unspecified when omitted.
+ */
+export function applyPressedAttributes(button: HTMLButtonElement, pressed: boolean | undefined): void {
+  if (pressed !== undefined) {
+    button.setAttribute('aria-pressed', String(pressed));
+  }
+  // High-contrast themes erase background color differences, so color alone is not used to distinguish it.
+  button.toggleAttribute('data-pressed', pressed === true);
 }
 
-function linkBtn(onLink: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-link';
-  setupTooltip(b, 'Link (Ctrl+K)');
-  b.textContent = 'Link';
-  b.addEventListener('click', onLink);
-  return b;
+/**
+ * Returns the element that holds the item label, creating and placing it if absent.
+ *
+ * @param entry The registered item.
+ * @returns The element that holds the label.
+ */
+function readOrCreateLabel(entry: RegisteredItem): HTMLElement {
+  const existing = entry.button.querySelector(`:scope > .${LABEL_CLASS}`);
+  if (existing instanceof HTMLElement) {
+    return existing;
+  }
+  const label = entry.button.ownerDocument.createElement('span');
+  label.className = LABEL_CLASS;
+  // Serves as the reference target when the replaced item label is associated as a description.
+  label.id = `${TOOLBAR_ELEMENT_ID}-${entry.slot}-label`;
+  // The button holds the accessible name. Mixing the label into what is read aloud would read the
+  // operation's name twice.
+  label.setAttribute('aria-hidden', 'true');
+  entry.button.append(label);
+  return label;
 }
 
-function imageBtn(onImage: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-image';
-  setupTooltip(b, 'Insert image');
-  b.textContent = 'Image';
-  b.addEventListener('click', onImage);
-  return b;
+/**
+ * Associates the indicator and the replaced item label with the item as its description. Anything
+ * no longer present is removed from the association.
+ *
+ * Mixing the current value into the name would leave assistive technology unable to tell the
+ * operation's name from the current value, so the name stays the message given at registration and
+ * the current state is conveyed as the description.
+ *
+ * @param entry The registered item.
+ */
+function updateDescription(entry: RegisteredItem): void {
+  const ids: string[] = [];
+
+  const indicatorId = `${TOOLBAR_ELEMENT_ID}-${entry.slot}-indicator`;
+  const existing = [...entry.container.children].find((child) => child.id === indicatorId);
+  if (entry.state.indicator === true && entry.indicatorDescription !== undefined) {
+    if (existing === undefined) {
+      const description = entry.container.ownerDocument.createElement('span');
+      description.id = indicatorId;
+      // Used only as the reference target of the description; it appears neither on screen nor in
+      // the reading flow.
+      description.hidden = true;
+      description.textContent = entry.indicatorDescription;
+      entry.container.append(description);
+    }
+    ids.push(indicatorId);
+  } else {
+    existing?.remove();
+  }
+
+  // The item label element stays hidden from reading and is used only as the reference target of the
+  // description. Once restored with null, it is no longer associated.
+  if (typeof entry.state.label === 'string') {
+    ids.push(readOrCreateLabel(entry).id);
+  }
+
+  if (ids.length === 0) {
+    entry.button.removeAttribute('aria-describedby');
+    return;
+  }
+  entry.button.setAttribute('aria-describedby', ids.join(' '));
 }
 
-function mermaidBtn(onMermaid: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-mermaid';
-  setupTooltip(b, 'Insert Mermaid diagram');
-  b.textContent = 'Mermaid';
-  b.addEventListener('click', onMermaid);
-  return b;
+/**
+ * Builds the icon element from the given path.
+ *
+ * Icons are built here rather than taken from a library, so as not to add a runtime dependency.
+ * They are built with `createElementNS` instead of being injected as an HTML string.
+ *
+ * @param document The view's document.
+ * @param path The path drawn in a 24×24 view box.
+ * @returns The icon's `svg` element.
+ */
+export function createItemIcon(document: Document, path: string): SVGSVGElement {
+  const icon = document.createElementNS(SVG_NAMESPACE, 'svg');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('width', '24');
+  icon.setAttribute('height', '24');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '1.5');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  // The button carries the accessible name, so the icon is kept out of the announcement.
+  icon.setAttribute('aria-hidden', 'true');
+
+  const shape = document.createElementNS(SVG_NAMESPACE, 'path');
+  shape.setAttribute('d', path);
+  icon.append(shape);
+  return icon;
 }
 
-function tableBtn(onInsertTable: (anchor: HTMLElement) => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-table';
-  setupTooltip(b, 'Insert table');
-  b.textContent = 'Table';
-  b.addEventListener('click', () => onInsertTable(b));
-  return b;
+/**
+ * Creates the separator placed between groups.
+ *
+ * @param document The view's document.
+ */
+function createSeparator(document: Document): HTMLElement {
+  const separator = document.createElement('span');
+  separator.className = 'toolbar-separator';
+  separator.setAttribute('role', 'separator');
+  return separator;
 }
 
-function commentBtn(onAddComment: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'ahve-tb-btn ahve-tb-comment';
-  setupTooltip(b, 'Comment on selection');
-  b.textContent = 'Comment';
-  b.addEventListener('click', onAddComment);
-  return b;
-}
-
-function group(bar: HTMLElement, children: HTMLElement[]): void {
-  for (const c of children) bar.appendChild(c);
-  bar.appendChild(sep());
-}
-
-function sep(): HTMLElement {
-  const s = document.createElement('span');
-  s.className = 'ahve-tb-sep';
-  s.setAttribute('aria-hidden', 'true');
-  return s;
+/**
+ * Takes from a registered item only the values needed to decide a single press.
+ *
+ * @param entry The registered item.
+ */
+function toActivationTarget(entry: RegisteredItem): ToolbarActivationTarget {
+  const disabled = entry.state.disabled === true;
+  if (entry.item.kind === 'popup') {
+    const item = entry.item;
+    return { kind: 'popup', disabled, openPopup: () => item.buildPopup(entry.container) };
+  }
+  const item = entry.item;
+  return { kind: 'button', disabled, run: () => item.run() };
 }

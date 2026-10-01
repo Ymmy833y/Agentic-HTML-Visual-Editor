@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>T-4 属性の無効化と style</title>
+</head>
+<body>
+<h1>T-4 属性の無効化と style</h1>
+<p>ボタン：<button type="button" onclick="alert('onclick が動いた')">押しても何も起きないボタン</button></p>
+<p>リンク：<a href="javascript:alert('javascript: が動いた')">押しても何も起きないリンク</a></p>
+<form action="https://example.com/submit" method="post">
+<p><input type="text" name="q" value="送信されない"> <button type="submit">送信</button></p>
+</form>
+<p style="color: red">style で赤にした段落。</p>
+<p style="text-align: center">style で中央揃えにした段落。</p>
+</body>
+</html>

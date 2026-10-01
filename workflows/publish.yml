@@ -1,0 +1,55 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: decide
+        run: node scripts/release/publish-decision.mjs
+
+  publish:
+    needs: decide
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VSIX: agentic-html-visual-editor-${{ needs.decide.outputs.version }}.vsix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit --fund=false
+      - run: npm ci --prefer-offline --no-audit --fund=false
+        working-directory: scripts/release
+      - run: scripts/release/node_modules/.bin/vsce package --no-dependencies --out "$VSIX"
+      - name: Publish to the Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSC_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::Cannot publish because the publishing credential VSC_PAT is missing from the repository secrets."
+            exit 1
+          fi
+          scripts/release/node_modules/.bin/vsce publish --packagePath "$VSIX"

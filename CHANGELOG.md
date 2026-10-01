@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-01
+
+Rebuilt from the ground up for long-term maintenance. Every feature of 0.1.12 carries over.
+
+### Added
+
+- Run in VS Code for the Web (such as vscode.dev) and in virtual workspaces, and work in untrusted workspaces
+- Show the editor in Japanese when VS Code's display language is Japanese: the toolbar, menus, dialogs, command names, and notifications all follow it
+- Sidebar at the left edge of the view that lists the headings by level and every comment thread in document order, with resolved threads marked; choosing an item moves to that spot, and a toolbar button opens and closes it
+- Carry the document's `lang` over to the editing area, so the text is laid out in the language of the file rather than that of the UI
+- Agent Skill that teaches AI agents how to write HTML for this editor and work with its review comments, installable with `npx skills add Ymmy833y/Agentic-HTML-Visual-Editor`
+
+### Changed
+
+- Require VS Code 1.86 or later (previously 1.85)
+- Do not open a document in the WYSIWYG view when its body contains `script`, `iframe`, `object`, `embed`, `noscript`, `link`, `style`, `base`, or `meta`, or when it does not have exactly one `<body>` start tag followed by one end tag (an empty file included); a dialog explains why and offers to switch to the text editor, and the file is left untouched. Previously such tags were stripped and a document without `<body>` was opened as it was
+- Neutralize `on*` event-handler attributes and URLs with a `javascript:`, `vbscript:`, or `data:text/html` scheme only inside the view, and write them back as they were when saving, so sanitizing never removes anything from the file
+- Keep every line you did not edit exactly as it is on disk — whitespace, attribute quotes, tag case, and void-element spelling included — even after editing elsewhere in the document, and put a newly inserted block on its own line without indentation
+- Keep `<b>` and `<i>` as written instead of rewriting them to `<strong>` and `<em>`; they are still recognized as bold and italic
+- Report problems you can act on as notifications and record internal errors in the **Agentic HTML Visual Editor** output channel; a failed save or merge is always reported
+- Open files in encodings other than UTF-8 and, when saving from the WYSIWYG view, convert them to UTF-8 with their characters intact
+- Reach and operate the toolbar, menus, dialogs, and the comment popup with the keyboard alone (`Alt+F10` moves focus from the document to the toolbar), with a visible focus ring and roles and labels for screen readers
+
 ## [0.1.12] - 2026-09-23
 
 ### Added

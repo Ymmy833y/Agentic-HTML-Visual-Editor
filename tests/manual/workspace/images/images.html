@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>T-5 画像</title>
+</head>
+<body>
+<h1>T-5 画像</h1>
+<p>同じフォルダ（表示される）：<img src="same.svg" alt="same"></p>
+<p>子フォルダ（表示される）：<img src="./child/child.svg" alt="child"></p>
+<p>親フォルダ・ワークスペース内（表示される）：<img src="../shared/parent.svg" alt="parent"></p>
+<p>ワークスペース外（表示されない）：<img src="../../outside/outside.svg" alt="outside"></p>
+<p>https（表示される）：<img src="https://github.githubassets.com/favicons/favicon.png" alt="https" style="width: 32px; height: 32px"></p>
+<p>data（表示される）：<img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Crect width='120' height='40' rx='6' fill='%236a1b9a'/%3E%3C/svg%3E" alt="data"></p>
+</body>
+</html>

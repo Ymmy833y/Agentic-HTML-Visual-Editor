@@ -1,8 +1,14 @@
 {
-  "extends": "../../tsconfig.test.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
-    "types": ["mocha", "node", "vscode"]
+    "lib": ["ES2022"],
+    "types": ["node", "mocha", "vscode"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": "../../out-test",
+    "sourceMap": true
   },
   "include": ["**/*.ts"]
 }

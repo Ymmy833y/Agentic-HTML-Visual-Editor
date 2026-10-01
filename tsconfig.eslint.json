@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "include": [
-    "src/**/*.ts",
-    "webview/**/*.ts",
-    "tests/**/*.ts",
-    "*.config.ts"
-  ]
-}

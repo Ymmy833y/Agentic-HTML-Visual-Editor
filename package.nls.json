@@ -1,0 +1,13 @@
+{
+  "extension.displayName": "Agentic HTML Visual Editor",
+  "extension.description": "A WYSIWYG editor for HTML files that AI agents and people share as a single source of truth",
+  "editor.html.displayName": "Agentic HTML Visual Editor",
+  "command.save.title": "Visual Editor: Save",
+  "command.undo.title": "Visual Editor: Undo",
+  "command.redo.title": "Visual Editor: Redo",
+  "command.recover.title": "Visual Editor: Recover",
+  "command.openInWysiwygEditor.title": "Open in WYSIWYG",
+  "command.openInHtmlEditor.title": "Open in HTML",
+  "command.copyAsHtml.title": "Copy as HTML",
+  "command.category": "Visual Editor"
+}

@@ -1,0 +1,13 @@
+{
+  "extension.displayName": "Agentic HTML Visual Editor",
+  "extension.description": "AI エージェントと人間が 1 つの情報源として共有する HTML ファイルを、WYSIWYG で編集するエディター",
+  "editor.html.displayName": "Agentic HTML Visual Editor",
+  "command.save.title": "Visual Editor: 保存",
+  "command.undo.title": "Visual Editor: 元に戻す",
+  "command.redo.title": "Visual Editor: やり直し",
+  "command.recover.title": "Visual Editor: 復旧",
+  "command.openInWysiwygEditor.title": "WYSIWYG で開く",
+  "command.openInHtmlEditor.title": "HTML で開く",
+  "command.copyAsHtml.title": "HTML としてコピー",
+  "command.category": "Visual Editor"
+}
