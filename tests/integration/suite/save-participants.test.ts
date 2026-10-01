@@ -64,12 +64,32 @@ async function revertScratch(uri: vscode.Uri): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 }
 
+// Writes the initial content, retrying while the file is locked.
+// On Windows the previous case's save or VS Code's file watcher can still hold the file for a moment, so
+// the write fails with EBUSY. The lock is transient, so a short retry is enough; any other error is real.
+async function writeInitialText(uri: vscode.Uri): Promise<void> {
+  const deadline = Date.now() + STATE_TIMEOUT_MS;
+
+  for (;;) {
+    try {
+      await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(INITIAL_TEXT));
+      return;
+    } catch (error) {
+      const locked = error instanceof Error && error.message.includes('EBUSY');
+      if (!locked || Date.now() >= deadline) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+  }
+}
+
 // Writes back to disk and waits until the still-open buffer follows that content.
 // Without the wait, the edit would land on a buffer still holding the previous test's content, and the
 // reload arriving right afterwards would discard the edit, making save() a no-op.
 async function resetScratch(uri: vscode.Uri): Promise<void> {
   await revertScratch(uri);
-  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(INITIAL_TEXT));
+  await writeInitialText(uri);
 
   const document = await vscode.workspace.openTextDocument(uri);
   const deadline = Date.now() + STATE_TIMEOUT_MS;
