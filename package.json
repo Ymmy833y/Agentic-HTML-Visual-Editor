@@ -2,7 +2,7 @@
   "name": "agentic-html-visual-editor",
   "displayName": "Agentic HTML Visual Editor",
   "description": "A WYSIWYG HTML editor for reviewing and refining AI-generated content in VS Code",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "keywords": [
     "wysiwyg",
     "html",
@@ -154,11 +154,11 @@
     "vitest": "^5.0.0"
   },
   "overrides": {
-    "brace-expansion@>=2.0.0 <3.0.0": "2.1.4",
-    "brace-expansion@>=3.0.0 <6.0.0": "5.0.9",
+    "brace-expansion@>=2.0.0 <3.0.0": "2.1.7",
+    "brace-expansion@>=3.0.0 <6.0.0": "5.0.12",
     "serialize-javascript": "7.0.5",
     "diff": "8.0.3",
-    "undici": "7.29.0",
+    "undici": "7.29.1",
     "js-yaml": "4.3.2"
   },
   "dependencies": {
