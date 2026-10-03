@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { CDPSession, Page } from '@playwright/test';
 
 import {
+  DOCUMENT_APPLY_KIND,
   EDITOR_ROOT_ELEMENT_ID,
   HOST_TO_VIEW_MESSAGE_TYPE,
   VIEW_TO_HOST_MESSAGE_TYPE,
@@ -234,5 +235,31 @@ test.describe('the editor root ID', () => {
 
     await expect(page.locator(`#${EDITOR_ROOT_ELEMENT_ID} ${OVERLAY}`)).toHaveCount(0);
     await expect(page.locator(OVERLAY)).toHaveCount(1);
+  });
+});
+
+test.describe('scroll position across a save round trip', () => {
+  // The caret paragraph sits in the middle, so jumping to the caret and jumping to the top tell apart.
+  const LINES = (from: number, count: number): string =>
+    Array.from({ length: count }, (_, index) => `<p>line ${from + index}</p>\n`).join('');
+  const TALL_BODY = `\n${LINES(0, 100)}<p>ab</p>\n${LINES(100, 100)}`;
+
+  test('keeps the scroll position when the caret is scrolled out of view and a save commits', async ({ page }) => {
+    await openEditor(page, TALL_BODY);
+    await placeCaretAfterAb(page);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const scrolled = await page.evaluate(() => window.scrollY);
+
+    await requestBodyOutput(page, '1');
+    const [output] = await readOutputResponses(page);
+    await sendToWebview(page, {
+      type: HOST_TO_VIEW_MESSAGE_TYPE.replaceDocument,
+      requestId: '2',
+      kind: DOCUMENT_APPLY_KIND.saveCandidate,
+      text: output,
+    });
+    await sendToWebview(page, { type: HOST_TO_VIEW_MESSAGE_TYPE.saveCommitted });
+
+    expect([scrolled > 0, await page.evaluate(() => window.scrollY)]).toEqual([true, scrolled]);
   });
 });

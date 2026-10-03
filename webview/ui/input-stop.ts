@@ -160,7 +160,7 @@ export class InputStopController {
 
     // The focus was lost the moment the root was made non-editable, and returning the focus alone
     // does not bring the caret back to where it was.
-    root.focus();
+    root.focus({ preventScroll: true });
     if (captured !== undefined) {
       restoreSelection(root, captured);
     }
