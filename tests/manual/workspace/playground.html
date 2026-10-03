@@ -1,173 +1,93 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="author" content='manual-test'>
-<title>試し書き</title>
+<title>Notification settings: design notes</title>
 </head>
 <body>
-<h1>設計メモ：勉強会の出欠管理</h1>
+<h1>Notification Settings: Design Notes</h1>
+<p>A <strong>per-channel notification settings page</strong> drafted by an AI agent, ready for <comment id="c-a4f9q2zt">team review<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-28T09:05:00Z">I assumed design review happens in the sprint 42 planning. Please correct me if it has moved.</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-28T10:20:00Z">Correct. Thursday afternoon.</comment-reply></comment>.</p>
+<blockquote data-alert="note">Support ticket counts come from the <em>Q3 support report</em>.</blockquote>
 
-<p>手動テストの試し書き用の文書。ふだんの確認はこのファイルだけで行う。壊したら <code>git restore tests/manual</code> で戻す。各節の「試す：」は壊れやすい操作の目安である。</p>
+<h2>Background</h2>
+<p>Users can only turn all notifications on or off today. In Q3, <strong>38%</strong> of support tickets about notifications asked to mute a single channel. See the <a href="https://example.com/q3-report">Q3 support report</a> for the full breakdown.</p>
+<p>The <s>email digest</s> setting was removed in v4 and is out of scope.</p>
 
-<h2>1. 概要</h2>
-<p><em>試す：範囲に書式を 2 回ずつ押す。一部だけ太字の範囲に太字を押す。段落の先頭で Backspace、末尾で Delete。見出しの末尾で Enter。</em></p>
-<p>社内勉強会の出欠は、いまはチャットのスレッドで集めている。この文書では、出欠を<strong>専用の画面</strong>で集める仕組みを検討する。</p>
-<p><strong>対象</strong>は月 2 回の定例会、<em>範囲外</em>は外部講師を招く回、<s>懇親会</s>は別に扱う。設定は <code>attendance.deadline</code> に置き、経緯は<a href="https://example.com/">社内ポータル</a>にある。</p>
-<p>旧来の書き方の <b>b 要素の太字</b> と <i>i 要素の斜体</i> も残っている。</p>
-<P CLASS='quirky'>大文字のタグと単引用符の属性で書かれた段落。</P>
-<p>段落の中の改行<br/>（自己終了の br）を含む段落。</p>
-<p id="goal" style="color: teal">id と style を持つ段落。種別を変えても属性が残るかを見る。</p>
-<p>目標 1：出欠の回答を 1 画面で済ませる。</p>
-<p>目標 2：締め切りの前日に未回答者へ知らせる。</p>
-<p>目標 3：過去の出席率を幹事が見られる。</p>
-<p></p>
-
-<h2>2. 前提と注意</h2>
-<p><em>試す：段落を Note → Warning → Quote と変える。引用の途中で Enter、末尾で Enter を 2 回。</em></p>
-<blockquote>「出欠はリアクションで十分」という意見もある。</blockquote>
-<blockquote data-alert="note">回答は締め切りの後も直せる。</blockquote>
-<blockquote data-alert="tip">幹事は回をコピーして次回を作れる。</blockquote>
-<blockquote data-alert="important">欠席の理由は集めない。</blockquote>
-<blockquote data-alert="warning">通知は 1 回につき 1 通までにする。</blockquote>
-<blockquote data-alert="caution">回を消すと回答も消える。</blockquote>
-<blockquote data-alert="Note">大文字の Note。未知の値なので通常の引用として表示される。</blockquote>
-<blockquote data-alert="foo">foo。未知の値なので通常の引用として表示される。</blockquote>
-<p>アラートにする段落。</p>
-
-<h2>3. 要件</h2>
-<p><em>試す：項目を 2 つ選んで Tab と Shift+Tab。入れ子の項目の末尾で Enter を 3 回。2 つの番号付きリストの間の段落で Numbered List。リストの直後の段落の先頭で Backspace。</em></p>
+<h2>Goals</h2>
 <ul>
-<li>幹事は勉強会の回を作れる</li>
-<li>参加者は出欠を回答できる
+<li>Mute a channel in <strong>two clicks</strong> or fewer.</li>
+<li>Keep the current defaults for existing users.
 <ul>
-<li>回答は出席・欠席・未定の 3 択</li>
+<li>Email and push stay on.</li>
+<li>SMS stays off.</li>
 </ul>
 </li>
-<li>参加者は自分の回答を直せる</li>
+<li>Store settings under <code>user.notifications</code>.</li>
 </ul>
-<p>リストの直後の段落。</p>
-<ol>
-<li>回答の画面</li>
-<li>締め切りの前の通知</li>
-</ol>
-<p>2 つの番号付きリストの間の段落。</p>
-<ol>
-<li>出席率の集計</li>
-</ol>
-<p>リストにする段落 1。</p>
-<p>リストにする段落 2。</p>
-<pre><code>範囲の途中のコードブロック</code></pre>
-<p>リストにする段落 3。</p>
 
-<h2>4. 画面の項目</h2>
-<p><em>試す：最後のセルで Tab。セルを右クリックして行・列を足し引きする（結合したセルのある表でも）。Shift+クリックで範囲を作って Merge Cells。列の境界をドラッグして Ctrl+Z。</em></p>
+<h2>Flow</h2>
+<pre class="mermaid">flowchart LR
+  Event[Event raised] --> Prefs{Channel enabled?}
+  Prefs -->|Yes| Quiet{Quiet hours?}
+  Prefs -->|No| Drop([Dropped])
+  Quiet -->|No| Send([Sent])
+  Quiet -->|Yes| Queue[Queued until morning]
+</pre>
+
+<h2>Channels</h2>
 <table>
+<colgroup><col style="width: 20%"><col style="width: 20%"><col style="width: 20%"><col style="width: 40%"></colgroup>
 <thead>
-<tr><th scope="col">項目</th><th scope="col">種類</th><th scope="col">必須</th></tr>
+<tr><th scope="col">Channel</th><th scope="col">Default</th><th scope="col">Quiet hours</th><th scope="col">Notes</th></tr>
 </thead>
 <tbody>
-<tr><td>回の名前</td><td>文字列</td><td>はい</td></tr>
-<tr><td>開催日</td><td>日付</td><td>はい</td></tr>
-<tr><td>締め切り</td><td>日時</td><td>いいえ</td></tr>
+<tr><td>Email</td><td>On</td><td rowspan="2">Respected</td><td>Batched every 15 minutes.</td></tr>
+<tr><td>Push</td><td>On</td><td>Sent immediately.</td></tr>
+<tr><td>SMS</td><td>Off</td><td>Ignored</td><td>Security alerts only.</td></tr>
+<tr><td>In-app</td><td colspan="3">Always on. Cannot be muted.</td></tr>
 </tbody>
 </table>
-<p>結合したセルを含む表。</p>
+
+<h2>Options Compared</h2>
 <table>
 <thead>
-<tr><th scope="col">見出し 1</th><th scope="col">見出し 2</th><th scope="col">見出し 3</th></tr>
+<tr><th>Option</th><th>Screens</th><th>Effort</th><th>Risk</th></tr>
 </thead>
 <tbody>
-<tr><td colspan="2">横に結合したセル</td><td>C3</td></tr>
-<tr><td rowspan="2">縦に結合したセル</td><td>D2</td><td>D3</td></tr>
-<tr><td>E2</td><td>E3</td></tr>
+<tr><td>A. Toggle per channel</td><td>1</td><td>2 weeks</td><td>Low</td></tr>
+<tr><td>B. Toggle per event type</td><td>3</td><td>5 weeks</td><td>Medium</td></tr>
+<tr><td>C. Keep the global switch</td><td>1</td><td>None</td><td>None</td></tr>
 </tbody>
 </table>
-<p>列幅を割合（%）で持つ表。</p>
-<table>
-<colgroup><col style="width: 30%"><col style="width: 70%"></colgroup>
-<tr><th scope="col">画面</th><th scope="col">説明</th></tr>
-<tr><td>回答</td><td>参加者が出欠を選ぶ。</td></tr>
-</table>
-<p>列幅をピクセル（px）で持つ表。</p>
-<table style="width: 360px">
-<colgroup><col style="width: 120px"><col style="width: 240px"></colgroup>
-<tr><th scope="col">権限</th><th scope="col">できること</th></tr>
-<tr><td>幹事</td><td>回の作成と集計</td></tr>
-</table>
-<p>セルの中にリストがある表。</p>
-<table>
-<tr><td><ul><li>セルの中の項目 1</li><li>セルの中の項目 2</li></ul></td><td>リストの隣のセル</td></tr>
-</table>
+<blockquote data-alert="tip">Option A can grow into option B later without a data migration.</blockquote>
 
-<h2>5. 処理の例</h2>
-<p><em>試す：コードブロックの末尾で Enter を 2 回。「消し切るコード」を消し切ってから日本語を打つ。コードブロックの後の空の行で Backspace。</em></p>
-<pre><code>function remind(members) {
-    for (const m of members) {
-        if (!m.answered) notify(m);    // 連続した空白
-    }
-}
-</code></pre>
-<p><br></p>
-<p>コードブロックの後の段落。</p>
-<pre><code>消し切るコード</code></pre>
-<p>空にしたコードブロックの後の段落。</p>
-
-<h2>6. 補足</h2>
-<p><em>試す：開閉マーカーとタイトルの文字をクリックする。閉じたタイトルの途中で Enter。前の段落から本文の途中まで選んで Delete。本文の中でリストや表を作る。</em></p>
-<p>折りたたみの前の段落。</p>
+<h2>Open Questions</h2>
 <details open>
-<summary>検討した別案</summary>
-<p>別案 1：カレンダーの招待で出欠を取る。</p>
-<p>別案 2：フォームのサービスを使う。</p>
+<summary>Quiet hours</summary>
+<p>Should quiet hours follow the <comment id="c-h8r3k6wn">device time zone<comment-body contenteditable="false" data-author="human" data-updated="2026-09-29T08:15:00Z">What happens when the user travels?</comment-body><comment-reply contenteditable="false" data-author="ai" data-updated="2026-09-29T08:32:00Z">The device time zone follows the user, so quiet hours stay at local night time.</comment-reply></comment> or the account setting?</p>
 </details>
 <details>
-<summary>閉じた折りたたみ（<comment id="c-sum00001">タイトルの注釈<comment-body contenteditable="false" data-author="human" data-updated="2026-09-20T06:00:00.000Z">タイトルの中にある。</comment-body></comment>）</summary>
-<p>本文の<comment id="c-det00001">閉じた本文の注釈<comment-body contenteditable="false" data-author="human" data-updated="2026-09-20T06:10:00.000Z">閉じた本文の中にある。</comment-body></comment>。</p>
+<summary>Team accounts</summary>
+<p>Can an admin lock settings for all members? Deferred to the next release.</p>
 </details>
-<p><br></p>
-<p>閉じた折りたたみの後の段落。</p>
+<blockquote data-alert="important">Security alerts must never be muted, whatever the settings say.</blockquote>
+<blockquote data-alert="warning">Push tokens expire after 90 days. Settings must survive a token refresh.</blockquote>
 
-<h2>7. レビュー</h2>
-<p><em>試す：注釈の端で ← → を押し、キャレットの色で側を見ながら打つ。AI の書き込みを Edit・Delete する。注釈の途中から後ろの文まで選んで Delete。語を選んで Comment。</em></p>
-<p>人間のスレッド：前の文<comment id="c-hum00001">人間の注釈<comment-body contenteditable="false" data-author="human" data-updated="2026-09-20T01:00:00.000Z">人間の本文。</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-20T01:05:00.000Z">人間の返信。</comment-reply></comment>後ろの文。</p>
-<p>AI のスレッド：前の文<comment id="c-ai000001">AI の注釈<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-20T02:00:00Z">AI の本文。</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-20T02:10:00.000Z">人間の返信。</comment-reply></comment>後ろの文。</p>
-<p>解決済み：<comment id="c-res00001" data-resolved="">解決済みの注釈<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-20T03:00:00Z">解決済みの本文。</comment-body></comment>。</p>
-<p>書き込みなし：<comment id="c-emp00001">本文も返信も無い注釈</comment>。</p>
-<p>要素を含む本文：<comment id="c-elm00001">要素入りの注釈<comment-body contenteditable="false" data-author="human" data-updated="2026-09-20T04:00:00.000Z">本文に <code>code</code> と <a href="https://example.com/">リンク</a> がある。
-2 行目。</comment-body></comment>。</p>
-<p><comment id="c-edg00001">段落の先頭の注釈<comment-body contenteditable="false" data-author="human" data-updated="2026-09-20T05:00:00.000Z">段落の先頭にある。</comment-body></comment>で始まり、<comment id="c-edg00002">段落の末尾の注釈<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-20T05:10:00Z">段落の末尾にある。</comment-body></comment></p>
-<p>コメントを付ける段落。ここの語を選んでコメントを作る。</p>
+<h2>Rollout</h2>
+<ol>
+<li>Ship option A behind a feature flag.</li>
+<li>Enable it for <comment id="c-m2t7v5bc" data-resolved="">internal users<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-27T14:00:00Z">Should beta testers be included?</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-27T15:10:00Z">No, internal users only.</comment-reply></comment> for one week.</li>
+<li>Roll out to everyone if the ticket count drops.</li>
+</ol>
+<pre><code>{
+  "feature": "per-channel-notifications",
+  "rollout": 0.05
+}</code></pre>
+<blockquote data-alert="caution">Turning the flag off resets every user to the global switch.</blockquote>
 
-<h2>8. 構造の境目</h2>
-<p><em>試す：表の直後の段落の先頭で Backspace。表とコードブロックの間の空の行で Backspace と Delete。幅が半分の表の右の余白をクリックして打つ。表のセルの途中から後ろの段落の途中まで選んで Delete。</em></p>
-<table>
-<tr><td>範囲の始点のセル</td><td>表の最後のセル</td></tr>
-</table>
-<p>表の直後の段落。</p>
-<table>
-<tr><td>上の表のセル</td></tr>
-</table>
-<p><br></p>
-<pre><code>下のコードブロック</code></pre>
-<p>幅が半分の表の前の段落。</p>
-<table style="width: 50%">
-<tr><td>幅が半分の表</td><td>右に余白がある</td></tr>
-</table>
-<p>幅が半分の表の後の段落。</p>
-
-<h2>9. 参考</h2>
-<p><em>試す：リンクをクリック・Ctrl+クリックする。水平線の直後の段落の先頭で Backspace を 2 回。</em></p>
-<p><a href="https://example.com/">外部へのリンク</a>、<a href="./special/attrs.html">相対パスのリンク</a>、<a href="./images/images.html">画像の確認用の文書へのリンク</a>。</p>
-<p>水平線の前の段落。</p>
 <hr>
-<p>水平線の後の段落。</p>
-
-<h2>10. 付録</h2>
-<p><em>試す：文書の末尾の空の行で Backspace と Delete。</em></p>
-<table>
-<tr><td>文書の末尾の表のセル</td></tr>
-</table>
-<p><br></p>
+<h3>Appendix: Mockup</h3>
+<p><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='80'%3E%3Crect width='240' height='80' rx='8' fill='%23F59E0B'/%3E%3Ctext x='120' y='46' font-family='sans-serif' font-size='16' fill='%23ffffff' text-anchor='middle'%3ESettings mockup%3C/text%3E%3C/svg%3E" alt="Settings mockup"></p>
+<p>Back to the <a href="./playground.html">top of these notes</a>.</p>
 </body>
 </html>
