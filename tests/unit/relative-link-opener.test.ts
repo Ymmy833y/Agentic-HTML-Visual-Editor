@@ -22,6 +22,8 @@ const WORKSPACE_DEPTH = 1;
 
 const IN_SCOPE_HREF = 'sub/b.html';
 const IN_SCOPE_TARGET = '/ws/docs/sub/b.html';
+// The same href read from the scope root `/ws`.
+const SCOPE_ROOT_TARGET = '/ws/sub/b.html';
 
 // Points to `/outside/b.html`, outside the scope root `/ws`.
 const OUTSIDE_SCOPE_HREF = '../../outside/b.html';
@@ -39,6 +41,8 @@ interface HarnessOptions {
   readonly scopeError?: Error;
   /** The result the link target check returns. When omitted, it returns a file. */
   readonly check?: LinkTargetCheck;
+  /** Results for individual target paths. They take precedence over `check`. */
+  readonly checks?: ReadonlyMap<string, LinkTargetCheck>;
 }
 
 interface Harness {
@@ -88,7 +92,7 @@ function createHarness(options: HarnessOptions = {}): Harness {
       },
       checkLinkTarget: (targetPath) => {
         trace.push(`checkLinkTarget:${targetPath}`);
-        return Promise.resolve(options.check ?? { kind: 'file' });
+        return Promise.resolve(options.checks?.get(targetPath) ?? options.check ?? { kind: 'file' });
       },
       openLinkTarget: (targetPath) => {
         trace.push(`openLinkTarget:${targetPath}`);
@@ -117,13 +121,85 @@ describe('relative link request handling', () => {
     await openRelativeLink(IN_SCOPE_HREF, harness.host, harness.reporter);
 
     expect([harness.trace, harness.logLines, harness.notifications]).toEqual([
-      ['resolveScopeDepth', `checkLinkTarget:${IN_SCOPE_TARGET}`],
+      ['resolveScopeDepth', `checkLinkTarget:${IN_SCOPE_TARGET}`, `checkLinkTarget:${SCOPE_ROOT_TARGET}`],
       [],
       [{
         key: 'relativeLink.notFound.message',
         cause: formatLinkOpenFailure(LINK_OPEN_FAILURE.notFound, IN_SCOPE_HREF),
       }],
     ]);
+  });
+
+  it('opens the target read from the scope root when the document-relative target is not found and that one is a file', async () => {
+    const harness = createHarness({
+      checks: new Map<string, LinkTargetCheck>([
+        [IN_SCOPE_TARGET, { kind: 'notFound' }],
+        [SCOPE_ROOT_TARGET, { kind: 'file' }],
+      ]),
+    });
+
+    await openRelativeLink(IN_SCOPE_HREF, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.logLines, harness.notifications]).toEqual([
+      [
+        'resolveScopeDepth',
+        `checkLinkTarget:${IN_SCOPE_TARGET}`,
+        `checkLinkTarget:${SCOPE_ROOT_TARGET}`,
+        `openLinkTarget:${SCOPE_ROOT_TARGET}`,
+      ],
+      [],
+      [],
+    ]);
+  });
+
+  it('opens a backslash-separated href read from the scope root when the document-relative target is not found', async () => {
+    const harness = createHarness({
+      checks: new Map<string, LinkTargetCheck>([
+        ['/ws/docs/docs/c.txt', { kind: 'notFound' }],
+        ['/ws/docs/c.txt', { kind: 'file' }],
+      ]),
+    });
+
+    await openRelativeLink('docs\\c.txt', harness.host, harness.reporter);
+
+    expect(harness.trace.at(-1)).toBe('openLinkTarget:/ws/docs/c.txt');
+  });
+
+  it('keeps the document-relative target when it is found, without checking the scope-root reading', async () => {
+    const harness = createHarness({ checks: new Map([[SCOPE_ROOT_TARGET, { kind: 'file' } as const]]) });
+
+    await openRelativeLink(IN_SCOPE_HREF, harness.host, harness.reporter);
+
+    expect(harness.trace).toEqual([
+      'resolveScopeDepth',
+      `checkLinkTarget:${IN_SCOPE_TARGET}`,
+      `openLinkTarget:${IN_SCOPE_TARGET}`,
+    ]);
+  });
+
+  it('reports not found without opening when the scope-root reading is a directory', async () => {
+    const harness = createHarness({
+      checks: new Map<string, LinkTargetCheck>([
+        [IN_SCOPE_TARGET, { kind: 'notFound' }],
+        [SCOPE_ROOT_TARGET, { kind: 'notFile', entryType: 'directory' }],
+      ]),
+    });
+
+    await openRelativeLink(IN_SCOPE_HREF, harness.host, harness.reporter);
+
+    expect([harness.trace.at(-1), harness.notifications.map((n) => n.key)]).toEqual([
+      `checkLinkTarget:${SCOPE_ROOT_TARGET}`,
+      ['relativeLink.notFound.message'],
+    ]);
+  });
+
+  it('does not check a scope-root reading that leaves the scope', async () => {
+    // From `/ws/docs`, `../b.html` is `/ws/b.html`; from the root `/ws` it would be `/b.html`, outside the scope.
+    const harness = createHarness({ check: { kind: 'notFound' } });
+
+    await openRelativeLink('../b.html', harness.host, harness.reporter);
+
+    expect(harness.trace).toEqual(['resolveScopeDepth', 'checkLinkTarget:/ws/b.html']);
   });
 
   it('notifies with the same message key regardless of entry type when the check returns not a file, with the entry type distinguishable by the cause in the log line', async () => {

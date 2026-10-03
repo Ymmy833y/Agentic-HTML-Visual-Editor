@@ -152,7 +152,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 
 - Insert and edit links and images in dialogs. `Enter` confirms and `Esc` cancels.
 - `Ctrl`+click (`Cmd`+click on macOS) follows a link, so a plain click keeps the link text editable.
-- A relative link to a local file opens in a VS Code tab, within the file's workspace folder.
+- A relative link to a local file opens in a VS Code tab, within the file's workspace folder. It is resolved from the HTML file's directory first, then from the workspace folder when nothing is there.
 
 ### 📊 Mermaid Diagrams
 
