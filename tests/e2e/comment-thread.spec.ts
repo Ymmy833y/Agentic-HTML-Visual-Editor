@@ -1151,6 +1151,40 @@ test.describe('Deleting a comment', () => {
     await expect(page.locator(EDITOR_ROOT)).toBeFocused();
     expect(await readCaretPrefix(page)).toBe('xab');
   });
+
+  test('deleting a comment just created from the toolbar in a long document keeps the scroll position', async ({ page }) => {
+    const filler = '<p>filler</p>'.repeat(200);
+    await openCommentEditor(page, `${filler}<p id="target">target text</p>${filler}`);
+    await page.locator('#target').scrollIntoViewIfNeeded();
+    await page.evaluate(() => {
+      const text = document.querySelector('#target')?.firstChild;
+      if (text === null || text === undefined) {
+        throw new Error('target not found');
+      }
+      const editor = document.querySelector('[contenteditable="true"]');
+      if (!(editor instanceof HTMLElement)) {
+        throw new Error('editor not found');
+      }
+      editor.focus({ preventScroll: true });
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 6);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    await page.locator(COMMENT_ITEM).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    await page.keyboard.type('note');
+    await page.keyboard.press('Enter');
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(0);
+
+    await page.locator(DELETE_COMMENT).click();
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  });
 });
 
 test.describe('Confirming the other party\'s entries', () => {

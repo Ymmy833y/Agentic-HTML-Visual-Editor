@@ -351,7 +351,8 @@ export class EditorReturn {
     this.deferred = undefined;
     this.returning = true;
     try {
-      root.focus();
+      // Without preventScroll the browser scrolls the editor root into view, which jumps the page to the top of a long document.
+      root.focus({ preventScroll: true });
     } finally {
       this.returning = false;
     }
