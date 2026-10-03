@@ -1,7 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { countPathDepth, isPathWithinScope, resolveTargetPath, toPathSegments } from '../../src/link/link-path';
+import {
+  countPathDepth,
+  isPathWithinScope,
+  resolveScopeRootTargetPath,
+  resolveTargetPath,
+  toPathSegments,
+} from '../../src/link/link-path';
 
 // Base document. Its base directory is `/ws/docs`.
 const DOCUMENT_PATH = '/ws/docs/a.html';
@@ -73,6 +79,20 @@ describe('target-path resolution', () => {
 
   it('decodes a double-encoded NUL character only once, yielding a path whose name contains the three characters `%00`', () => {
     expect(resolveTargetPath('a%2500.html', DOCUMENT_PATH)).toBe('/ws/docs/a%00.html');
+  });
+});
+
+describe('scope-root target-path resolution', () => {
+  it('resolves an href against the scope root at the given depth, not the base directory', () => {
+    expect(resolveScopeRootTargetPath('docs\\b.html', DOCUMENT_PATH, 1)).toBe('/ws/docs/b.html');
+  });
+
+  it('resolves against the base directory when the scope root is the base directory itself', () => {
+    expect(resolveScopeRootTargetPath('b.html', DOCUMENT_PATH, 2)).toBe('/ws/docs/b.html');
+  });
+
+  it('returns unresolvable for an href that cannot be decoded', () => {
+    expect(resolveScopeRootTargetPath('%E0%A4%A.html', DOCUMENT_PATH, 1)).toBeUndefined();
   });
 });
 

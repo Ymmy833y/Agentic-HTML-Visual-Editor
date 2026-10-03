@@ -27,6 +27,8 @@ const LINK_TEST_SCHEME = 'ahve-link-test';
 // A target in an in-scope subdirectory. The fixture files do not include it, so these tests create and delete it.
 const SUB_DIRECTORY = 'link-resolve-sub';
 const SUB_TARGET = 'target.html';
+// A document in the subdirectory, for links written from the workspace folder.
+const SUB_DOCUMENT = 'document.html';
 
 // A target that is not `.html`. It confirms that no editor type is specified.
 const TEXT_TARGET = 'link-resolve-note.txt';
@@ -169,6 +171,10 @@ describe('relative link resolution', () => {
     await vscode.workspace.fs.createDirectory(fixtureUri(SUB_DIRECTORY));
     await vscode.workspace.fs.writeFile(
       fixtureUri(SUB_DIRECTORY, SUB_TARGET),
+      new TextEncoder().encode(TARGET_TEXT),
+    );
+    await vscode.workspace.fs.writeFile(
+      fixtureUri(SUB_DIRECTORY, SUB_DOCUMENT),
       new TextEncoder().encode(TARGET_TEXT),
     );
     await vscode.workspace.fs.writeFile(
@@ -339,6 +345,17 @@ describe('relative link resolution', () => {
       await delay(POLLING_INTERVAL_MS * 5);
 
       assert.strictEqual(countTextTabsOf(target), 1);
+    });
+
+    it('opens a target read from the workspace folder when the backslash-separated href does not resolve from the document directory', async () => {
+      // The document is in the subdirectory, and the href names that subdirectory again, as written from the root.
+      const uri = fixtureUri(SUB_DIRECTORY, SUB_DOCUMENT);
+      const target = fixtureUri(SUB_DIRECTORY, SUB_TARGET);
+      await openWysiwyg(uri);
+
+      await requestLink(uri, `${SUB_DIRECTORY}\\${SUB_TARGET}`);
+
+      await waitUntil(() => countTextTabsOf(target) === 1, 'the target read from the workspace folder opened');
     });
 
     it('adds no tab and shows one not-found notification for a request to a nonexistent file within scope', async () => {

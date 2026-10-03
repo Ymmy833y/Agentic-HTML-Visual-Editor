@@ -49,6 +49,42 @@ export function countPathDepth(path: string): number {
  *   character.
  */
 export function resolveTargetPath(href: string, documentPath: string): string | undefined {
+  // The base directory is the document path without its final segment.
+  const baseSegments = toPathSegments(documentPath);
+  baseSegments.pop();
+  return resolveAgainstBase(href, baseSegments);
+}
+
+/**
+ * Resolves a relative file href against the scope root and returns the target path.
+ *
+ * A link written from the project root (`docs/a.html` in `docs/index.html` meaning `<root>/docs/a.html`) does not
+ * point where the document-relative resolution looks. This is the second candidate tried for such links. The scope
+ * root is taken as the document path's leading segments at the scope depth, the same spelling the scope check
+ * compares against.
+ *
+ * @param href The href received in the request; it may include leading and trailing whitespace.
+ * @param documentPath The base document URI path.
+ * @param scopeDepth The depth of the scope root.
+ * @returns The target path, or `undefined` under the same conditions as {@link resolveTargetPath}.
+ */
+export function resolveScopeRootTargetPath(
+  href: string,
+  documentPath: string,
+  scopeDepth: number,
+): string | undefined {
+  return resolveAgainstBase(href, toPathSegments(documentPath).slice(0, scopeDepth));
+}
+
+/**
+ * Resolves a relative file href against base directory segments.
+ *
+ * @param href The href received in the request; it may include leading and trailing whitespace.
+ * @param baseSegments The segments of the base directory.
+ * @returns The target path, or `undefined` for an href that cannot be decoded or whose decoded value contains the NUL
+ *   character.
+ */
+function resolveAgainstBase(href: string, baseSegments: readonly string[]): string | undefined {
   // Trim using the same rule used for validation so the checked and resolved values receive identical preprocessing.
   const trimmed = trimHref(href);
   const [pathPart = ''] = trimmed.split(PATH_TERMINATOR_PATTERN, 1);
@@ -67,10 +103,6 @@ export function resolveTargetPath(href: string, documentPath: string): string | 
   if (decoded.includes(NUL_CHARACTER)) {
     return undefined;
   }
-
-  // The base directory is the document path without its final segment.
-  const baseSegments = toPathSegments(documentPath);
-  baseSegments.pop();
 
   const resolved: string[] = [];
   for (const segment of [...baseSegments, ...toPathSegments(decoded)]) {

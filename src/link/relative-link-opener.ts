@@ -1,7 +1,7 @@
 import { isRelativeFileHref } from '../../common/index';
 import type { MessageKey } from '../../common/index';
 import type { InternalErrorSink } from '../diagnostics/error-reporter';
-import { isPathWithinScope, resolveTargetPath } from './link-path';
+import { isPathWithinScope, resolveScopeRootTargetPath, resolveTargetPath } from './link-path';
 
 /**
  * Reasons a link was not opened.
@@ -175,10 +175,34 @@ export function reportLinkOpenFailure(
 }
 
 /**
+ * Returns the scope-root reading of an href when it is a different, in-scope target.
+ *
+ * @param href The href received in the request.
+ * @param host Ports bound to the base document.
+ * @param scopeDepth The depth of the scope root.
+ * @param targetPath The document-relative target path already checked.
+ * @returns The target path resolved against the scope root, or `undefined` when there is no other candidate.
+ */
+function findScopeRootTarget(
+  href: string,
+  host: RelativeLinkHost,
+  scopeDepth: number,
+  targetPath: string,
+): string | undefined {
+  const rootTargetPath = resolveScopeRootTargetPath(href, host.documentPath, scopeDepth);
+  if (rootTargetPath === undefined || rootTargetPath === targetPath) {
+    return undefined;
+  }
+  // Check the candidate with the same rule. A `..` in the href can climb out of the root as well.
+  return isPathWithinScope(rootTargetPath, host.documentPath, scopeDepth) ? rootTargetPath : undefined;
+}
+
+/**
  * Handles a relative link request through revalidation, resolution, the scope check, the link target check, and the
  * opening operation, in that order.
  *
- * Later steps are not called once an earlier step fails. When the link is not opened, a single reason is chosen and
+ * A target not found from the document directory is looked up once more from the scope root, so a link written from
+ * the project root also opens. Later steps are not called once an earlier step fails. When the link is not opened, a single reason is chosen and
  * reported once. No failure throws outward, so other message handling in the same panel is not affected.
  *
  * @param href The href received in the request.
@@ -203,17 +227,25 @@ export async function openRelativeLink(
       return;
     }
 
-    if (!isPathWithinScope(targetPath, host.documentPath, host.resolveScopeDepth())) {
+    const scopeDepth = host.resolveScopeDepth();
+    if (!isPathWithinScope(targetPath, host.documentPath, scopeDepth)) {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.outsideScope, href, undefined, reporter);
       return;
     }
 
     // Check the value that passed the scope check as is. Recreating it could make the checked target differ from the
     // target that was judged within scope.
+    let openPath = targetPath;
     const check = await host.checkLinkTarget(targetPath);
     if (check.kind === 'notFound') {
-      reportLinkOpenFailure(LINK_OPEN_FAILURE.notFound, href, undefined, reporter);
-      return;
+      // A link written from the scope root does not resolve from the document directory. Try that reading next, and
+      // take it only when it is a file; otherwise the document-relative reading stays the reported one.
+      const rootTargetPath = findScopeRootTarget(href, host, scopeDepth, targetPath);
+      if (rootTargetPath === undefined || (await host.checkLinkTarget(rootTargetPath)).kind !== 'file') {
+        reportLinkOpenFailure(LINK_OPEN_FAILURE.notFound, href, undefined, reporter);
+        return;
+      }
+      openPath = rootTargetPath;
     }
     if (check.kind === 'notFile') {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.notFile, href, check.entryType, reporter);
@@ -225,7 +257,7 @@ export async function openRelativeLink(
     }
 
     // Pass through the value that passed validation. Recreating it here could make the opened target differ from the checked target.
-    const attempt = await host.openLinkTarget(targetPath);
+    const attempt = await host.openLinkTarget(openPath);
     if (!attempt.opened) {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.openFailed, href, attempt.cause, reporter);
     }
