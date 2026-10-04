@@ -22,7 +22,7 @@
     "url": "https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/issues"
   },
   "engines": {
-    "vscode": "^1.86.0"
+    "vscode": "^1.90.0"
   },
   "icon": "assets/icon.png",
   "categories": [
@@ -190,7 +190,7 @@
     "@playwright/test": "^1.50.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.0",
-    "@types/vscode": "1.86.0",
+    "@types/vscode": "1.90.0",
     "@vitest/coverage-v8": "^4.1.11",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",

@@ -4,7 +4,7 @@
 
 <p>
   <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v0.2.0-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
-  <img src="https://img.shields.io/badge/VS%20Code-1.86%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.86 or later" />
+  <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 or later" />
   <a href="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/blob/HEAD/LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT License" /></a>
 </p>
 
@@ -241,7 +241,7 @@ Typing these at the start of a block formats it:
 
 ## 💻 Requirements
 
-- VS Code 1.86 or later.
+- VS Code 1.90 or later.
 - Desktop VS Code on Windows, macOS, and Linux, VS Code for the Web (such as vscode.dev), virtual workspaces, untrusted workspaces, and Remote Development.
 
 ## 🚫 Known Limitations
