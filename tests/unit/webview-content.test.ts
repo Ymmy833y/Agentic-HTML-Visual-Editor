@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { EDITOR_ROOT_ELEMENT_ID, MESSAGE_CATALOG_ELEMENT_ID, TEST_MODE_META_NAME } from '../../common/index';
+import {
+  EDITOR_ROOT_ELEMENT_ID,
+  MESSAGE_CATALOG_ELEMENT_ID,
+  SIDEBAR_LAYOUT_META_NAME,
+  TEST_MODE_META_NAME,
+} from '../../common/index';
 import type { MessageCatalog } from '../../common/index';
 import { buildWebviewContent } from '../../src/editor/webview-content';
 import { readEmbeddedCatalog } from '../../webview/i18n/embedded-catalog';
+import { readEmbeddedSidebarLayout } from '../../webview/ui/sidebar';
 
 const WEBVIEW_SOURCE = 'https://example.vscode-cdn.net';
 const NONCE = 'abcdefghijklmnopqrstuvwxyz012345';
@@ -96,5 +102,30 @@ describe('webview document construction', () => {
     const parsed = parseDocument({}, NONCE, 'ja');
 
     expect(parsed.documentElement.getAttribute('lang')).toBe('ja');
+  });
+
+  it('declares the sidebar as closed with no width when given no layout', () => {
+    const parsed = parseDocument({});
+
+    expect([
+      parsed.head.querySelector(`meta[name="${SIDEBAR_LAYOUT_META_NAME.open}"]`)?.getAttribute('content'),
+      parsed.head.querySelector(`meta[name="${SIDEBAR_LAYOUT_META_NAME.width}"]`),
+      readEmbeddedSidebarLayout(parsed),
+    ]).toEqual(['false', null, { open: false }]);
+  });
+
+  it('declares the given sidebar layout in a form the view reads back unchanged', () => {
+    const parsed = new DOMParser().parseFromString(
+      buildWebviewContent(WEBVIEW_SOURCE, NONCE, BUNDLE_URI, STYLE_URI, { locale: LOCALE, catalog: {} }, false, {
+        open: true,
+        width: 312,
+      }),
+      'text/html',
+    );
+
+    expect([readEmbeddedSidebarLayout(parsed), parsed.body.textContent?.trim()]).toEqual([
+      { open: true, width: 312 },
+      '',
+    ]);
   });
 });

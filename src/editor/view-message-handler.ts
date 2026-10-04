@@ -1,14 +1,20 @@
-import { RESTORE_ACTION, VIEW_TO_HOST_MESSAGE_TYPE, discardUnhandledMessage } from '../../common/index';
+import {
+  RESTORE_ACTION,
+  VIEW_TO_HOST_MESSAGE_TYPE,
+  discardUnhandledMessage,
+} from '../../common/index';
 import type {
   CopyHtmlResponseMessage,
   HostToViewMessage,
   InitializeMessage,
   ResponseMessage,
   RestoreAction,
+  SidebarLayoutChange,
   ViewToHostMessage,
 } from '../../common/index';
 import type { ErrorReporter } from '../diagnostics/error-reporter';
 import { LINK_OPEN_FAILURE, formatLinkOpenFailure } from '../link/relative-link-opener';
+import { parseSidebarLayoutChange } from './sidebar-layout-store';
 
 // Prefix diagnostic lines so a maintainer can identify which side produced an event from the log alone.
 const VIEW_DIAGNOSTIC_PREFIX = 'View: ';
@@ -110,6 +116,13 @@ export interface ViewMessageContext {
    * @param text The code text, confirmed to be a string as required by the contract.
    */
   receiveCodeBlockCopyRequest(text: string): void;
+
+  /**
+   * Receives what the user changed in the sidebar layout of the view, to be shared by every file.
+   *
+   * @param change The change, confirmed to match the contract.
+   */
+  receiveSidebarLayout(change: SidebarLayoutChange): void;
 
   /**
    * Passes unsaved content to the save coordinator.
@@ -271,6 +284,19 @@ export async function handleViewMessage(
         return;
       }
       context.receiveCodeBlockCopyRequest(requestedText);
+      return;
+    }
+    case VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged: {
+      // Only the fields of the contract are read, so that a value of another shape is never stored and handed to
+      // every view opened afterwards.
+      const change = parseSidebarLayoutChange({ open: message.open, width: message.width });
+      if (change === undefined) {
+        context.errorReporter.reportInternalError(
+          `Discarded a sidebar layout change that does not match the contract: open ${typeof message.open}, width ${typeof message.width}`,
+        );
+        return;
+      }
+      context.receiveSidebarLayout(change);
       return;
     }
     case VIEW_TO_HOST_MESSAGE_TYPE.documentInitialized:

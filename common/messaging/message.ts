@@ -6,6 +6,7 @@ import type {
   EncodedSelection,
 } from '../history/edit-transaction';
 import type { LineRange } from '../text/line-diff';
+import type { SidebarLayoutChange } from '../view/sidebar-layout';
 
 /** Types of messages sent from the host to the view. */
 export const HOST_TO_VIEW_MESSAGE_TYPE = {
@@ -46,6 +47,7 @@ export const VIEW_TO_HOST_MESSAGE_TYPE = {
   copyRequested: 'copyRequested',
   copyHtmlResponse: 'copyHtmlResponse',
   codeBlockCopyRequested: 'codeBlockCopyRequested',
+  sidebarLayoutChanged: 'sidebarLayoutChanged',
 } as const;
 
 /** A message indicating that the view is ready to receive messages. */
@@ -469,6 +471,17 @@ export interface CodeBlockCopySucceededMessage {
 }
 
 /**
+ * View → host message without a response that carries what the user changed in the sidebar layout: the open state
+ * after opening or closing it, or the width after resizing it.
+ *
+ * The host lays the change over the layout it stores for every file and hands the result to every view it creates
+ * afterwards, a reload of an open view included. A view already running is not changed by it.
+ */
+export interface SidebarLayoutChangedMessage extends SidebarLayoutChange {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged;
+}
+
+/**
  * Messages the host can send to the view.
  */
 export type HostToViewMessage =
@@ -507,4 +520,5 @@ export type ViewToHostMessage =
   | RelativeLinkRequestedMessage
   | CopyRequestedMessage
   | CopyHtmlResponseMessage
-  | CodeBlockCopyRequestedMessage;
+  | CodeBlockCopyRequestedMessage
+  | SidebarLayoutChangedMessage;

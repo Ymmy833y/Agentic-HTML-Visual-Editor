@@ -10,6 +10,10 @@ const HTML_EDITOR_VIEW_TYPE = 'ahve.editor';
 // compilation unit, so repeat the value here instead of importing it.
 const MESSAGE_CATALOG_ELEMENT_ID = 'ahve-message-catalog';
 
+// These must match the meta names and the message type in common, repeated for the same reason as the catalog id.
+const SIDEBAR_LAYOUT_META_NAME = { open: 'ahve-sidebar-open', width: 'ahve-sidebar-width' } as const;
+const SIDEBAR_LAYOUT_CHANGED = 'sidebarLayoutChanged';
+
 const STATE_TIMEOUT_MS = 20000;
 const POLLING_INTERVAL_MS = 50;
 
@@ -29,6 +33,7 @@ interface WebviewInspection {
 
 interface ExtensionApi {
   readWebviewInspection(documentUri: string): WebviewInspection | undefined;
+  injectViewMessage(documentUri: string, message: unknown): Promise<boolean>;
 }
 
 function findExtension(): vscode.Extension<ExtensionApi> {
@@ -80,6 +85,23 @@ function readLanguage(html: string): string {
   return matched[1];
 }
 
+function readMetaContent(html: string, name: string): string {
+  const matched = new RegExp(`<meta name="${name}" content="([^"]*)">`).exec(html);
+  assert.ok(matched, `The document does not declare ${name}`);
+  return matched[1];
+}
+
+// Delivers a message to the host as though the view of the document sent it, waiting for the view's session to be
+// registered first. Only messages that may be delivered more than once are passed here.
+async function deliverViewMessage(uri: vscode.Uri, message: unknown): Promise<void> {
+  const api = await findExtension().activate();
+  const deadline = Date.now() + STATE_TIMEOUT_MS;
+  while (!await api.injectViewMessage(uri.toString(), message)) {
+    assert.ok(Date.now() < deadline, `No session is registered for ${uri.toString()}`);
+    await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+  }
+}
+
 function readEmbeddedCatalogText(html: string): string {
   const matched = new RegExp(`<script[^>]*id="${MESSAGE_CATALOG_ELEMENT_ID}"[^>]*>([^<]*)</script>`).exec(html);
   assert.ok(matched, 'The document does not contain a message catalog element with the default id');
@@ -107,6 +129,27 @@ describe('Webview hosting and security', () => {
     const inspection = await openInWysiwyg(insideWorkspaceUri('sample.html'));
 
     assert.strictEqual(inspection.enableForms, false);
+  });
+
+  it('keeps the sidebar layout changes a view sends, each over the other, and declares the result in the document of the next view', async () => {
+    const first = insideWorkspaceUri('sample.html');
+    const next = insideWorkspaceUri('empty.html');
+    await openInWysiwyg(first);
+    await deliverViewMessage(first, { type: SIDEBAR_LAYOUT_CHANGED, width: 321 });
+    await deliverViewMessage(first, { type: SIDEBAR_LAYOUT_CHANGED, open: true });
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+    try {
+      const html = (await openInWysiwyg(next)).html;
+
+      assert.deepStrictEqual(
+        [readMetaContent(html, SIDEBAR_LAYOUT_META_NAME.open), readMetaContent(html, SIDEBAR_LAYOUT_META_NAME.width)],
+        ['true', '321'],
+      );
+    } finally {
+      // The layout is kept for every file across the run, so the suites after this one start closed again.
+      await deliverViewMessage(next, { type: SIDEBAR_LAYOUT_CHANGED, open: false });
+    }
   });
 
   it('writes a document containing a CSP with a nonce', async () => {

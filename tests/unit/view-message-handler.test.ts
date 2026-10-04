@@ -8,6 +8,7 @@ import type {
   InitializeMessage,
   ResponseMessage,
   RestoreAction,
+  SidebarLayoutChange,
   ViewToHostMessage,
 } from '../../common/index';
 import { ErrorReporter } from '../../src/diagnostics/error-reporter';
@@ -55,6 +56,8 @@ interface Harness {
   readonly copyHtmlResponses: CopyHtmlResponseMessage[];
   /** The arguments passed each time the code block copy request receiver was called. */
   readonly codeBlockCopyCalls: unknown[][];
+  /** The sidebar layout changes passed to the receiver, in the order received. */
+  readonly sidebarLayouts: SidebarLayoutChange[];
   /** Creates no initialize message (the restore coordinator has already sent one or is waiting for settlement). */
   setInitializeMissing(missing: boolean): void;
 }
@@ -79,6 +82,7 @@ function createHarness(unreadable = false): Harness {
   const copyRequestCalls: unknown[][] = [];
   const copyHtmlResponses: CopyHtmlResponseMessage[] = [];
   const codeBlockCopyCalls: unknown[][] = [];
+  const sidebarLayouts: SidebarLayoutChange[] = [];
   const reporter = new ErrorReporter(
     { appendLine: (): void => undefined, show: (): void => undefined },
     {
@@ -107,6 +111,7 @@ function createHarness(unreadable = false): Harness {
     copyRequestCalls,
     copyHtmlResponses,
     codeBlockCopyCalls,
+    sidebarLayouts,
     context: {
       createInitializeMessage: () => {
         trace.push('createInitializeMessage');
@@ -145,6 +150,7 @@ function createHarness(unreadable = false): Harness {
       receiveCodeBlockCopyRequest: (...args: unknown[]) => {
         codeBlockCopyCalls.push(args);
       },
+      receiveSidebarLayout: (change) => sidebarLayouts.push(change),
       settleResponse: (response) => settled.push(response),
       errorReporter: reporter,
     },
@@ -508,5 +514,43 @@ describe('the code block copy request', () => {
     await handleViewMessage(nonStringText, harness.context);
 
     expect([harness.codeBlockCopyCalls, harness.reporter.readInspection().logLines.length]).toEqual([[], 1]);
+  });
+});
+
+describe('the sidebar layout change', () => {
+  it('passes only the open state and the width that the message carries to the receiver and logs nothing', async () => {
+    const harness = createHarness();
+    // A field outside the contract is not passed on, so it can never be stored.
+    const message = {
+      type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged,
+      open: true,
+      width: 240,
+      extra: 'x',
+    } as unknown as ViewToHostMessage;
+
+    await handleViewMessage(message, harness.context);
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, open: false }, harness.context);
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, width: 300 }, harness.context);
+
+    expect([harness.sidebarLayouts, harness.reporter.readInspection().logLines]).toEqual([
+      [{ open: true, width: 240 }, { open: false }, { width: 300 }],
+      [],
+    ]);
+  });
+
+  it('records one line without calling the receiver when the open state is not a boolean, the width not a number, or neither is carried', async () => {
+    const harness = createHarness();
+    // The type requires a boolean and a number, but the view can send any value at runtime.
+    const malformed = [
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, open: 'true' },
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, open: true, width: '240' },
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged },
+    ] as unknown as ViewToHostMessage[];
+
+    for (const message of malformed) {
+      await handleViewMessage(message, harness.context);
+    }
+
+    expect([harness.sidebarLayouts, harness.reporter.readInspection().logLines.length]).toEqual([[], 3]);
   });
 });

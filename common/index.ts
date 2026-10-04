@@ -49,6 +49,7 @@ export type {
   SaveCommittedMessage,
   SaveReleasedMessage,
   SaveRequestedMessage,
+  SidebarLayoutChangedMessage,
   UnsavedContentMessage,
   ViewDiagnosticMessage,
   ViewEditedMessage,
@@ -102,6 +103,13 @@ export type {
   TestViewToHostMessage,
 } from './messaging/test-message';
 export { EDITOR_ROOT_ELEMENT_ID } from './view/editor-root';
+export {
+  DEFAULT_SIDEBAR_LAYOUT,
+  SIDEBAR_LAYOUT_META_NAME,
+  SIDEBAR_MIN_WIDTH,
+  parseSidebarLayout,
+} from './view/sidebar-layout';
+export type { SidebarLayout, SidebarLayoutChange } from './view/sidebar-layout';
 export {
   ALLOWED_TAG_NAMES,
   DANGEROUS_URL_SCHEMES,
