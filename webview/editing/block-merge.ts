@@ -271,7 +271,7 @@ export function deleteRangeContents(
  * @param block The block to inspect.
  * @returns `true` for a paragraph, heading, `div`, blockquote or list item with only inline children, and for a `summary`.
  */
-function isLineBlock(block: Element): boolean {
+export function isLineBlock(block: Element): boolean {
   return isTypableLine(block) || isSplittableBlock(block) || block.localName === 'summary';
 }
 

@@ -82,7 +82,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 | 💬 **Review comments** | Threads stored in the HTML, with authors, times, and a resolved state |
 | 🔗 **Links and images** | Dialogs to insert and edit them; `Ctrl`+click follows a link |
 | 📊 **Mermaid diagrams** | Rendered in your VS Code theme, while the file keeps the source |
-| 🔍 **Find** | `Ctrl+F` with match case and whole word, plus lookup by comment ID |
+| 🔍 **Find and replace** | `Ctrl+F` with match case and whole word, plus lookup by comment ID; `Ctrl+H` to replace |
 | 🧭 **Sidebar** | An outline of headings and a list of comment threads |
 | 📋 **Clipboard** | Clean HTML on copy, sanitized paste, and a copy button on code blocks |
 | 💾 **Safe saving** | Unedited lines stay as they are, and changes on disk are merged line by line |
@@ -166,13 +166,15 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 - Insert a diagram from the toolbar, or click an existing one to edit its source in a dialog.
 - The file keeps the source, never the drawing. Invalid syntax shows an error card, and the source stays editable.
 
-### 🔍 Find
+### 🔍 Find and replace
 
 - `Ctrl+F` opens a find panel that highlights every match and shows your position, such as `2 of 7`.
 - `Enter` and `Shift+Enter` move to the next and previous match; `Esc` closes the panel and leaves the caret on the current match.
 - Toggle match case and whole word. Opening the panel with text selected starts with that text.
 - Find searches the visible text and comment IDs: a query in a comment's `id` jumps to that comment and opens its thread.
 - Highlighting never changes the document or the saved HTML.
+- `Ctrl+H` (`Cmd+Option+F` on macOS), or the toggle at the left of the panel, shows a replace field. `Enter` there or **Replace** replaces the current match and moves to the next; **Replace All** replaces every match at once. Each is one step to undo, and the replacement takes the formatting of the first character it replaces.
+- Replace leaves comment IDs alone, and skips a match that runs across the edge of a comment's annotated text, so a comment never gains or loses text you did not mean it to.
 
 ### 🧭 Sidebar
 
@@ -224,6 +226,7 @@ On macOS, use `Cmd` in place of `Ctrl` and `Option` in place of `Alt`.
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Tab` / `Shift+Tab` | Nest or un-nest a list item, or move between table cells |
 | `Ctrl+F` | Find in the document |
+| `Ctrl+H` (`Cmd+Option+F` on macOS) | Replace in the document |
 | `Ctrl`+click | Open a link |
 | `Alt+F10` | Move the focus to the toolbar |
 | `Shift+F10` / Menu key | Open the table menu while the caret is in a cell |

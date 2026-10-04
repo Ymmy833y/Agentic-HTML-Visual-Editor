@@ -1040,6 +1040,31 @@
   display: flex;
 }
 
+/* The search row and, below it, the replace row. */
+#editor-search-panel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
+/* Each row lines up its controls. The replace row gets display only when not hidden, for the same reason as the
+   panel. */
+#editor-search-panel > div > div:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+/* The replace row toggle runs the height of both rows at their left, as in VS Code's find widget, and its chevron
+   points down while the replace row is shown. */
+#editor-search-panel > button {
+  align-self: stretch;
+}
+
+#editor-search-panel > button[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
 /* The search field. It takes VS Code's input field colors; no fixed colors are written. */
 #editor-search-panel input {
   width: 14em;

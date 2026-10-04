@@ -112,14 +112,15 @@ describe('merging text matches and comment id matches', () => {
     expect(merged.map((match) => match.range.toString())).toEqual(['a', 'abcd', 'c']);
   });
 
-  it('keeps only the comment id match when a text match has exactly the same range', () => {
+  it('keeps one match with the comment and the text match spans when a text match has exactly the same range', () => {
     const root = mountRoot('<p><comment id="c-target12">target</comment></p>');
     const comment = readElement(root, 'comment');
     const text = readChildText(comment, 0);
     const idMatch: SearchMatch = { range: createRange(text, 0, text, 6), comment };
+    const spans = [{ node: text, start: 0, end: 6 }];
 
-    const merged = mergeSearchMatches([{ range: createRange(text, 0, text, 6) }], [idMatch]);
+    const merged = mergeSearchMatches([{ range: createRange(text, 0, text, 6), spans }], [idMatch]);
 
-    expect([merged.length, merged[0] === idMatch]).toEqual([1, true]);
+    expect([merged.length, merged[0].comment === comment, merged[0].spans === spans]).toEqual([1, true, true]);
   });
 });

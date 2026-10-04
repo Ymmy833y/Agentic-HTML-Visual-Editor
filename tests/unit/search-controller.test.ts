@@ -54,9 +54,10 @@ interface AttachedSearch {
  * Places an editor root and attaches search. The ports behave like a real editable view that has focus.
  *
  * @param html The contents of the editor root.
+ * @param replaceTexts The replace port. If omitted, nothing is replaced.
  * @returns The attached search and the record.
  */
-function attach(html: string): AttachedSearch {
+function attach(html: string, replaceTexts: SearchPorts['replaceTexts'] = () => undefined): AttachedSearch {
   const root = mountRoot(html);
   const diagnostics: string[] = [];
   const ports: SearchPorts = {
@@ -73,6 +74,7 @@ function attach(html: string): AttachedSearch {
     requestReturn: () => undefined,
     deferReturn: () => undefined,
     openDetails: () => false,
+    replaceTexts,
     readOpenComment: () => undefined,
     openComment: () => undefined,
     closeComment: () => undefined,
@@ -164,6 +166,25 @@ describe('exceptions while finding matches', () => {
 
     expect(() => controller.handleEdited()).not.toThrow();
     expect(diagnostics.length).toBe(1);
+  });
+});
+
+describe('exceptions while replacing', () => {
+  it('records one diagnostic line each without rethrowing when replacing the current match or all matches throws', () => {
+    const { controller, diagnostics } = attach('<p>cat cat</p>', () => {
+      throw new Error('Could not replace');
+    });
+    readPanelPart<HTMLInputElement>('input').value = 'cat';
+    controller.handleConditionChanged();
+    // jsdom cannot measure a range to bring the match into view, which may record a line of its own before replacing.
+    const before = diagnostics.length;
+
+    expect(() => controller.replace()).not.toThrow();
+    expect(() => controller.replaceAll()).not.toThrow();
+    expect(diagnostics.slice(before)).toEqual([
+      'Could not replace the current match: Error: Could not replace',
+      'Could not replace all matches: Error: Could not replace',
+    ]);
   });
 });
 
