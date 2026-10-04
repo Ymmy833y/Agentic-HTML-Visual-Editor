@@ -1,7 +1,7 @@
 import type { Localizer, MessageKey } from '../../common/index';
 import { isImeProcessKey, matchesShortcutKey } from '../editing/shortcut-receiver';
 import type { ShortcutPlatform } from '../editing/shortcut-receiver';
-import { SEARCH_KEY } from '../search/search-key';
+import { REPLACE_KEYS, SEARCH_KEY } from '../search/search-key';
 import type { SearchOptions } from '../search/search-text';
 import { TOOLBAR_ELEMENT_ID, applyPressedAttributes, createItemIcon } from './toolbar';
 
@@ -9,7 +9,7 @@ import { TOOLBAR_ELEMENT_ID, applyPressedAttributes, createItemIcon } from './to
 export const SEARCH_PANEL_ELEMENT_ID = 'editor-search-panel';
 
 /**
- * The icons of the panel's five buttons. Each is drawn in a 24×24 view box.
+ * The icons of the panel's buttons. Each is drawn in a 24×24 view box.
  *
  * They have no color of their own and are drawn in the text color like toolbar items, so they do not sink into the
  * background in high contrast themes.
@@ -26,6 +26,12 @@ export const SEARCH_ICON_PATHS = {
   next: 'M12 5v14 M6 13l6 6 6-6',
   // An ×.
   close: 'M6 6l12 12 M18 6L6 18',
+  // A chevron pointing right. The stylesheet turns it down while the replace row is shown.
+  toggleReplace: 'M9 6l6 6-6 6',
+  // An arrow running into a bar: the match gives way to the replacement.
+  replace: 'M3 12h12 M11 8l4 4-4 4 M19 6v12',
+  // Two such arrows: every match gives way.
+  replaceAll: 'M3 8h11 M11 5l3 3-3 3 M3 16h11 M11 13l3 3-3 3 M19 4v16',
 } as const;
 
 /** How the search count is shown. */
@@ -39,6 +45,9 @@ export type SearchCount =
 
 /** The direction of a move. */
 export type SearchMoveDirection = 'previous' | 'next';
+
+/** What a replace request covers: the current match, or every match. */
+export type SearchReplaceScope = 'current' | 'all';
 
 /**
  * The panel's ports.
@@ -93,24 +102,42 @@ export interface SearchPanelPorts {
 
   /** Passes on Ctrl+F in the panel. */
   notifyPanelShortcut(): void;
+
+  /**
+   * Passes on a request to replace.
+   *
+   * @param scope What the request covers.
+   */
+  requestReplace(scope: SearchReplaceScope): void;
 }
 
-/** The panel's five buttons. */
+/** The panel's buttons. */
 interface SearchPanelButtons {
+  readonly toggleReplace: HTMLButtonElement;
   readonly matchCase: HTMLButtonElement;
   readonly wholeWord: HTMLButtonElement;
   readonly previous: HTMLButtonElement;
   readonly next: HTMLButtonElement;
   readonly close: HTMLButtonElement;
+  readonly replace: HTMLButtonElement;
+  readonly replaceAll: HTMLButtonElement;
+}
+
+/** The replace row: the replace field with its two buttons, shown below the search row only when expanded. */
+interface SearchReplaceRow {
+  readonly row: HTMLElement;
+  readonly field: HTMLInputElement;
 }
 
 /**
  * The search panel. Placed outside the editor root, with a search field, a count, two toggles, previous, next, and
- * close.
+ * close, and below them a replace row with a replace field, replace, and replace all, which a toggle at the left
+ * shows and hides.
  *
  * Whether it is open is held in the element's `hidden`, and the search condition in the search field's value and the
- * toggles' pressed state. The search condition is kept after closing, so reopening searches with the same condition.
- * One is created per view and is not recreated on document replacement.
+ * toggles' pressed state. Whether the replace row is shown is held in its `hidden`, and the replacement in the replace
+ * field's value. All of them are kept after closing, so reopening searches with the same condition. One is created
+ * per view and is not recreated on document replacement.
  */
 export class SearchPanel {
   // The last query passed on. In environments where an input with the same value follows an IME commit, this keeps
@@ -122,7 +149,8 @@ export class SearchPanel {
    * @param element The panel element.
    * @param field The search field.
    * @param count The count area.
-   * @param buttons The five buttons.
+   * @param buttons The buttons.
+   * @param replace The replace row.
    * @param ports The panel's ports.
    */
   constructor(
@@ -131,6 +159,7 @@ export class SearchPanel {
     private readonly field: HTMLInputElement,
     private readonly count: HTMLElement,
     private readonly buttons: SearchPanelButtons,
+    private readonly replace: SearchReplaceRow,
     private readonly ports: SearchPanelPorts,
   ) {
     this.lastQuery = field.value;
@@ -170,6 +199,46 @@ export class SearchPanel {
         wholeWord: this.buttons.wholeWord.getAttribute('aria-pressed') === 'true',
       },
     };
+  }
+
+  /** Returns the replacement: the replace field's value, as typed. */
+  readReplacement(): string {
+    return this.replace.field.value;
+  }
+
+  /** Whether the replace row is shown. */
+  get isReplaceShown(): boolean {
+    return !this.replace.row.hidden;
+  }
+
+  /**
+   * Shows or hides the replace row.
+   *
+   * When hiding it takes focus away from a control in the row, focus moves to the search field so that it stays in the
+   * panel.
+   *
+   * @param shown Whether to show it.
+   */
+  showReplace(shown: boolean): void {
+    const active = this.view.document.activeElement;
+    const hadFocus = active !== null && this.replace.row.contains(active);
+    this.replace.row.hidden = !shown;
+    this.buttons.toggleReplace.setAttribute('aria-expanded', String(shown));
+    if (!shown && hadFocus) {
+      this.focusField(false);
+    }
+  }
+
+  /**
+   * Moves focus to the replace field.
+   *
+   * @param selectAll Whether to select all of the text.
+   */
+  focusReplaceField(selectAll: boolean): void {
+    this.replace.field.focus({ preventScroll: true });
+    if (selectAll) {
+      this.replace.field.select();
+    }
   }
 
   /**
@@ -278,10 +347,23 @@ export class SearchPanel {
       this.ports.requestMove(event.shiftKey ? 'previous' : 'next');
       return;
     }
+    if (event.key === 'Enter' && !modified && !event.shiftKey && event.target === this.replace.field) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.ports.requestReplace('current');
+      return;
+    }
     if (matchesShortcutKey(SEARCH_KEY, event, this.ports.platform)) {
       event.preventDefault();
       event.stopPropagation();
       this.ports.notifyPanelShortcut();
+      return;
+    }
+    if (matchesShortcutKey(REPLACE_KEYS[this.ports.platform], event, this.ports.platform)) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.showReplace(true);
+      this.focusReplaceField(true);
       return;
     }
     if (event.target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) {
@@ -319,8 +401,9 @@ export class SearchPanel {
    * Receives a button press.
    *
    * After a toggle, previous, or next is pressed with a pointer, focus moves to the search field so the user can keep
-   * typing. Pressing does not move focus, so this moves to the search field even when pressed while working in the
-   * editor root. Controls pressed with the keyboard and the close button do not move focus.
+   * typing, and after replace or replace all, to the replace field. Pressing does not move focus, so this moves to the
+   * field even when pressed while working in the editor root. Controls pressed with the keyboard, the close button,
+   * and the replace row toggle do not move focus.
    *
    * @param button The pressed button.
    * @param event The button's `click`.
@@ -329,6 +412,18 @@ export class SearchPanel {
     const buttons = this.buttons;
     if (button === buttons.close) {
       this.ports.requestClose(this.hasFocus());
+      return;
+    }
+    if (button === buttons.toggleReplace) {
+      this.showReplace(!this.isReplaceShown);
+      return;
+    }
+    if (button === buttons.replace || button === buttons.replaceAll) {
+      this.ports.requestReplace(button === buttons.replace ? 'current' : 'all');
+      // A click caused by a keyboard press has a detail of 0.
+      if (event.detail > 0) {
+        this.focusReplaceField(false);
+      }
       return;
     }
     if (button === buttons.matchCase || button === buttons.wholeWord) {
@@ -354,7 +449,8 @@ export class SearchPanel {
 }
 
 /**
- * Places a closed panel at the end of body and subscribes to its keys, input, and presses.
+ * Places a closed panel at the end of body and subscribes to its keys, input, and presses. The replace row starts
+ * hidden.
  *
  * Being at the end of body puts it after the editor root and the floating menu in Tab order, leaving movement between
  * the toolbar and the editor root unchanged. It is not recreated on document replacement, so this is called only
@@ -386,18 +482,46 @@ export function attachSearchPanel(view: Window, ports: SearchPanelPorts): Search
   const count = document.createElement('span');
   count.setAttribute('role', 'status');
 
+  const replaceField = document.createElement('input');
+  replaceField.type = 'text';
+  const replaceFieldLabel = localizer.getMessage('search.replaceField');
+  replaceField.setAttribute('aria-label', replaceFieldLabel);
+  replaceField.placeholder = replaceFieldLabel;
+
   const buttons: SearchPanelButtons = {
+    toggleReplace: createButton(document, ports, 'search.toggleReplace', SEARCH_ICON_PATHS.toggleReplace, false),
     matchCase: createButton(document, ports, 'search.matchCase', SEARCH_ICON_PATHS.matchCase, true),
     wholeWord: createButton(document, ports, 'search.wholeWord', SEARCH_ICON_PATHS.wholeWord, true),
     previous: createButton(document, ports, 'search.previous', SEARCH_ICON_PATHS.previous, false),
     next: createButton(document, ports, 'search.next', SEARCH_ICON_PATHS.next, false),
     close: createButton(document, ports, 'search.close', SEARCH_ICON_PATHS.close, false),
+    replace: createButton(document, ports, 'search.replace', SEARCH_ICON_PATHS.replace, false),
+    replaceAll: createButton(document, ports, 'search.replaceAll', SEARCH_ICON_PATHS.replaceAll, false),
   };
-  const buttonList = [buttons.matchCase, buttons.wholeWord, buttons.previous, buttons.next, buttons.close];
-  element.append(field, count, ...buttonList);
+  buttons.toggleReplace.setAttribute('aria-expanded', 'false');
+
+  // The toggle comes first, at the left of both rows, as in VS Code's find widget.
+  const searchRow = document.createElement('div');
+  searchRow.append(field, count, buttons.matchCase, buttons.wholeWord, buttons.previous, buttons.next, buttons.close);
+  const replaceRow = document.createElement('div');
+  replaceRow.hidden = true;
+  replaceRow.append(replaceField, buttons.replace, buttons.replaceAll);
+  const rows = document.createElement('div');
+  rows.append(searchRow, replaceRow);
+  element.append(buttons.toggleReplace, rows);
   document.body.append(element);
 
-  const panel = new SearchPanel(view, element, field, count, buttons, ports);
+  const panel = new SearchPanel(view, element, field, count, buttons, { row: replaceRow, field: replaceField }, ports);
+  const buttonList = [
+    buttons.toggleReplace,
+    buttons.matchCase,
+    buttons.wholeWord,
+    buttons.previous,
+    buttons.next,
+    buttons.close,
+    buttons.replace,
+    buttons.replaceAll,
+  ];
   for (const button of buttonList) {
     button.addEventListener('click', (event) => panel.handleButtonClick(button, event));
   }
@@ -405,9 +529,9 @@ export function attachSearchPanel(view: Window, ports: SearchPanelPorts): Search
   field.addEventListener('input', (event) => panel.handleInput(event));
   field.addEventListener('compositionend', (event) => panel.handleInput(event));
   // Pressing a button does not move focus, so pressing it while working in the editor root keeps the selection and
-  // caret. The search field is not prevented, because without moving focus on press it could not take input.
+  // caret. The fields are not prevented, because without moving focus on press they could not take input.
   element.addEventListener('mousedown', (event) => {
-    if (event.target !== field) {
+    if (event.target !== field && event.target !== replaceField) {
       event.preventDefault();
     }
   });

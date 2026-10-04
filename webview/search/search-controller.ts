@@ -3,6 +3,7 @@ import { findCommentById } from '../editing/comment-read';
 import { readTitleEnd } from '../editing/details-section';
 import type { EditingSession } from '../editing/editing-session';
 import type { ShortcutPlatform, ShortcutReceiver } from '../editing/shortcut-receiver';
+import type { ReplaceTarget } from '../editing/text-replace';
 import type { EditEndpointSelections } from '../history/edit-transaction-controller';
 import { captureRange } from '../selection/selection-capture';
 import { readClosedDetailsAncestors } from '../ui/comment-navigation';
@@ -10,8 +11,8 @@ import { attachSearchPanel } from '../ui/search-panel';
 import type { SearchMoveDirection, SearchPanel } from '../ui/search-panel';
 import { ReturnSelection } from './return-selection';
 import { SearchHighlighter } from './search-highlight';
-import { registerSearchShortcut } from './search-key';
-import { findSearchMatches, readSelectionSearchText } from './search-text';
+import { registerReplaceShortcut, registerSearchShortcut } from './search-key';
+import { findSearchMatches, readReplaceTarget, readSelectionSearchText } from './search-text';
 import type { SearchMatch } from './search-text';
 
 /**
@@ -86,6 +87,16 @@ export interface SearchPorts {
    * @returns Whether the tree changed. Returns false without opening during composition and while input is stopped.
    */
   openDetails(section: Element, endpoints: EditEndpointSelections): boolean;
+
+  /**
+   * Replaces the text of the targets with the same text, as one edit. Does not move the selection or focus.
+   *
+   * @param targets The targets in document order.
+   * @param text The replacement.
+   * @returns The range the replacement of the first target occupies. `undefined` if nothing was replaced (during
+   *   composition, while input is stopped, or when the edit could not be made).
+   */
+  replaceTexts(targets: readonly ReplaceTarget[], text: string): Range | undefined;
 
   /** Returns the comment the comment popup has open. `undefined` if it is not open. */
   readOpenComment(): Element | undefined;
@@ -203,6 +214,23 @@ export class SearchController {
    * away from where the user is looking.
    */
   openFromEditor(): void {
+    this.openFrom(false);
+  }
+
+  /**
+   * The replace key in the editor root. Opens the panel the same way as Ctrl+F, shows the replace row, and moves to the
+   * replace field, or to the search field while the query is empty, since there is nothing to replace yet.
+   */
+  openReplaceFromEditor(): void {
+    this.openFrom(true);
+  }
+
+  /**
+   * Opens the panel from the editor root, or moves to a field if it is already open.
+   *
+   * @param replace Whether the replace row is shown and the replace field takes focus.
+   */
+  private openFrom(replace: boolean): void {
     try {
       this.returnSelection.capture();
       const position = this.returnSelection.readRange();
@@ -211,6 +239,9 @@ export class SearchController {
         this.panel.setQuery(initial.text);
       }
       this.panel.show();
+      if (replace) {
+        this.panel.showReplace(true);
+      }
       this.refreshMatches({ kind: 'from', position });
       this.showCurrent();
     } catch (error) {
@@ -221,7 +252,11 @@ export class SearchController {
     }
     this.movingFocus = true;
     try {
-      this.panel.focusField(true);
+      if (replace && this.panel.readCondition().query.length > 0) {
+        this.panel.focusReplaceField(true);
+      } else {
+        this.panel.focusField(true);
+      }
     } finally {
       this.movingFocus = false;
     }
@@ -323,6 +358,59 @@ export class SearchController {
       this.showCurrent();
     } catch (error) {
       this.ports.reportDiagnostic(`Could not move the current match: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Replaces the current match with the replacement as one edit, then makes current the first match at or after the end
+   * of the replacement and shows it.
+   *
+   * Counting from the end of the replacement skips it even when it contains the query. A current match that cannot be
+   * replaced (a comment id match, or text that crosses the edge of an annotation) is left as it is, and the next match
+   * becomes current, so that pressing again goes on. Nothing changes without a current match, during composition, or
+   * while input is stopped.
+   */
+  replace(): void {
+    try {
+      const match = this.current === undefined ? undefined : this.matches[this.current];
+      if (match === undefined) {
+        return;
+      }
+      const target = readReplaceTarget(match);
+      if (target === undefined) {
+        this.move('next');
+        return;
+      }
+      const placed = this.ports.replaceTexts([target], this.panel.readReplacement());
+      if (placed === undefined) {
+        return;
+      }
+      placed.collapse(false);
+      this.refreshMatches({ kind: 'from', position: placed });
+      this.showCurrent();
+    } catch (error) {
+      this.ports.reportDiagnostic(`Could not replace the current match: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Replaces every match that can be replaced with the replacement as one edit.
+   *
+   * The matches are recomputed by the edit notification like any other change to the tree, keeping the current number,
+   * so neither a collapsible section opens nor the view scrolls. What remains are the matches that cannot be replaced
+   * and any the replacement itself forms.
+   */
+  replaceAll(): void {
+    try {
+      const targets = this.matches.flatMap((match) => {
+        const target = readReplaceTarget(match);
+        return target === undefined ? [] : [target];
+      });
+      if (targets.length > 0) {
+        this.ports.replaceTexts(targets, this.panel.readReplacement());
+      }
+    } catch (error) {
+      this.ports.reportDiagnostic(`Could not replace all matches: ${String(error)}`);
     }
   }
 
@@ -659,7 +747,7 @@ function readSameComment(root: Element, comment: Element | undefined): Element |
 }
 
 /**
- * Creates the panel, highlighter, return selection, and controller, adds the Ctrl+F item to the receiver, and
+ * Creates the panel, highlighter, return selection, and controller, adds the Ctrl+F and replace items to the receiver, and
  * subscribes to focus entering and leaving the editor root and to presses on it.
  *
  * The editor root and the receiver are the same elements across document replacements, so this is called only once,
@@ -690,6 +778,13 @@ export function attachSearch(
     requestMove: (direction) => controller?.move(direction),
     requestClose: (focusedInside) => controller?.close(focusedInside),
     notifyPanelShortcut: () => controller?.handlePanelShortcut(),
+    requestReplace: (scope) => {
+      if (scope === 'current') {
+        controller?.replace();
+      } else {
+        controller?.replaceAll();
+      }
+    },
   });
   const created = new SearchController(
     view,
@@ -701,6 +796,7 @@ export function attachSearch(
   );
   controller = created;
   registerSearchShortcut(receiver, () => created.openFromEditor(), () => ports.isComposing());
+  registerReplaceShortcut(receiver, ports.platform, () => created.openReplaceFromEditor(), () => ports.isComposing());
   root.addEventListener('focusout', (event) => created.handleEditorFocusOut(event));
   root.addEventListener('focusin', (event) => created.handleEditorFocusIn(event));
   root.addEventListener('pointerdown', () => created.handleEditorPointerDown());

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Shortcut } from '../../webview/editing/shortcut-receiver';
-import { registerSearchShortcut } from '../../webview/search/search-key';
+import { registerReplaceShortcut, registerSearchShortcut } from '../../webview/search/search-key';
 
 /**
  * Creates a receiver double that records registered items.
@@ -55,5 +55,35 @@ describe('registering the Ctrl+F item', () => {
     const outcome = shortcuts[0].run(createKeyDown());
 
     expect([opened, outcome]).toEqual([0, 'preventDefault']);
+  });
+});
+
+describe('registering the replace item', () => {
+  it('requires primary modifier+H outside macOS, and Cmd+Option+F on macOS, where Cmd+H hides the application', () => {
+    const other = createReceiver();
+    const mac = createReceiver();
+
+    registerReplaceShortcut(other.receiver, 'other', () => undefined, () => false);
+    registerReplaceShortcut(mac.receiver, 'mac', () => undefined, () => false);
+
+    expect([other.shortcuts.map((shortcut) => shortcut.key), mac.shortcuts.map((shortcut) => shortcut.key)]).toEqual([
+      [{ character: 'h', primary: true, shift: false, alt: false }],
+      [{ character: 'f', primary: true, shift: false, alt: true }],
+    ]);
+  });
+
+  it('calls the open operation only when not composing, and returns preventDefault either way', () => {
+    const { receiver, shortcuts } = createReceiver();
+    let opened = 0;
+    let composing = false;
+    registerReplaceShortcut(receiver, 'other', () => {
+      opened += 1;
+    }, () => composing);
+
+    const outcomes = [shortcuts[0].run(createKeyDown())];
+    composing = true;
+    outcomes.push(shortcuts[0].run(createKeyDown()));
+
+    expect([opened, outcomes]).toEqual([1, ['preventDefault', 'preventDefault']]);
   });
 });

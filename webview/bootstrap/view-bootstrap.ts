@@ -67,6 +67,7 @@ import type { TableOperation } from '../editing/table-command';
 import { readTableHeaderState } from '../editing/table-header';
 import { registerTableShortcuts } from '../editing/table-navigation';
 import { readTableWidthUnit } from '../editing/table-width';
+import { replaceTexts } from '../editing/text-replace';
 import { readEmbeddedCatalog } from '../i18n/embedded-catalog';
 import { createHostChannel } from '../messaging/host-channel';
 import type { HostChannel, WebviewWindow } from '../messaging/host-channel';
@@ -972,8 +973,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   };
   registerPlainTextPasteShortcut(receiver, plainTextPastePorts);
-  // Primary modifier+F does not overlap with any item registered so far, so it is appended to the end of the list.
-  // Attached regardless of whether there is a toolbar.
+  // Primary modifier+F and the replace key do not overlap with any item registered so far, so they are appended to the
+  // end of the list. Attached regardless of whether there is a toolbar.
   // The editing session, input stops, and item bars change with document replacements and later steps, so the ports
   // hold no values and read them on every call.
   const search = attachSearch(view, target.root, receiver, {
@@ -990,6 +991,19 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     requestReturn: (selection) => viewShell.editorReturn.requestReturn(selection),
     deferReturn: (selection) => viewShell.editorReturn.deferReturn(selection),
     openDetails: (section, endpoints) => toggleDetailsSection(blockCommandPorts, section, 'open', endpoints),
+    replaceTexts: (targets, text) => {
+      const root = readEditorRoot();
+      const session = readEditingSession();
+      if (root === undefined || session === undefined) {
+        return undefined;
+      }
+      return replaceTexts(root, {
+        isComposing: () => session.isComposing,
+        isInputStopped: () => viewShell.inputStop.isStopped(),
+        runCommandEdit: (kind, command, endpoints) => session.runCommandEdit(kind, command, endpoints),
+        reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+      }, targets, text);
+    },
     readOpenComment: () => commentPopup?.readOpenComment(),
     // Opened without moving focus, like a click, so typing in the search field goes on.
     openComment: (comment) => commentPopup?.open(comment, false),

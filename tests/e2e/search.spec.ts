@@ -25,13 +25,19 @@ const PROLOGUE = '<!DOCTYPE html>\n<html><body>';
 const EPILOGUE = '</body></html>';
 
 const PANEL = `#${SEARCH_PANEL_ELEMENT_ID}`;
-const FIELD = `${PANEL} input`;
+const FIELD = `${PANEL} input[aria-label="${englishMessages['search.field']}"]`;
 const COUNT = `${PANEL} [role="status"]`;
 const MATCH_CASE = `${PANEL} button[aria-label="${englishMessages['search.matchCase']}"]`;
 const WHOLE_WORD = `${PANEL} button[aria-label="${englishMessages['search.wholeWord']}"]`;
 const PREVIOUS = `${PANEL} button[aria-label="${englishMessages['search.previous']}"]`;
 const NEXT = `${PANEL} button[aria-label="${englishMessages['search.next']}"]`;
 const CLOSE = `${PANEL} button[aria-label="${englishMessages['search.close']}"]`;
+const TOGGLE_REPLACE = `${PANEL} button[aria-label="${englishMessages['search.toggleReplace']}"]`;
+const REPLACE_FIELD = `${PANEL} input[aria-label="${englishMessages['search.replaceField']}"]`;
+const REPLACE = `${PANEL} button[aria-label="${englishMessages['search.replace']}"]`;
+const REPLACE_ALL = `${PANEL} button[aria-label="${englishMessages['search.replaceAll']}"]`;
+/** The replace key of the platform the tests run on. Cmd+H hides the application on macOS. */
+const REPLACE_KEY = process.platform === 'darwin' ? 'Meta+Alt+KeyF' : 'Control+KeyH';
 const TOOLBAR = `#${TOOLBAR_ELEMENT_ID}`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
 const POPUP_ENTRY = `${POPUP} .comment-popup-entry`;
@@ -633,7 +639,7 @@ test.describe('presenting the panel and accepting operations', () => {
     expect(await readComputed(page, NEXT, ['background-color'])).toEqual(['rgb(240, 241, 242)']);
   });
 
-  test('Tab from the search field moves through the toggles, previous, next, and close in order, and Shift+Tab in the field moves to the editor root, back to the caret position before Ctrl+F', async ({ page }) => {
+  test('Tab from the search field moves through the toggles, previous, next, and close in order, and Shift+Tab in the field moves to the replace toggle and then to the editor root, back to the caret position before Ctrl+F', async ({ page }) => {
     await openSearchEditor(page, '<p>abc</p><p>def</p>');
     await placeCaret(page, `${EDITOR_ROOT} p:nth-of-type(2)`, 1);
     await openSearch(page);
@@ -645,10 +651,13 @@ test.describe('presenting the panel and accepting operations', () => {
     }
     await page.locator(FIELD).focus();
     await page.keyboard.press('Shift+Tab');
+    const before = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null);
+    await page.keyboard.press('Shift+Tab');
 
     await expect(page.locator(EDITOR_ROOT)).toBeFocused();
-    expect([visited, await readCaretPrefix(page)]).toEqual([
+    expect([visited, before, await readCaretPrefix(page)]).toEqual([
       ['Match Case', 'Match Whole Word', 'Previous Match', 'Next Match', 'Close'],
+      'Toggle Replace',
       'abcd',
     ]);
   });
@@ -1484,5 +1493,151 @@ test.describe('comment id matches', () => {
     await page.keyboard.type('c-image');
 
     expect([await readCount(page), await page.locator(POPUP).isVisible()]).toEqual(['1 of 1', true]);
+  });
+});
+
+test.describe('replacing', () => {
+  test('the replace key with a word selected opens the panel with the replace row shown, the word as the query, and focus in the replace field, and does not reach the forwarded key record', async ({ page }) => {
+    await openSearchEditor(page, '<p>cat dog cat</p>');
+    await selectText(page, `${EDITOR_ROOT} p`, 0, 3);
+    await installForwardRecord(page);
+
+    await page.keyboard.press(REPLACE_KEY);
+
+    await expect(page.locator(REPLACE_FIELD)).toBeFocused();
+    expect([
+      await page.locator(FIELD).inputValue(),
+      await readCount(page),
+      await page.locator(TOGGLE_REPLACE).getAttribute('aria-expanded'),
+      (await readForwardedKeys(page)).some((code) => code === 'KeyH' || code === 'KeyF'),
+    ]).toEqual(['cat', '1 of 2', 'true', false]);
+  });
+
+  test('Enter in the replace field replaces the current match as one edit, makes the next match current, and keeps focus in the replace field', async ({ page }) => {
+    await openSearchEditor(page, '<p>cat and cat</p><p>cat</p>');
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('cat');
+    await page.locator(REPLACE_FIELD).focus();
+    await page.keyboard.type('dog');
+
+    await page.keyboard.press('Enter');
+
+    await expect(page.locator(REPLACE_FIELD)).toBeFocused();
+    const transactions = await readTransactions(page);
+    const column = readBody(transactions[0].before.text).indexOf('cat');
+    const replaced = { start: { line: 0, column }, end: { line: 0, column: column + 3 } };
+    expect([
+      await readBodyHtml(page),
+      await readCount(page),
+      await readHighlight(page, SEARCH_HIGHLIGHT_NAME.current),
+      transactions.length,
+      [transactions[0].before.selection, transactions[0].after.selection],
+    ]).toEqual([
+      '<p>dog and cat</p><p>cat</p>',
+      '1 of 2',
+      [['dog and cat', 8, 'dog and cat', 11]],
+      1,
+      [replaced, replaced],
+    ]);
+  });
+
+  test('Replace All replaces every match, including one spanning bold and one in the body of a closed collapsible section, as one edit without opening the section', async ({ page }) => {
+    await openSearchEditor(page, '<p>ca<b>t</b> cat</p><details><summary>t</summary><p>cat</p></details>');
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await openSearch(page);
+    await page.keyboard.type('cat');
+    await page.locator(TOGGLE_REPLACE).click();
+    await page.locator(REPLACE_FIELD).fill('dog');
+
+    await page.locator(REPLACE_ALL).click();
+
+    await expect(page.locator(REPLACE_FIELD)).toBeFocused();
+    expect([
+      await readBodyHtml(page),
+      await readCount(page),
+      (await readTransactions(page)).length,
+    ]).toEqual(['<p>dog dog</p><details><summary>t</summary><p>dog</p></details>', 'No results', 1]);
+  });
+
+  test('a match crossing the edge of annotated text and a comment id match are left by Replace All and still counted, and Replace on such a match moves to the next one', async ({ page }) => {
+    await openSearchEditor(
+      page,
+      '<p>a<comment id="c-ab000001">b<comment-body>n</comment-body></comment> ab</p><p>c-ab</p>',
+    );
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('ab');
+    await page.locator(REPLACE_FIELD).fill('z');
+
+    await page.locator(REPLACE_FIELD).press('Enter');
+    const afterReplace = [await readCount(page), (await readTransactions(page)).length];
+    await page.locator(REPLACE_ALL).click();
+
+    expect([
+      afterReplace,
+      await page.locator(`${EDITOR_ROOT} p`).allTextContents(),
+      await readCount(page),
+    ]).toEqual([['2 of 4', 0], ['abn z', 'c-z'], '2 of 2']);
+  });
+
+  test('annotated text equal to the query is replaced even when the comment id also contains the query, and the comment stays', async ({ page }) => {
+    await openSearchEditor(
+      page,
+      '<p><comment id="c-ab000002">ab<comment-body>n</comment-body></comment> ab</p>',
+    );
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('ab');
+    await page.locator(REPLACE_FIELD).fill('z');
+
+    await page.locator(REPLACE_FIELD).press('Enter');
+    const afterReplace = [await page.locator(`${EDITOR_ROOT} p`).textContent(), await readCount(page)];
+    await page.locator(REPLACE_ALL).click();
+
+    expect([
+      afterReplace,
+      await page.locator(`${EDITOR_ROOT} p`).textContent(),
+      await page.locator(`${EDITOR_ROOT} comment#c-ab000002`).count(),
+    ]).toEqual([['zn ab', '2 of 2'], 'zn z', 1]);
+  });
+
+  test('a replacement that contains the query is passed over, so pressing Enter replaces each match once', async ({ page }) => {
+    await openSearchEditor(page, '<p>a a</p>');
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('a');
+    await page.locator(REPLACE_FIELD).fill('aa');
+
+    await page.locator(REPLACE_FIELD).press('Enter');
+    await page.locator(REPLACE_FIELD).press('Enter');
+
+    expect([await readBodyHtml(page), await readCount(page)]).toEqual(['<p>aa aa</p>', '1 of 4']);
+  });
+
+  test('an empty replacement removes the text, leaving an emptied paragraph as an empty line', async ({ page }) => {
+    await openSearchEditor(page, '<p>cat</p><p>a cat</p>');
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('cat');
+
+    await page.locator(REPLACE_ALL).click();
+
+    expect(await readBodyHtml(page)).toBe('<p><br></p><p>a </p>');
+  });
+
+  test('during the save round trip, Replace and Replace All change nothing and send no edit', async ({ page }) => {
+    await openSearchEditor(page, '<p>cat cat</p>');
+    await placeCaret(page, `${EDITOR_ROOT} p`, 0);
+    await page.keyboard.press(REPLACE_KEY);
+    await page.keyboard.type('cat');
+    await page.locator(REPLACE_FIELD).fill('dog');
+    await stopInput(page);
+
+    await page.locator(REPLACE_FIELD).press('Enter');
+    await page.locator(REPLACE_ALL).focus();
+    await page.keyboard.press('Enter');
+
+    expect([await readBodyHtml(page), (await readTransactions(page)).length]).toEqual(['<p>cat cat</p>', 0]);
   });
 });

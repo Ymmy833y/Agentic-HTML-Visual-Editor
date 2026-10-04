@@ -1,5 +1,6 @@
 import { COMMENT_TAG_NAME } from '../../common/index';
 import { isDiagramSource } from '../diagram/diagram-source';
+import type { ReplaceTarget, TextSpan } from '../editing/text-replace';
 
 /** The state of the two toggles in the search condition, excluding the query. */
 export interface SearchOptions {
@@ -28,6 +29,11 @@ export interface SearchRun {
   readonly starts: readonly TextPoint[];
   /** The end position of each character. */
   readonly ends: readonly TextPoint[];
+  /**
+   * The text nodes each collapsed space covers, by the index of the space, only for spaces whose original run of
+   * whitespace spans two or more text nodes. Any other character lies in the text node of its start position.
+   */
+  readonly spaceSpans: ReadonlyMap<number, readonly TextSpan[]>;
 }
 
 /** The start and end offsets of a match within a run's string. The end points just past the match. */
@@ -45,8 +51,9 @@ export interface SelectionSearchText {
 /**
  * One search match.
  *
- * A text match has only its range. A comment id match also carries its comment: the id is never displayed, so the
- * caller opens that comment's popup to show what was found.
+ * A text match carries the text node parts that hold its characters. A comment id match carries its comment: the id is
+ * never displayed, so the caller opens that comment's popup to show what was found. A comment id match that took the
+ * place of a text match with the same range carries both.
  */
 export interface SearchMatch {
   /**
@@ -56,6 +63,11 @@ export interface SearchMatch {
   readonly range: Range;
   /** The comment whose id contains the query. `undefined` for a text match. */
   readonly comment?: Element;
+  /**
+   * The parts of text nodes that hold the characters of a text match, in document order. Hidden text inside the range
+   * is not included. `undefined` for a comment id match, unless it took the place of a text match with the same range.
+   */
+  readonly spans?: readonly TextSpan[];
 }
 
 /** A comment rendered in the editor root, with where the visible characters of its annotated text start and end. */
@@ -104,9 +116,11 @@ class RunBuilder {
 
   private ends: TextPoint[] = [];
 
-  // A run of whitespace not yet added. Leading and trailing whitespace in a run does not count, so it is added as one
-  // space only when the next character arrives.
-  private pendingSpace: { readonly start: TextPoint; readonly end: TextPoint } | undefined;
+  private spaceSpans = new Map<number, readonly TextSpan[]>();
+
+  // A run of whitespace not yet added, with the text node parts it covers. Leading and trailing whitespace in a run
+  // does not count, so it is added as one space only when the next character arrives.
+  private pendingSpace: { readonly start: TextPoint; readonly end: TextPoint; readonly spans: TextSpan[] } | undefined;
 
   /**
    * Adds a non-whitespace character.
@@ -119,6 +133,9 @@ class RunBuilder {
     const space = this.pendingSpace;
     this.pendingSpace = undefined;
     if (space !== undefined && this.characters.length > 0) {
+      if (space.spans.length > 1) {
+        this.spaceSpans.set(this.characters.length, space.spans);
+      }
       this.push(' ', space.start, space.end);
     }
     this.push(character, start, end);
@@ -151,18 +168,26 @@ class RunBuilder {
    * @param end The end position of the whitespace.
    */
   addSpace(start: TextPoint, end: TextPoint): void {
-    this.pendingSpace = { start: this.pendingSpace?.start ?? start, end };
+    const spans = this.pendingSpace?.spans ?? [];
+    const last = spans.at(-1);
+    if (last !== undefined && last.node === start.node && last.end === start.offset) {
+      spans[spans.length - 1] = { node: last.node, start: last.start, end: end.offset };
+    } else {
+      spans.push({ node: start.node, start: start.offset, end: end.offset });
+    }
+    this.pendingSpace = { start: this.pendingSpace?.start ?? start, end, spans };
   }
 
   /** Ends the current run. Empty runs are not kept. */
   cut(): void {
     this.pendingSpace = undefined;
     if (this.characters.length > 0) {
-      this.runs.push({ text: this.characters.join(''), starts: this.starts, ends: this.ends });
+      this.runs.push({ text: this.characters.join(''), starts: this.starts, ends: this.ends, spaceSpans: this.spaceSpans });
     }
     this.characters = [];
     this.starts = [];
     this.ends = [];
+    this.spaceSpans = new Map();
   }
 
   private push(character: string, start: TextPoint, end: TextPoint): void {
@@ -441,7 +466,7 @@ export function findSearchMatches(root: Element, query: string, options: SearchO
       const range = document.createRange();
       range.setStart(start.node, start.offset);
       range.setEnd(end.node, end.offset);
-      textMatches.push({ range });
+      textMatches.push({ range, spans: readMatchSpans(run, found) });
     }
   }
   const idMatches = content.comments
@@ -451,11 +476,86 @@ export function findSearchMatches(root: Element, query: string, options: SearchO
 }
 
 /**
+ * Returns the text node parts that hold the characters of a match within a run, joining parts that touch.
+ *
+ * @param run The search run.
+ * @param found The offsets of the match in the run's string.
+ * @returns The parts in document order.
+ */
+function readMatchSpans(run: SearchRun, found: MatchOffsets): TextSpan[] {
+  const spans: TextSpan[] = [];
+  for (let index = found.start; index < found.end; index += 1) {
+    const start = run.starts[index];
+    const covered = run.spaceSpans.get(index) ?? [{ node: start.node, start: start.offset, end: run.ends[index].offset }];
+    for (const span of covered) {
+      const last = spans.at(-1);
+      if (last !== undefined && last.node === span.node && last.end === span.start) {
+        spans[spans.length - 1] = { node: last.node, start: last.start, end: span.end };
+      } else {
+        spans.push(span);
+      }
+    }
+  }
+  return spans;
+}
+
+/**
+ * Returns what replacing a match changes.
+ *
+ * A comment id match has no text to replace, unless it took the place of a text match with the same range, whose text
+ * is visible and is replaced. A text match that crosses the edge of a comment's annotated text, or
+ * contains a whole comment, is not replaced either: the replacement would have to go on one side of the edge, and the
+ * annotation would lose text it never asked to lose or gain text it was not given.
+ *
+ * @param match The match.
+ * @returns The target to replace. `undefined` if the match cannot be replaced.
+ */
+export function readReplaceTarget(match: SearchMatch): ReplaceTarget | undefined {
+  const spans = match.spans;
+  if (spans === undefined || spans.length === 0 || crossesCommentEdge(match.range)) {
+    return undefined;
+  }
+  return { range: match.range, spans };
+}
+
+/**
+ * Returns whether a range crosses the edge of a comment's annotated text or contains a comment.
+ *
+ * Comments do not nest, so the range stays within one annotation only when both ends have the same enclosing comment
+ * (or none) and no other comment lies between them.
+ *
+ * @param range The range.
+ */
+function crossesCommentEdge(range: Range): boolean {
+  const comment = readEnclosingComment(range.startContainer);
+  if (comment !== readEnclosingComment(range.endContainer)) {
+    return true;
+  }
+  const scope = range.commonAncestorContainer;
+  if (!(scope instanceof Element)) {
+    return false;
+  }
+  return [...scope.getElementsByTagName(COMMENT_TAG_NAME.comment)]
+    .some((element) => element !== comment && range.intersectsNode(element));
+}
+
+/**
+ * Returns the comment that encloses a node.
+ *
+ * @param node The node.
+ * @returns The comment. `null` if there is none.
+ */
+function readEnclosingComment(node: Node): Element | null {
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest(COMMENT_TAG_NAME.comment) ?? null;
+}
+
+/**
  * Merges text matches and comment id matches into one list in document order.
  *
  * Matches are ordered by their start, and by their end when the starts are the same. A text match with exactly the
- * same range as a comment id match is dropped: to the reader it is one place, and keeping the id match still opens the
- * popup.
+ * same range as a comment id match is merged into it: to the reader it is one place, and keeping the id match still
+ * opens the popup. The merged match keeps the text match's spans, so its visible text can still be replaced.
  *
  * @param textMatches The text matches.
  * @param idMatches The comment id matches.
@@ -476,7 +576,7 @@ export function mergeSearchMatches(
       && match.comment !== undefined
       && compareRanges(last.range, match.range) === 0
     ) {
-      merged[merged.length - 1] = match;
+      merged[merged.length - 1] = { ...match, spans: last.spans };
       continue;
     }
     merged.push(match);
