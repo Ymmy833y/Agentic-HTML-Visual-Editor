@@ -4,7 +4,7 @@
 
 <p>
   <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v0.2.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
-  <img src="https://img.shields.io/badge/VS%20Code-1.86%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.86 以降" />
+  <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 以降" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT ライセンス" /></a>
 </p>
 
@@ -241,7 +241,7 @@ macOS では `Ctrl` の代わりに `Cmd`、`Alt` の代わりに `Option` を�
 
 ## 💻 動作環境
 
-- VS Code 1.86 以降が必要です。
+- VS Code 1.90 以降が必要です。
 - Windows、macOS、Linux のデスクトップ版 VS Code に加えて、Web 版 VS Code（vscode.dev など）、仮想ワークスペース、信頼していないワークスペース、リモート開発でも使えます。
 
 ## 🚫 既知の制約

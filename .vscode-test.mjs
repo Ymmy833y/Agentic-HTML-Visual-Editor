@@ -18,7 +18,7 @@ export default defineConfig({
   files: 'out-test/suite/**/*.test.js',
   // Pinned rather than 'stable' so that every run tests against the same build. With 'stable' the
   // build under test changes on every VS Code release day, without any change to this repository.
-  version: '1.138.0',
+  version: '1.140.0',
   ...(installedExecutable ? { useInstallation: { fromPath: installedExecutable } } : {}),
   workspaceFolder: 'tests/integration/fixtures',
   launchArgs: ['--user-data-dir', userDataDir],

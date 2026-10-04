@@ -92,6 +92,29 @@ describe('掲載情報', () => {
   });
 });
 
+describe('minimum VS Code version', () => {
+  it('pins the VS Code type definitions to the engines floor, and both READMEs state that floor', () => {
+    const floor = /^\^(\d+\.\d+)\.\d+$/.exec(manifest.engines.vscode)?.[1];
+    const english = readRepositoryFile('README.md').toString('utf8');
+    const japanese = readRepositoryFile('README_ja.md').toString('utf8');
+
+    // Types newer than the floor would let an API the oldest supported VS Code lacks pass the type check.
+    expect({
+      types: manifest.devDependencies['@types/vscode'],
+      englishBadge: /img\.shields\.io\/badge\/VS%20Code-(\d+\.\d+)%2B-/.exec(english)?.[1],
+      englishText: /^- VS Code (\d+\.\d+) or later\.$/m.exec(english)?.[1],
+      japaneseBadge: /img\.shields\.io\/badge\/VS%20Code-(\d+\.\d+)%2B-/.exec(japanese)?.[1],
+      japaneseText: /^- VS Code (\d+\.\d+) 以降が必要です。$/m.exec(japanese)?.[1],
+    }).toEqual({
+      types: manifest.engines.vscode.slice(1),
+      englishBadge: floor,
+      englishText: floor,
+      japaneseBadge: floor,
+      japaneseText: floor,
+    });
+  });
+});
+
 describe('README の画像', () => {
   it('README.md と README_ja.md が相対パスで参照する画像がすべて実在する PNG で、2 つの README の画像の並びが一致する', () => {
     const english = readRelativeImages('README.md');
