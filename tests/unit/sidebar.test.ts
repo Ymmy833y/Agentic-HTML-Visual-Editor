@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EDITOR_ROOT_ELEMENT_ID, createLocalizer } from '../../common/index';
+import {
+  EDITOR_ROOT_ELEMENT_ID,
+  SIDEBAR_LAYOUT_META_NAME,
+  SIDEBAR_MIN_WIDTH,
+  createLocalizer,
+} from '../../common/index';
+import type { SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import englishMessages from '../../messages/messages.en.json';
 import type { EditDetectedListener } from '../../webview/editing/change-tracker';
 import {
@@ -8,7 +14,11 @@ import {
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_ICON_PATH,
   SIDEBAR_OPEN_ATTRIBUTE,
+  SIDEBAR_RESIZER_CLASS,
+  SIDEBAR_WIDTH_PROPERTY,
   attachSidebar,
+  clampSidebarWidth,
+  readEmbeddedSidebarLayout,
   registerSidebarButton,
 } from '../../webview/ui/sidebar';
 import type { Sidebar } from '../../webview/ui/sidebar';
@@ -26,6 +36,10 @@ interface Harness {
   readonly toolbar: Toolbar;
   /** The targets passed to the move port, as kind:ID, followed by "by keyboard" when chosen with the keyboard. */
   readonly moves: string[];
+  /** The layout changes passed to the port that keeps them for the views opened afterwards, in the order passed. */
+  readonly layouts: SidebarLayoutChange[];
+  /** How many times the sidebar has read the editor root, which it does once per list it builds. */
+  readonly readRootCount: () => number;
   /** Calls the edit listeners registered through the stand-in for the editing session. */
   readonly notifyEdit: () => void;
 }
@@ -34,11 +48,14 @@ interface Harness {
  * Places the editor root and the toolbar, and attaches the sidebar with the English messages.
  *
  * @param html The contents of the editor root.
+ * @param layout The layout to attach with. Omitted for the default.
+ * @param mount Whether the first mount completes right after attaching, as it does in the view.
  * @returns The sidebar and the record.
  */
-function attach(html: string): Harness {
+function attach(html: string, layout?: SidebarLayout, mount = true): Harness {
   document.body.replaceChildren();
   document.documentElement.removeAttribute(SIDEBAR_OPEN_ATTRIBUTE);
+  document.documentElement.style.removeProperty(SIDEBAR_WIDTH_PROPERTY);
   const root = document.createElement('div');
   root.id = EDITOR_ROOT_ELEMENT_ID;
   root.innerHTML = html;
@@ -57,27 +74,37 @@ function attach(html: string): Harness {
     throw new Error('cannot attach the toolbar');
   }
   const moves: string[] = [];
+  const layouts: SidebarLayoutChange[] = [];
+  let rootReads = 0;
   const sidebar = attachSidebar(window, {
     localizer,
-    readEditorRoot: () => root,
+    readEditorRoot: () => {
+      rootReads += 1;
+      return root;
+    },
     move: (target, byKeyboard) => moves.push(`${target.kind}:${target.element.id}${byKeyboard ? ' by keyboard' : ''}`),
     hasShortcut: () => false,
     returnToEditor: () => undefined,
     reportDiagnostic: () => undefined,
-  });
+    saveLayout: (saved) => layouts.push(saved),
+  }, layout);
   const element = document.getElementById(SIDEBAR_ELEMENT_ID);
   if (sidebar === undefined || element === null) {
     throw new Error('cannot attach the sidebar');
   }
 
   const listeners: EditDetectedListener[] = [];
-  sidebar.handleMountCompleted({ addEditListener: (listener) => listeners.push(listener) });
+  if (mount) {
+    sidebar.handleMountCompleted({ addEditListener: (listener) => listeners.push(listener) });
+  }
   return {
     sidebar,
     element,
     root,
     toolbar,
     moves,
+    layouts,
+    readRootCount: () => rootReads,
     notifyEdit: () => {
       for (const listener of listeners) {
         listener('insertText');
@@ -302,5 +329,130 @@ describe('The sidebar', () => {
       { kind: 'button', messageKey: 'toolbar.sidebar', iconPath: SIDEBAR_ICON_PATH },
       'false',
     ]);
+  });
+
+  it('hands only the open state on each time the button opens or closes it, never the width it holds', () => {
+    const { sidebar, toolbar, layouts } = attach('<h1>A</h1>', { open: false, width: 240 });
+    registerSidebarButton(toolbar, sidebar);
+
+    readSidebarButton().click();
+    readSidebarButton().click();
+
+    expect(layouts).toEqual([{ open: true }, { open: false }]);
+  });
+
+  it('builds the list once when it starts open and the first mount completes, and not again in the next frame', () => {
+    const { readRootCount } = attach('<h1>A</h1>', { open: true });
+    const afterMount = readRootCount();
+    vi.advanceTimersToNextFrame();
+
+    expect([afterMount, readRootCount()]).toEqual([1, 1]);
+  });
+
+  it('builds the list in the next frame when it starts open and no mount follows', () => {
+    const { element } = attach('<h1>A</h1>', { open: true }, false);
+    const before = readItems(element).length;
+    vi.advanceTimersToNextFrame();
+
+    expect([before, readItems(element).map((button) => button.textContent)]).toEqual([0, ['A']]);
+  });
+
+  it('starts open with the button pressed and the width set on the root element when attached with such a layout, and hands nothing on', () => {
+    const { sidebar, element, toolbar, layouts } = attach('<h1>A</h1>', { open: true, width: 300 });
+    registerSidebarButton(toolbar, sidebar);
+
+    expect([
+      element.hidden,
+      document.documentElement.hasAttribute(SIDEBAR_OPEN_ATTRIBUTE),
+      document.documentElement.style.getPropertyValue(SIDEBAR_WIDTH_PROPERTY),
+      readSidebarButton().getAttribute('aria-pressed'),
+      readItems(element).map((button) => button.textContent),
+      layouts,
+    ]).toEqual([false, true, '300px', 'true', ['A'], []]);
+  });
+
+  it('leaves the width to the stylesheet when attached without one', () => {
+    attach('<h1>A</h1>', { open: true });
+
+    expect(document.documentElement.style.getPropertyValue(SIDEBAR_WIDTH_PROPERTY)).toBe('');
+  });
+
+  it('has a resize strip at the end that takes no focus and is hidden from assistive technology', () => {
+    const { element } = attach('<h1>A</h1>');
+    const resizer = element.lastElementChild;
+
+    expect([
+      resizer?.className,
+      resizer?.getAttribute('aria-hidden'),
+      resizer instanceof HTMLElement ? resizer.tabIndex : undefined,
+    ]).toEqual([SIDEBAR_RESIZER_CLASS, 'true', -1]);
+  });
+});
+
+describe('The sidebar width bounds', () => {
+  it('keeps a width between the narrowest width and half the view, rounded to whole pixels', () => {
+    expect([
+      clampSidebarWidth(250.4, 1000),
+      clampSidebarWidth(SIDEBAR_MIN_WIDTH - 50, 1000),
+      clampSidebarWidth(900, 1000),
+    ]).toEqual([250, SIDEBAR_MIN_WIDTH, 500]);
+  });
+
+  it('gives the narrowest width in a view too narrow for both bounds', () => {
+    expect(clampSidebarWidth(250, 200)).toBe(SIDEBAR_MIN_WIDTH);
+  });
+});
+
+describe('The embedded sidebar layout', () => {
+  afterEach(() => {
+    document.head.replaceChildren();
+  });
+
+  /**
+   * Writes the layout meta elements into the head, as the host does.
+   *
+   * @param open The content of the open meta, or `undefined` to leave it out.
+   * @param width The content of the width meta, or `undefined` to leave it out.
+   */
+  function embed(open: string | undefined, width: string | undefined): void {
+    document.head.replaceChildren();
+    const entries: [string, string | undefined][] = [
+      [SIDEBAR_LAYOUT_META_NAME.open, open],
+      [SIDEBAR_LAYOUT_META_NAME.width, width],
+    ];
+    for (const [name, content] of entries) {
+      if (content !== undefined) {
+        const meta = document.createElement('meta');
+        meta.name = name;
+        meta.content = content;
+        document.head.append(meta);
+      }
+    }
+  }
+
+  it('reads whether it is open and its width', () => {
+    embed('true', '280');
+
+    expect(readEmbeddedSidebarLayout(document)).toEqual({ open: true, width: 280 });
+  });
+
+  it('reads as closed with the default width when the document carries no layout', () => {
+    embed(undefined, undefined);
+
+    expect(readEmbeddedSidebarLayout(document)).toEqual({ open: false });
+  });
+
+  it('keeps whether it is open and drops a width that is not a number or is empty', () => {
+    embed('true', 'wide');
+    const unreadable = readEmbeddedSidebarLayout(document);
+    embed('true', '');
+
+    expect([unreadable, readEmbeddedSidebarLayout(document)]).toEqual([{ open: true }, { open: true }]);
+  });
+
+  it('raises a width below the narrowest width to it', () => {
+    embed('false', '20');
+
+    expect(readEmbeddedSidebarLayout(document)).toEqual({ open: false, width: SIDEBAR_MIN_WIDTH });
   });
 });

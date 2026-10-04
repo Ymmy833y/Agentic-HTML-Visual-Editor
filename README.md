@@ -178,6 +178,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 
 - The sidebar at the left edge of the view lists the headings by level and every comment thread in document order. Each thread shows a dot in the color of the author who started it, or a check once it is resolved.
 - Choose an item to jump to it. The toolbar button at the far left opens and closes the sidebar.
+- Drag the sidebar's right edge to resize it. Whether it is open and how wide it is carry over to every file you open next.
 
 ### 📋 Clipboard
 

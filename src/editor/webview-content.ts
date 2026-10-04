@@ -1,9 +1,11 @@
 import {
+  DEFAULT_SIDEBAR_LAYOUT,
   EDITOR_ROOT_ELEMENT_ID,
   MESSAGE_CATALOG_ELEMENT_ID,
+  SIDEBAR_LAYOUT_META_NAME,
   TEST_MODE_META_NAME,
 } from '../../common/index';
-import type { MessageCatalog } from '../../common/index';
+import type { MessageCatalog, SidebarLayout } from '../../common/index';
 import type { ResolvedMessages } from '../i18n/message-resource-loader';
 import { buildContentSecurityPolicy } from '../security/content-security-policy';
 
@@ -28,6 +30,7 @@ export function serializeCatalogForEmbedding(catalog: MessageCatalog): string {
  * @param styleUri The webview URI of the stylesheet for the extension's own UI.
  * @param messages The resolved messages, whose locale is declared on the root element.
  * @param testMode True only when launched in Test mode. Makes the view accept test-only controls.
+ * @param sidebarLayout The sidebar layout the view starts with: the last one stored for every file.
  * @returns A string containing the complete HTML document.
  */
 export function buildWebviewContent(
@@ -37,10 +40,17 @@ export function buildWebviewContent(
   styleUri: string,
   messages: ResolvedMessages,
   testMode = false,
+  sidebarLayout: SidebarLayout = DEFAULT_SIDEBAR_LAYOUT,
 ): string {
   // The test mode meta is decided only from the extension mode. If it could be read from the document or
   // settings, an opened HTML file could trigger unresponsiveness or unsent edits.
   const testModeDeclaration = testMode ? `\n<meta name="${TEST_MODE_META_NAME}" content="true">` : '';
+  // Both values are written as numbers and booleans only, so nothing read from the stored state can break out of the
+  // attribute. The width is left out until the user first resizes, so that the stylesheet's default applies.
+  const sidebarDeclaration = `\n<meta name="${SIDEBAR_LAYOUT_META_NAME.open}" content="${String(sidebarLayout.open)}">`
+    + (sidebarLayout.width === undefined
+      ? ''
+      : `\n<meta name="${SIDEBAR_LAYOUT_META_NAME.width}" content="${String(Math.round(sidebarLayout.width))}">`);
   // The root declaration carries the UI locale, not the language of the file being edited: the text
   // read at this level is the toolbar and dialog wording. The language of the opened file is
   // declared on the element the body content is mounted into, overriding this one for that subtree.
@@ -62,7 +72,7 @@ export function buildWebviewContent(
 <html lang="${messages.locale}">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="${buildContentSecurityPolicy(webviewSource, nonce)}">${testModeDeclaration}
+<meta http-equiv="Content-Security-Policy" content="${buildContentSecurityPolicy(webviewSource, nonce)}">${testModeDeclaration}${sidebarDeclaration}
 <link rel="stylesheet" href="${styleUri}">
 <script type="application/json" id="${MESSAGE_CATALOG_ELEMENT_ID}" nonce="${nonce}">${serializeCatalogForEmbedding(messages.catalog)}</script>
 <script nonce="${nonce}" src="${bundleUri}" defer></script>

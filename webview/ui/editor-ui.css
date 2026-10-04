@@ -1092,7 +1092,11 @@
    the dialog. It is a shade off the editor's background, so that it reads as a surface of its own, and it is edged by a
    hairline. The shade, the hairline and the fills are mixes of the theme tokens, which keeps them readable in all three
    themes (the high contrast themes get their own values at the end of this file). display is set only when not hidden.
-   Setting it always would override the hidden attribute, and the sidebar would not disappear when closed. */
+   Setting it always would override the hidden attribute, and the sidebar would not disappear when closed.
+   The width is the one the user dragged it to (the custom property set from sidebar.ts), or 16em until then. It never
+   drops below 160px, the same floor as SIDEBAR_MIN_WIDTH, and never grows past half the view, the same share as
+   SIDEBAR_MAX_WIDTH_RATIO; in a view too narrow for both, the floor wins. Bounding it here rather than only while
+   dragging keeps a stored width usable in a view narrower than the one it was set in. */
 #editor-sidebar {
   --sidebar-bg: color-mix(in srgb, var(--ahve-fg) 3%, var(--ahve-bg));
   --sidebar-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
@@ -1105,7 +1109,7 @@
   left: 0;
   z-index: 0;
   box-sizing: border-box;
-  width: min(16em, 40vw);
+  width: clamp(160px, var(--ahve-sidebar-width, 16em), 50vw);
   flex-direction: column;
   color: var(--ahve-fg);
   /* A faint wash of the accent runs down from the top edge, like the popups' cards. */
@@ -1140,7 +1144,34 @@
 /* Keeps the toolbar and the body clear of the open sidebar. The width is the same expression as the sidebar's, and
    both resolve em against the same font size, so the body starts right at the sidebar's edge. */
 :root[data-sidebar-open] body {
-  padding-left: min(16em, 40vw);
+  padding-left: clamp(160px, var(--ahve-sidebar-width, 16em), 50vw);
+}
+
+/* The strip along the sidebar's right edge that is dragged to resize it. The class is spelled the same as the constant
+   in sidebar.ts. It sits inside the sidebar, so the toolbar and the body never cover it, and the list keeps a margin of
+   its width so that the two never overlap (the tab panel rule). It is drawn only while the pointer is on it or
+   dragging, as an accent line over the hairline. touch-action keeps a touch drag from scrolling the view instead. */
+#editor-sidebar > .sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+#editor-sidebar > .sidebar-resizer:hover,
+:root[data-sidebar-resizing] #editor-sidebar > .sidebar-resizer {
+  background: linear-gradient(to left, var(--ahve-accent) 2px, transparent 2px);
+}
+
+/* While dragging, the pointer runs over the body and the toolbar. The resize cursor stays, and the drag does not
+   select text on its way. The attribute is spelled the same as the constant in sidebar.ts. */
+:root[data-sidebar-resizing] body {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* The tabs sit in one row at the top, as a segmented control: a soft track with a lifted piece under the chosen tab. The
@@ -1220,9 +1251,12 @@
 }
 
 /* The list scrolls inside the panel, so a long outline does not push the tabs out of view. The scrollbar is thin and
-   stays inside, so it does not steal the width of the items when it appears. */
+   stays inside, so it does not steal the width of the items when it appears. The right margin is the width of the
+   resize strip, so that the scrollbar ends where the strip begins and grabbing its thumb scrolls the list instead of
+   starting a resize. */
 #editor-sidebar [role="tabpanel"] {
   flex: 1;
+  margin-right: 6px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;

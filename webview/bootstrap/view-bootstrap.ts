@@ -126,7 +126,7 @@ import { ModalFocus } from '../ui/modal-focus';
 import { BLANK_OVERLAY_CONTENT, OVERLAY_ELEMENT_ID, OverlayPresenter } from '../ui/overlay-presenter';
 import { buildRestoreFailureOverlay } from '../ui/restore-failure-dialog';
 import { SaveButton } from '../ui/save-button';
-import { attachSidebar, registerSidebarButton } from '../ui/sidebar';
+import { attachSidebar, readEmbeddedSidebarLayout, registerSidebarButton } from '../ui/sidebar';
 import type { Sidebar } from '../ui/sidebar';
 import { moveToSidebarTarget } from '../ui/sidebar-navigation';
 import type { SidebarNavigationPorts } from '../ui/sidebar-navigation';
@@ -748,7 +748,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
       returnToEditor: () => viewShell.editorReturn.returnToEditor(),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
-    });
+      saveLayout: (change) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, ...change }),
+    }, readEmbeddedSidebarLayout(view.document));
     sidebar = attachedSidebar;
     if (attachedSidebar !== undefined) {
       registerSidebarButton(attached, attachedSidebar);

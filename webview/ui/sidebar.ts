@@ -1,5 +1,11 @@
-import { COMMENT_ATTRIBUTE } from '../../common/index';
-import type { CommentAuthor, Localizer } from '../../common/index';
+import {
+  COMMENT_ATTRIBUTE,
+  DEFAULT_SIDEBAR_LAYOUT,
+  SIDEBAR_LAYOUT_META_NAME,
+  SIDEBAR_MIN_WIDTH,
+  parseSidebarLayout,
+} from '../../common/index';
+import type { CommentAuthor, Localizer, SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import type { EditingSession } from '../editing/editing-session';
 import { readNextStopIndex } from './item-bar';
 import type { ItemBarMoveKey } from './item-bar';
@@ -18,6 +24,27 @@ export const SIDEBAR_ELEMENT_ID = 'editor-sidebar';
  * which moves the toolbar and the body to the right of the sidebar while it is present.
  */
 export const SIDEBAR_OPEN_ATTRIBUTE = 'data-sidebar-open';
+
+/**
+ * The custom property on the root element that holds the width the user dragged the sidebar to. Kept identical to the
+ * spelling in the stylesheet, which falls back to the default width while it is not set.
+ */
+export const SIDEBAR_WIDTH_PROPERTY = '--ahve-sidebar-width';
+
+/**
+ * The attribute put on the root element while the sidebar edge is being dragged. Kept identical to the spelling in
+ * the stylesheet, which keeps the resize cursor and stops text selection everywhere until the drag ends.
+ */
+export const SIDEBAR_RESIZING_ATTRIBUTE = 'data-sidebar-resizing';
+
+/**
+ * The widest the sidebar can be dragged to, as a share of the view's width. The stylesheet spells the same share in
+ * `vw`, so that a view made narrower afterwards shrinks a stored width without changing it.
+ */
+export const SIDEBAR_MAX_WIDTH_RATIO = 0.5;
+
+/** The class of the strip along the sidebar's right edge that is dragged to resize it. Spelled as in the stylesheet. */
+export const SIDEBAR_RESIZER_CLASS = 'sidebar-resizer';
 
 /**
  * The icon of the sidebar button: a panel with a divider near its left edge, drawn in a 24×24 view box.
@@ -109,18 +136,47 @@ export interface SidebarPorts {
    * @param detail The line to record.
    */
   reportDiagnostic(detail: string): void;
+
+  /**
+   * Hands what the user just changed in the layout to whoever keeps it for the views opened afterwards.
+   *
+   * @param change The open state after opening or closing, or the width after resizing.
+   */
+  saveLayout(change: SidebarLayoutChange): void;
+}
+
+/** A drag of the sidebar edge in progress. */
+interface ResizeDrag {
+  readonly pointerId: number;
+  /** The pointer's horizontal position when the drag started. */
+  readonly startX: number;
+  /** The sidebar's drawn width when the drag started. */
+  readonly startWidth: number;
+  /**
+   * The width held when the drag started. It differs from the drawn width when the stylesheet bounds a stored width,
+   * so the change is judged against this one.
+   */
+  readonly heldWidth: number | undefined;
+  /** Whether the pointer has left the press horizontally at least once. */
+  moved: boolean;
 }
 
 /**
  * The sidebar at the left edge of the view, which lists the headings or the comments of the document in one of two
  * tabs.
  *
- * It lives outside the editor root, so it never appears in the output. It starts closed on the headings tab, and it
- * keeps whether it is open and which tab is chosen across document replacements until the view goes away. The lists
- * are built only while it is open. One is created per view.
+ * It lives outside the editor root, so it never appears in the output. It starts on the headings tab, open or closed
+ * and as wide as the layout it is attached with says, and it keeps whether it is open, its width and which tab is
+ * chosen across document replacements until the view goes away. The user widens or narrows it by dragging its right
+ * edge. The lists are built only while it is open. One is created per view.
  */
 export class Sidebar {
   private opened = false;
+
+  // The width the user dragged it to. `undefined` keeps the stylesheet's default.
+  private width: number | undefined;
+
+  private drag: ResizeDrag | undefined;
 
   private tab: SidebarTab = 'headings';
 
@@ -141,6 +197,7 @@ export class Sidebar {
    * @param element The sidebar element.
    * @param tabs The tab buttons.
    * @param panel The tab panel that holds the list.
+   * @param resizer The strip along the right edge that is dragged to resize.
    * @param ports The ports of the sidebar.
    */
   constructor(
@@ -148,6 +205,7 @@ export class Sidebar {
     private readonly element: HTMLElement,
     private readonly tabs: ReadonlyMap<SidebarTab, HTMLButtonElement>,
     private readonly panel: HTMLElement,
+    private readonly resizer: HTMLElement,
     private readonly ports: SidebarPorts,
   ) {}
 
@@ -156,25 +214,57 @@ export class Sidebar {
     return this.opened;
   }
 
-  /** Opens the sidebar if it is closed, and closes it otherwise. */
+  /**
+   * Opens the sidebar if it is closed, and closes it otherwise, and hands the new open state on so that the files
+   * opened afterwards start the same way. The width is not handed on with it: it may be older than one set in another
+   * view. Only closing in the middle of a drag hands the width on first, as the end of that drag.
+   */
   toggle(): void {
     if (this.opened) {
       this.close();
     } else {
       this.open();
     }
+    this.ports.saveLayout({ open: this.opened });
+  }
+
+  /**
+   * Takes on a layout without handing it on: the layout came from the one kept for every file.
+   *
+   * An open layout shows the sidebar now but builds the list in the next frame. The first mount completes right after
+   * the sidebar is attached and builds the list at once, so building it here too would only be thrown away.
+   *
+   * @param layout The layout to take on.
+   */
+  restoreLayout(layout: SidebarLayout): void {
+    if (layout.width !== undefined) {
+      this.applyWidth(layout.width);
+    }
+    if (layout.open && !this.opened) {
+      this.show();
+      this.scheduleRender();
+    }
   }
 
   /** Shows the sidebar, moves the toolbar and the body to its right, and builds the list of the chosen tab. */
   open(): void {
-    this.opened = true;
-    this.element.hidden = false;
-    this.view.document.documentElement.setAttribute(SIDEBAR_OPEN_ATTRIBUTE, '');
+    this.show();
     this.render(false);
   }
 
-  /** Hides the sidebar, gives the view its full width back, and drops the list. */
+  /** Shows the sidebar and moves the toolbar and the body to its right, without building the list. */
+  private show(): void {
+    this.opened = true;
+    this.element.hidden = false;
+    this.view.document.documentElement.setAttribute(SIDEBAR_OPEN_ATTRIBUTE, '');
+  }
+
+  /**
+   * Hides the sidebar, gives the view its full width back, and drops the list. A drag in progress ends as its release
+   * would, so a width it changed is handed on rather than kept only in this view.
+   */
   close(): void {
+    this.endResize();
     this.opened = false;
     this.element.hidden = true;
     this.view.document.documentElement.removeAttribute(SIDEBAR_OPEN_ATTRIBUTE);
@@ -312,6 +402,94 @@ export class Sidebar {
       event.preventDefault();
       event.stopPropagation();
     }
+  }
+
+  /**
+   * Starts dragging the sidebar edge with the primary button.
+   *
+   * The pointer is captured, so that the drag goes on while the pointer runs over the body or outside the view.
+   *
+   * @param event The press on the resize strip.
+   */
+  handleResizeStart(event: PointerEvent): void {
+    if (event.button !== 0 || !this.opened || this.drag !== undefined) {
+      return;
+    }
+    // The default is left alone. Cancelling it would also suppress the mousedown that follows, and the sidebar's own
+    // mousedown handler is what keeps focus and the selection in the editor root.
+    this.drag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: this.element.getBoundingClientRect().width,
+      heldWidth: this.width,
+      moved: false,
+    };
+    this.resizer.setPointerCapture(event.pointerId);
+    this.view.document.documentElement.setAttribute(SIDEBAR_RESIZING_ATTRIBUTE, '');
+  }
+
+  /**
+   * Follows the pointer during a drag, within the narrowest and widest widths.
+   *
+   * The width follows the distance moved rather than the pointer's position, so that the edge does not jump to the
+   * pointer when the press lands a little off it.
+   *
+   * @param event The movement.
+   */
+  handleResizeMove(event: PointerEvent): void {
+    const drag = this.drag;
+    if (drag?.pointerId !== event.pointerId) {
+      return;
+    }
+    // Until the pointer first leaves the press horizontally, the held width stays, so that merely pressing the edge
+    // does not replace a stored width with the narrower one the stylesheet draws. Once it has, coming back to the
+    // press is a movement like any other and takes the edge back there.
+    if (!drag.moved && event.clientX === drag.startX) {
+      return;
+    }
+    drag.moved = true;
+    this.applyWidth(clampSidebarWidth(drag.startWidth + event.clientX - drag.startX, this.view.innerWidth));
+  }
+
+  /**
+   * Ends a drag and hands the layout on when the width changed.
+   *
+   * @param event The release, cancellation or loss of capture.
+   */
+  handleResizeEnd(event: PointerEvent): void {
+    if (this.drag?.pointerId !== event.pointerId) {
+      return;
+    }
+    this.endResize();
+  }
+
+  /**
+   * Ends a drag in progress, if any, and hands the width on when it changed, so that the width the view now holds is
+   * the one the next view starts with.
+   */
+  private endResize(): void {
+    const drag = this.drag;
+    if (drag === undefined) {
+      return;
+    }
+    this.drag = undefined;
+    this.view.document.documentElement.removeAttribute(SIDEBAR_RESIZING_ATTRIBUTE);
+    if (this.resizer.hasPointerCapture(drag.pointerId)) {
+      this.resizer.releasePointerCapture(drag.pointerId);
+    }
+    if (this.width !== drag.heldWidth) {
+      this.ports.saveLayout({ width: this.width });
+    }
+  }
+
+  /**
+   * Sets the width the stylesheet draws the sidebar and the space beside it with.
+   *
+   * @param width The width in CSS pixels.
+   */
+  private applyWidth(width: number): void {
+    this.width = width;
+    this.view.document.documentElement.style.setProperty(SIDEBAR_WIDTH_PROPERTY, `${String(width)}px`);
   }
 
   /**
@@ -531,7 +709,7 @@ export class Sidebar {
 }
 
 /**
- * Places the closed sidebar right before the toolbar and subscribes to presses and keys on it.
+ * Places the sidebar right before the toolbar, laid out as given, and subscribes to presses, keys and drags on it.
  *
  * Being before the toolbar in the document, it is reached from the toolbar with Shift+Tab, while Tab and Shift+Tab
  * between the toolbar and the editor root stay as they were. It is not recreated on document replacement, so this is
@@ -539,9 +717,14 @@ export class Sidebar {
  *
  * @param view The view's window.
  * @param ports The ports of the sidebar.
+ * @param layout The layout to start with, which is not handed back through the ports. Closed by default.
  * @returns The attached sidebar, or `undefined` when there is no toolbar.
  */
-export function attachSidebar(view: Window, ports: SidebarPorts): Sidebar | undefined {
+export function attachSidebar(
+  view: Window,
+  ports: SidebarPorts,
+  layout: SidebarLayout = DEFAULT_SIDEBAR_LAYOUT,
+): Sidebar | undefined {
   const document = view.document;
   const toolbar = document.getElementById(TOOLBAR_ELEMENT_ID);
   if (toolbar === null) {
@@ -581,24 +764,39 @@ export function attachSidebar(view: Window, ports: SidebarPorts): Sidebar | unde
   resolved.hidden = true;
   resolved.textContent = localizer.getMessage('sidebar.resolved');
 
-  element.append(tabList, panel, resolved);
+  // Only a pointer resizes. The strip takes no focus, so Tab and Shift+Tab through the sidebar stop where they did, and
+  // it is hidden from assistive technology, which would otherwise announce a control it cannot reach.
+  const resizer = document.createElement('div');
+  resizer.className = SIDEBAR_RESIZER_CLASS;
+  resizer.setAttribute('aria-hidden', 'true');
+
+  element.append(tabList, panel, resolved, resizer);
   // Placed outside the editor root. Inside it, the sidebar would appear in the output.
   toolbar.before(element);
 
-  const sidebar = new Sidebar(view, element, tabs, panel, ports);
+  const sidebar = new Sidebar(view, element, tabs, panel, resizer, ports);
   sidebar.selectTab('headings', false);
   // A press does not move focus, so choosing a tab or an item keeps the selection of the editor root, as the toolbar
   // does. Bound in the capture phase so that it still takes effect when an element inside stops propagation.
   element.addEventListener('mousedown', (event) => event.preventDefault(), true);
   element.addEventListener('click', (event) => sidebar.handleClick(event));
   element.addEventListener('keydown', (event) => sidebar.handleKeyDown(event));
+  resizer.addEventListener('pointerdown', (event) => sidebar.handleResizeStart(event));
+  resizer.addEventListener('pointermove', (event) => sidebar.handleResizeMove(event));
+  // The release normally ends the drag. Losing the capture covers the cases where no release arrives, such as the view
+  // losing focus mid-drag.
+  resizer.addEventListener('pointerup', (event) => sidebar.handleResizeEnd(event));
+  resizer.addEventListener('pointercancel', (event) => sidebar.handleResizeEnd(event));
+  resizer.addEventListener('lostpointercapture', (event) => sidebar.handleResizeEnd(event));
+  sidebar.restoreLayout(layout);
   return sidebar;
 }
 
 /**
  * Registers the sidebar button in the toolbar's sidebar slot.
  *
- * The button is pressed while the sidebar is open. It is called through the toolbar activation, so it does nothing
+ * The button is pressed while the sidebar is open, including when it starts open. It is called through the toolbar
+ * activation, so it does nothing
  * during an input stop or a composition. If the registration is rejected, it does not throw and does not stop other
  * items from registering.
  *
@@ -620,8 +818,37 @@ export function registerSidebarButton(
   });
   if (registered) {
     // Passing the pressed state from the start makes the button read as a toggle before it is first pressed.
-    toolbar.updateItemState(TOOLBAR_SLOT.sidebar, { pressed: false });
+    toolbar.updateItemState(TOOLBAR_SLOT.sidebar, { pressed: sidebar.isOpen });
   }
+}
+
+/**
+ * Returns the width a drag ends up at, between the narrowest width and the share of the view's width.
+ *
+ * In a view too narrow for both, the narrowest width wins, as in the stylesheet.
+ *
+ * @param width The width the pointer asks for, in CSS pixels.
+ * @param viewWidth The view's width in CSS pixels.
+ * @returns The width in whole CSS pixels.
+ */
+export function clampSidebarWidth(width: number, viewWidth: number): number {
+  return Math.round(Math.max(SIDEBAR_MIN_WIDTH, Math.min(width, viewWidth * SIDEBAR_MAX_WIDTH_RATIO)));
+}
+
+/**
+ * Reads the layout the host wrote into the view's document: the last one the user set for any file.
+ *
+ * @param document The view's document.
+ * @returns The layout, closed with the default width when the document carries none or an unreadable one.
+ */
+export function readEmbeddedSidebarLayout(document: Document): SidebarLayout {
+  const readContent = (name: string): string | undefined =>
+    document.head.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content;
+  const open = readContent(SIDEBAR_LAYOUT_META_NAME.open) === 'true';
+  const widthText = readContent(SIDEBAR_LAYOUT_META_NAME.width);
+  // An empty content would read as 0 and be raised to the narrowest width instead of keeping the default.
+  const width = widthText === undefined || widthText.trim() === '' ? undefined : Number(widthText);
+  return parseSidebarLayout({ open, width }) ?? { open };
 }
 
 /**

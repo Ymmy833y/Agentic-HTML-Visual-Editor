@@ -17,6 +17,7 @@ export default defineConfig({
         'src/security/nonce.ts',
         'src/security/content-security-policy.ts',
         'src/editor/webview-content.ts',
+        'src/editor/sidebar-layout-store.ts',
         'src/i18n/message-resource-loader.ts',
         'src/messaging/pending-requests.ts',
         'src/history/edit-transaction-validation.ts',

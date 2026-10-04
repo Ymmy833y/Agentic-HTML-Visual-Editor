@@ -5,13 +5,21 @@ import {
   EDITOR_ROOT_ELEMENT_ID,
   HOST_TO_VIEW_MESSAGE_TYPE,
   MESSAGE_CATALOG_ELEMENT_ID,
+  SIDEBAR_LAYOUT_META_NAME,
+  SIDEBAR_MIN_WIDTH,
   VIEW_TO_HOST_MESSAGE_TYPE,
 } from '../../common/index';
+import type { SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import englishMessages from '../../messages/messages.en.json';
 import { COMMENT_POPUP_ELEMENT_ID } from '../../webview/ui/comment-popup';
 import { INPUT_STOP_REASON } from '../../webview/ui/input-stop';
 import { OVERLAY_ELEMENT_ID } from '../../webview/ui/overlay-presenter';
-import { RESOLVED_ICON_PATH, SIDEBAR_ELEMENT_ID } from '../../webview/ui/sidebar';
+import {
+  RESOLVED_ICON_PATH,
+  SIDEBAR_ELEMENT_ID,
+  SIDEBAR_RESIZER_CLASS,
+  SIDEBAR_RESIZING_ATTRIBUTE,
+} from '../../webview/ui/sidebar';
 import { TOOLBAR_ELEMENT_ID } from '../../webview/ui/toolbar';
 import { TOOLBAR_SLOT } from '../../webview/ui/toolbar-slots';
 import { EDITOR_ROOT, readBodyHtml } from './helpers/editing';
@@ -25,6 +33,7 @@ const SIDEBAR = `#${SIDEBAR_ELEMENT_ID}`;
 const SIDEBAR_BUTTON = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.sidebar}"] > button`;
 const BOLD_BUTTON = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.bold}"] > button`;
 const TABS = `${SIDEBAR} [role="tab"]`;
+const RESIZER = `${SIDEBAR} > .${SIDEBAR_RESIZER_CLASS}`;
 const ITEMS = `${SIDEBAR} [role="tabpanel"] button`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
 const RESOLVED_TOGGLE = `${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`;
@@ -95,8 +104,9 @@ declare global {
  *
  * @param page The page to operate on.
  * @param body The body to mount.
+ * @param layout The sidebar layout to embed as the host does. Omitted to embed none.
  */
-async function openSidebarEditor(page: Page, body: string): Promise<void> {
+async function openSidebarEditor(page: Page, body: string, layout?: SidebarLayout): Promise<void> {
   await openWebviewHost(page, PROBE_BUNDLE_PATH);
   await page.evaluate((argument) => {
     const element = document.createElement('script');
@@ -104,7 +114,20 @@ async function openSidebarEditor(page: Page, body: string): Promise<void> {
     element.id = argument.elementId;
     element.textContent = argument.catalog;
     document.head.append(element);
-  }, { elementId: MESSAGE_CATALOG_ELEMENT_ID, catalog: JSON.stringify(englishMessages) });
+    for (const [name, content] of argument.metas) {
+      const meta = document.createElement('meta');
+      meta.name = name;
+      meta.content = content;
+      document.head.append(meta);
+    }
+  }, {
+    elementId: MESSAGE_CATALOG_ELEMENT_ID,
+    catalog: JSON.stringify(englishMessages),
+    metas: layout === undefined ? [] : [
+      [SIDEBAR_LAYOUT_META_NAME.open, String(layout.open)],
+      ...(layout.width === undefined ? [] : [[SIDEBAR_LAYOUT_META_NAME.width, String(layout.width)]]),
+    ],
+  });
   await sendToWebview(page, {
     type: HOST_TO_VIEW_MESSAGE_TYPE.initialize,
     text: `${PROLOGUE}${body}${EPILOGUE}`,
@@ -395,6 +418,89 @@ async function readEditMessageTypes(page: Page): Promise<unknown[]> {
 }
 
 /**
+ * Reads the sidebar layout changes sent to the host.
+ *
+ * @param page The page to operate on.
+ * @returns The fields each one carries out of the open state and the width, in the order they were sent.
+ */
+async function readSentLayouts(page: Page): Promise<SidebarLayoutChange[]> {
+  return (await getOutboundMessages(page))
+    .map((message) => Object(message) as Record<string, unknown>)
+    .filter((message) => message.type === VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged)
+    .map((message) => ({
+      ...(message.open === undefined ? {} : { open: message.open as boolean }),
+      ...(message.width === undefined ? {} : { width: message.width as number }),
+    }));
+}
+
+/**
+ * Reads the drawn width of the sidebar and the left edges of the toolbar and the editor root.
+ *
+ * @param page The page to operate on.
+ * @returns The width of the sidebar, its right edge, and the two left edges.
+ */
+async function readSidebarGeometry(page: Page): Promise<{ width: number; right: number; toolbar: number; root: number }> {
+  const [toolbar, root] = await readLeftEdges(page);
+  const rect = await page.locator(SIDEBAR).evaluate((element) => {
+    const { width, right } = element.getBoundingClientRect();
+    return { width, right };
+  });
+  return { ...rect, toolbar, root };
+}
+
+/**
+ * Drags the sidebar's resize strip horizontally with the primary button, through each distance in turn.
+ *
+ * @param page The page to operate on.
+ * @param distances How far from the press to move to, in pixels, one after another. Negative is left of the press.
+ */
+async function dragSidebarEdge(page: Page, ...distances: number[]): Promise<void> {
+  await pressSidebarEdge(page, ...distances);
+  await page.mouse.up();
+}
+
+/**
+ * Presses the sidebar's resize strip with the primary button and moves through each distance in turn, keeping the
+ * button down.
+ *
+ * @param page The page to operate on.
+ * @param distances How far from the press to move to, in pixels, one after another. Negative is left of the press.
+ * @returns Where the press landed, and the ID of the pointer that pressed.
+ */
+async function pressSidebarEdge(page: Page, ...distances: number[]): Promise<{ x: number; y: number; pointerId: number }> {
+  const resizer = page.locator(RESIZER);
+  const box = await resizer.boundingBox();
+  if (box === null) {
+    throw new Error('the resize strip is not drawn');
+  }
+  // The pointer ID is the browser's to choose, so it is read from the press itself.
+  await resizer.evaluate((element) => {
+    element.addEventListener('pointerdown', (event) => {
+      if (event instanceof PointerEvent) {
+        element.dataset.pressedPointerId = String(event.pointerId);
+      }
+    }, { once: true });
+  });
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (const distance of distances) {
+    await page.mouse.move(x + distance, y, { steps: 5 });
+  }
+  return { x, y, pointerId: Number(await resizer.getAttribute('data-pressed-pointer-id')) };
+}
+
+/**
+ * Reads whether the root element carries the attribute that marks a drag in progress.
+ *
+ * @param page The page to operate on.
+ */
+async function isResizing(page: Page): Promise<boolean> {
+  return page.evaluate((name) => document.documentElement.hasAttribute(name), SIDEBAR_RESIZING_ATTRIBUTE);
+}
+
+/**
  * Reads the body output.
  *
  * @param page The page to operate on.
@@ -486,6 +592,172 @@ test.describe('opening and closing the sidebar', () => {
     await expect(page.locator(`#${OVERLAY_ELEMENT_ID}`)).toBeVisible();
 
     expect([await page.locator(SIDEBAR_BUTTON).count(), await page.locator(SIDEBAR).count()]).toEqual([0, 0]);
+  });
+});
+
+test.describe('keeping the layout and resizing the sidebar', () => {
+  test('opening and closing hand the layout to the host each time', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>');
+
+    await openSidebar(page);
+    await page.locator(SIDEBAR_BUTTON).click();
+
+    expect(await readSentLayouts(page)).toEqual([{ open: true }, { open: false }]);
+  });
+
+  test('a document that carries an open layout with a width starts with the sidebar open at that width, the button pressed, and the body to its right, and hands nothing to the host', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 300 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    const geometry = await readSidebarGeometry(page);
+    expect([
+      geometry.width,
+      geometry.toolbar >= geometry.right,
+      geometry.root >= geometry.right,
+      await page.locator(SIDEBAR_BUTTON).getAttribute('aria-pressed'),
+      await readNesting(page),
+      await readSentLayouts(page),
+    ]).toEqual([300, true, true, 'true', ['A'], []]);
+  });
+
+  test('a document that carries a closed layout with a width starts closed and opens at that width', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: false, width: 280 });
+    const closed = await page.locator(SIDEBAR).isVisible();
+
+    await openSidebar(page);
+
+    expect([closed, (await readSidebarGeometry(page)).width, await readSentLayouts(page)])
+      .toEqual([false, 280, [{ open: true }]]);
+  });
+
+  test('dragging the right edge resizes the sidebar with the body following, keeps focus and the selected range in the editor root, and hands only the width to the host once on release', async ({ page }) => {
+    await openSidebarEditor(page, '<p>abcd</p><h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    await selectText(page, `${EDITOR_ROOT} p`, 1, 3);
+
+    await dragSidebarEdge(page, 100);
+
+    const geometry = await readSidebarGeometry(page);
+    expect([
+      geometry.width,
+      geometry.toolbar >= geometry.right,
+      geometry.root >= geometry.right,
+      await readFocus(page),
+      await page.evaluate(() => window.getSelection()?.toString() ?? ''),
+      await readSentLayouts(page),
+    ]).toEqual([340, true, true, 'editor', 'bc', [{ width: 340 }]]);
+  });
+
+  test('dragging stops at the narrowest width on the left and at half the view on the right', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    const half = await page.evaluate(() => Math.round(window.innerWidth / 2));
+
+    await dragSidebarEdge(page, -500);
+    const narrowest = (await readSidebarGeometry(page)).width;
+    await dragSidebarEdge(page, 2000);
+
+    expect([narrowest, (await readSidebarGeometry(page)).width, await readSentLayouts(page)]).toEqual([
+      SIDEBAR_MIN_WIDTH,
+      half,
+      [{ width: SIDEBAR_MIN_WIDTH }, { width: half }],
+    ]);
+  });
+
+  test('dragging away and back to the press takes the edge back to where it started and hands nothing to the host', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    await dragSidebarEdge(page, 40, 0);
+
+    expect([(await readSidebarGeometry(page)).width, await readSentLayouts(page)]).toEqual([240, []]);
+  });
+
+  test('the list\'s scrollbar ends where the resize strip begins, so the two never overlap', async ({ page }) => {
+    await openSidebarEditor(page, `${'<h2>A</h2>'.repeat(80)}`, { open: true });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    const edges = await page.evaluate((selectors) => {
+      const panel = document.querySelector(selectors.panel);
+      const resizer = document.querySelector(selectors.resizer);
+      if (panel === null || resizer === null) {
+        throw new Error('the tab panel or the resize strip is missing');
+      }
+      return {
+        scrolls: panel.scrollHeight > panel.clientHeight,
+        panelRight: panel.getBoundingClientRect().right,
+        resizerLeft: resizer.getBoundingClientRect().left,
+      };
+    }, { panel: `${SIDEBAR} [role="tabpanel"]`, resizer: RESIZER });
+
+    expect([edges.scrolls, edges.panelRight <= edges.resizerLeft]).toEqual([true, true]);
+  });
+
+  test('a carried width wider than half the view is drawn at half the view', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 5000 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    expect((await readSidebarGeometry(page)).width).toBe(await page.evaluate(() => window.innerWidth / 2));
+  });
+
+  test('pressing and releasing the edge without moving hands nothing to the host, even when the carried width is drawn narrower', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 5000 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    await dragSidebarEdge(page, 0);
+
+    expect(await readSentLayouts(page)).toEqual([]);
+  });
+
+  test('dragging leaves the body output unchanged and sends no edit transaction', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1><p>b</p>', { open: true });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    const output = await readBodyOutput(page);
+
+    await dragSidebarEdge(page, 60);
+
+    expect([await readBodyOutput(page), await readEditMessageTypes(page)]).toEqual([output, []]);
+  });
+
+  test('losing the pointer capture mid-drag ends the drag there and hands the width it reached to the host', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    const press = await pressSidebarEdge(page, 60);
+
+    await page.locator(RESIZER).evaluate((element, pointerId) => element.releasePointerCapture(pointerId), press.pointerId);
+    await page.mouse.move(press.x + 100, press.y, { steps: 5 });
+    await page.mouse.up();
+
+    expect([(await readSidebarGeometry(page)).width, await isResizing(page), await readSentLayouts(page)])
+      .toEqual([300, false, [{ width: 300 }]]);
+  });
+
+  test('a cancelled pointer ends the drag there and hands the width it reached to the host once', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    const press = await pressSidebarEdge(page, 60);
+
+    await page.locator(RESIZER).dispatchEvent('pointercancel', { pointerId: press.pointerId, bubbles: true });
+    await page.mouse.move(press.x + 100, press.y, { steps: 5 });
+    await page.mouse.up();
+
+    expect([(await readSidebarGeometry(page)).width, await isResizing(page), await readSentLayouts(page)])
+      .toEqual([300, false, [{ width: 300 }]]);
+  });
+
+  test('closing the sidebar mid-drag ends the drag, hands the width it reached to the host before the open state, and opens again at that width', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 240 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+    await pressSidebarEdge(page, 60);
+
+    await page.locator(SIDEBAR_BUTTON).press('Enter');
+    await expect(page.locator(SIDEBAR)).toBeHidden();
+    const resizing = await isResizing(page);
+    await page.mouse.up();
+    await openSidebar(page);
+
+    expect([resizing, (await readSidebarGeometry(page)).width, await readSentLayouts(page)])
+      .toEqual([false, 300, [{ width: 300 }, { open: false }, { open: true }]]);
   });
 });
 
