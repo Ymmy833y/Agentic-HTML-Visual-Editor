@@ -1,0 +1,45 @@
+name: Audit
+
+on:
+  pull_request:
+    branches:
+      - master
+      - 'release/v*'
+  # Advisories are published without any change to this repository, so the full audit also runs on a schedule.
+  schedule:
+    - cron: '23 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Only runtime dependencies reach users, so only they decide whether a pull request can merge.
+  runtime:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # npm audit reads the lockfile, so no install is needed.
+      - run: npm run audit:runtime
+
+  # Development and release tooling are audited too, but on their own path so that an advisory in a tool
+  # does not hold up every pull request.
+  all:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run audit:all

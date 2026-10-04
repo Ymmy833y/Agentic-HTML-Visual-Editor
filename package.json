@@ -176,6 +176,8 @@
     "test:web": "vscode-test-web --browserType=chromium --headless --extensionDevelopmentPath=. --extensionTestsPath=out-test-web/activation.js",
     "notices": "node scripts/release/third-party-notices.mjs",
     "notices:check": "node scripts/release/third-party-notices.mjs --check",
+    "audit:runtime": "npm audit --omit=dev --audit-level=moderate",
+    "audit:all": "npm audit --audit-level=moderate && npm audit --prefix scripts/release --audit-level=moderate",
     "readme:images": "npm run build && node scripts/release/readme-images.mjs"
   },
   "capabilities": {
@@ -189,8 +191,8 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.0",
     "@types/vscode": "1.86.0",
-    "@vitest/coverage-v8": "^3.0.0",
-    "@vscode/test-cli": "^0.0.10",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/test-web": "^0.0.81",
     "esbuild": "^0.25.0",
@@ -198,10 +200,16 @@
     "jsdom": "^26.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "mermaid": "11.17.2",
     "node-diff3": "3.2.1"
+  },
+  "overrides": {
+    "mocha": {
+      "diff": "^8.0.3",
+      "serialize-javascript": "^7.0.5"
+    }
   }
 }
