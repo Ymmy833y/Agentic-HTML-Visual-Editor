@@ -200,6 +200,15 @@ test.describe('view startup and document boundary', () => {
     );
   });
 
+  test('shows the encoding explanation without an editing area for text decoded with a mismatched encoding, even when its boundary is valid', async ({ page }) => {
+    await openWebviewHost(page);
+
+    await sendToWebview(page, { ...initialize(OPENABLE_DOCUMENT), encodingMismatch: true });
+
+    await expect(page.locator(`#${OVERLAY_ELEMENT_ID}`)).toContainText('unopenableDocument.encodingMismatch');
+    await expect(page.locator(`#${EDITOR_ROOT_ELEMENT_ID}`)).not.toHaveAttribute('contenteditable', 'true');
+  });
+
   test('still sends only the view ready message after showing a dialog for a forbidden tag', async ({ page }) => {
     await openWebviewHost(page);
 

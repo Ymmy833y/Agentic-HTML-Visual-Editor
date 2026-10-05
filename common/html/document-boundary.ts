@@ -111,18 +111,24 @@ function findRawTextContentEnd(text: string, name: string, contentStart: number)
   return closingTag.exec(text)?.index ?? text.length;
 }
 
+/** A tag found by scanning, with its lowercase name and its range in the text. */
+export interface ScannedTag extends TagRange {
+  readonly name: string;
+  readonly isEndTag: boolean;
+}
+
 /**
- * Scans the document text and collects the locations of opening and closing `<body>` tags.
+ * Scans text and lists the sequences a browser reads as tags, in document order.
  *
- * Skips HTML comments and the content of raw text elements. A `<body>` sequence can occur in either,
- * so a simple text search would misidentify both the boundaries and the number of tags.
+ * Skips HTML comments and the content of raw text elements. Tag-like sequences occur in both, so a
+ * simple text search would pick up tags the browser never sees. Callers that look for particular tags
+ * share this scan, so that every caller skips exactly the same ranges.
  *
- * @param text The document text.
- * @returns The opening and closing tags found.
+ * @param text The text to scan.
+ * @returns The tags found.
  */
-function collectBodyTags(text: string): { startTags: TagRange[]; endTags: TagRange[] } {
-  const startTags: TagRange[] = [];
-  const endTags: TagRange[] = [];
+export function scanTags(text: string): ScannedTag[] {
+  const tags: ScannedTag[] = [];
   let index = 0;
 
   while (index < text.length) {
@@ -143,18 +149,30 @@ function collectBodyTags(text: string): { startTags: TagRange[]; endTags: TagRan
       continue;
     }
 
-    if (tag.name === BODY_TAG_NAME) {
-      (tag.isEndTag ? endTags : startTags).push({ start: index, end: tag.end });
-    }
+    tags.push({ name: tag.name, isEndTag: tag.isEndTag, start: index, end: tag.end });
 
-    // Skip the entire tag so the next scan does not pick up a `<body>` sequence in an attribute
+    // Skip the entire tag so the next scan does not pick up a tag-like sequence in an attribute
     // value. Also skip the content when this is a raw text element.
     index = !tag.isEndTag && RAW_TEXT_TAG_NAMES.has(tag.name)
       ? findRawTextContentEnd(text, tag.name, tag.end)
       : tag.end;
   }
 
-  return { startTags, endTags };
+  return tags;
+}
+
+/**
+ * Collects the locations of opening and closing `<body>` tags.
+ *
+ * @param text The document text.
+ * @returns The opening and closing tags found.
+ */
+function collectBodyTags(text: string): { startTags: TagRange[]; endTags: TagRange[] } {
+  const bodyTags = scanTags(text).filter((tag) => tag.name === BODY_TAG_NAME);
+  return {
+    startTags: bodyTags.filter((tag) => !tag.isEndTag),
+    endTags: bodyTags.filter((tag) => tag.isEndTag),
+  };
 }
 
 /**

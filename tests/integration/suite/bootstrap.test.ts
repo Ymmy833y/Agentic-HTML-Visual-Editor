@@ -113,6 +113,28 @@ async function readFileText(uri: vscode.Uri): Promise<string> {
   return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
 }
 
+function readMessageValue(message: unknown, field: string): unknown {
+  if (typeof message !== 'object' || message === null) {
+    return undefined;
+  }
+  return Object.getOwnPropertyDescriptor(message, field)?.value;
+}
+
+// A complete document whose paragraph holds three Japanese characters in Shift_JIS. Those bytes are not valid UTF-8.
+const SHIFT_JIS_DOCUMENT_BYTES = new Uint8Array([
+  ...new TextEncoder().encode('<!DOCTYPE html>\n<html>\n<body>\n<p>'),
+  0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea,
+  ...new TextEncoder().encode('</p>\n</body>\n</html>\n'),
+]);
+
+// Each case uses its own file, because VS Code keeps the text model of a closed file, and the encoding it was
+// decoded with, for a while.
+async function writeShiftJisScratch(fileName: string): Promise<vscode.Uri> {
+  const uri = fixtureUri(fileName);
+  await vscode.workspace.fs.writeFile(uri, SHIFT_JIS_DOCUMENT_BYTES);
+  return uri;
+}
+
 describe('view startup and document boundary', () => {
   beforeEach(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -232,5 +254,45 @@ describe('view startup and document boundary', () => {
     await waitForRecordedMessages(uri, 2);
 
     assert.strictEqual(await readFileText(uri), '');
+  });
+});
+
+describe('opening a file decoded with a mismatched encoding', () => {
+  const MISMATCH_FILE_NAME = 'bootstrap-encoding-mismatch-scratch.html';
+  const REOPENED_FILE_NAME = 'bootstrap-encoding-reopened-scratch.html';
+
+  beforeEach(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  });
+
+  after(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await vscode.workspace.getConfiguration('files').update('encoding', undefined, vscode.ConfigurationTarget.Global);
+    for (const fileName of [MISMATCH_FILE_NAME, REOPENED_FILE_NAME]) {
+      await vscode.workspace.fs.delete(fixtureUri(fileName)).then(undefined, () => undefined);
+    }
+  });
+
+  it('flags the mismatch in the initialize message and leaves the bytes unchanged for a Shift_JIS file read as UTF-8', async () => {
+    const uri = await writeShiftJisScratch(MISMATCH_FILE_NAME);
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+
+    const encodingMismatch = readMessageValue(await readInitializeMessage(uri), 'encodingMismatch');
+    await waitForRecordedMessages(uri, 2);
+
+    assert.deepStrictEqual(
+      [encodingMismatch, Array.from(await vscode.workspace.fs.readFile(uri))],
+      [true, Array.from(SHIFT_JIS_DOCUMENT_BYTES)],
+    );
+  });
+
+  it('does not flag a mismatch for a Shift_JIS file read with the Shift_JIS encoding', async () => {
+    await vscode.workspace.getConfiguration('files').update('encoding', 'shiftjis', vscode.ConfigurationTarget.Global);
+    const uri = await writeShiftJisScratch(REOPENED_FILE_NAME);
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+
+    const initialize = await readInitializeMessage(uri);
+
+    assert.strictEqual(readMessageValue(initialize, 'encodingMismatch'), undefined);
   });
 });

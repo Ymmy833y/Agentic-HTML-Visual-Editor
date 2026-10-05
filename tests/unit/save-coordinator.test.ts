@@ -1100,6 +1100,54 @@ describe('save candidate merge', () => {
   });
 });
 
+describe('the declared encoding of a saved document', () => {
+  const SHIFT_JIS_DISK_TEXT = DISK_TEXT.replace('<html>\n', '<html>\n<head><meta charset="shift_jis"></head>\n');
+  const SHIFT_JIS_VIEW_TEXT = VIEW_TEXT.replace('<html>\n', '<html>\n<head><meta charset="shift_jis"></head>\n');
+  const UTF8_VIEW_TEXT = VIEW_TEXT.replace('<html>\n', '<html>\n<head><meta charset="utf-8"></head>\n');
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('declares UTF-8 in both the candidate applied to the view and the text written on a save', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(SHIFT_JIS_DISK_TEXT);
+    harness.setBuffer(SHIFT_JIS_DISK_TEXT, false);
+    harness.setViewText(SHIFT_JIS_VIEW_TEXT);
+
+    await harness.coordinator.save(notCancelled);
+
+    expect([harness.appliedOfKind('saveCandidate'), harness.written])
+      .toEqual([[UTF8_VIEW_TEXT], [{ uri: DOCUMENT_URI, text: UTF8_VIEW_TEXT }]]);
+  });
+
+  it('declares UTF-8 in the text written by a save as to a different URI', async () => {
+    const harness = createHarness();
+    harness.setViewText(SHIFT_JIS_VIEW_TEXT);
+
+    await harness.coordinator.saveAs(DESTINATION_URI, notCancelled);
+
+    expect(harness.written).toEqual([{ uri: DESTINATION_URI, text: UTF8_VIEW_TEXT }]);
+  });
+
+  it('writes the retained copy of an unresponsive view without rewriting its declaration', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(SHIFT_JIS_DISK_TEXT);
+    harness.setBuffer(SHIFT_JIS_DISK_TEXT, false);
+    harness.state.retainUnsavedContent(SHIFT_JIS_VIEW_TEXT);
+    harness.setViewBehavior('silent');
+    connectHistory(harness);
+
+    await runWhileViewSilent(() => harness.coordinator.save(notCancelled));
+
+    expect(harness.written).toEqual([{ uri: DOCUMENT_URI, text: SHIFT_JIS_VIEW_TEXT }]);
+  });
+});
+
 describe('applying a save candidate to the view', () => {
   it('does not write the file or change the sync base when the view returns application failure', async () => {
     const harness = createHarness();

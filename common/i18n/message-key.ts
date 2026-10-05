@@ -2,6 +2,7 @@ export const MESSAGE_KEYS = [
   'unopenableDocument.heading',
   'unopenableDocument.condition',
   'unopenableDocument.forbiddenTag',
+  'unopenableDocument.encodingMismatch',
   'unopenableDocument.openInTextEditor',
   'documentUnreadable.message',
   'errorReport.showDetails',

@@ -8,6 +8,7 @@ import type { UnopenableReason } from '../../webview/ui/unopenable-document-dial
 const HEADING = 'Cannot Open';
 const CONDITION = 'These are the opening conditions';
 const FORBIDDEN_TAG = 'The body contains <{tagName}>';
+const ENCODING_MISMATCH = 'Reopen it with the right encoding';
 const OPEN_IN_TEXT_EDITOR = 'Switch to text';
 
 // Use a catalog with short values because this test checks which message is selected for each
@@ -16,6 +17,7 @@ const localizer: Localizer = createLocalizer({
   'unopenableDocument.heading': HEADING,
   'unopenableDocument.condition': CONDITION,
   'unopenableDocument.forbiddenTag': FORBIDDEN_TAG,
+  'unopenableDocument.encodingMismatch': ENCODING_MISMATCH,
   'unopenableDocument.openInTextEditor': OPEN_IN_TEXT_EDITOR,
 });
 
@@ -36,6 +38,10 @@ describe('the content of the unopenable document overlay', () => {
     expect(build({ kind: 'forbiddenTag', tagName: 'script' }).descriptions).toEqual([
       'The body contains <script>',
     ]);
+  });
+
+  it('describes how to choose the encoding again when the text was decoded with a mismatched encoding', () => {
+    expect(build({ kind: 'encodingMismatch' }).descriptions).toEqual([ENCODING_MISMATCH]);
   });
 
   it('uses the same heading for either reason', () => {

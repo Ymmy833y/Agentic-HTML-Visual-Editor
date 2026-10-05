@@ -1,6 +1,5 @@
-import type { EditSnapshot, EncodedSelection } from '../../common/index';
-import { joinDocument } from '../document/document-boundary';
-import type { DocumentBoundary } from '../document/document-boundary';
+import { joinDocument } from '../../common/index';
+import type { DocumentBoundary, EditSnapshot, EncodedSelection } from '../../common/index';
 import type { SerializationState } from '../document/serialization-state';
 import { readSelectionRange } from '../editing/caret';
 import { captureRange, captureSelection } from '../selection/selection-capture';

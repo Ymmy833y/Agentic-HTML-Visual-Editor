@@ -22,6 +22,8 @@ Write a complete document and put the content inside `<body>`:
 
 The editor opens a file only when it contains exactly one `<body>` start tag and exactly one `</body>` end tag, in that order. When either tag is missing or appears more than once, or when the file is empty, the editor does not open the document for editing. It shows the reason, offers to switch to the text editor, and leaves the file as it is.
 
+The editor also refuses a file that VS Code read with the wrong encoding, which shows as replacement characters (U+FFFD) in place of bytes that are not valid UTF-8. Reopening the file with its encoding in the text editor lets the editor open it.
+
 A `<body>` or `</body>` written as text counts as a tag. When the document talks about HTML, for example in a code sample, write `&lt;body&gt;`.
 
 ## Elements and attributes
@@ -63,7 +65,9 @@ Do not rely on these attributes, and do not expect the editor to clean them out 
 
 ## Formatting on save
 
-The editor changes only the lines that were edited. A line that was not edited is written back exactly as it is on disk: its whitespace, its indentation, the quotes around attribute values, the letter case of tag names, and the spelling of void elements all stay. The editor never reformats the whole document.
+The editor changes only the lines that were edited, apart from the encoding declaration described below. A line that was not edited is written back exactly as it is on disk: its whitespace, its indentation, the quotes around attribute values, the letter case of tag names, and the spelling of void elements all stay. The editor never reformats the whole document.
+
+The file is always written as UTF-8. If the `<head>` declares another encoding, in `<meta charset>` or in a `Content-Type` `<meta http-equiv>`, the editor replaces only the encoding name with `utf-8`. Declare `utf-8` yourself, as the skeleton does, so that this line never changes.
 
 The unit is the line. When one element on a line is edited, the whole line is written anew, and the other elements on that line get the editor's spelling too.
 

@@ -6,7 +6,9 @@ export type UnopenableReason =
   /** The body boundaries could not be determined uniquely. */
   | { readonly kind: 'boundary' }
   /** The body contained a tag that makes the document unopenable. */
-  | { readonly kind: 'forbiddenTag'; readonly tagName: string };
+  | { readonly kind: 'forbiddenTag'; readonly tagName: string }
+  /** The host found that the text was decoded with an encoding that does not match the file's bytes. */
+  | { readonly kind: 'encodingMismatch' };
 
 /**
  * Builds the overlay content explaining that the document cannot be edited and the conditions under
@@ -28,15 +30,9 @@ export function buildUnopenableDocumentOverlay(
   reason: UnopenableReason,
   requestTextEditorSwitch: () => void,
 ): OverlayContent {
-  // The tag name tells users what to do next. Without it, they would have to search in the standard
-  // text editor without knowing which part of the document caused the problem.
-  const description = reason.kind === 'forbiddenTag'
-    ? localizer.getMessage('unopenableDocument.forbiddenTag', { tagName: reason.tagName })
-    : localizer.getMessage('unopenableDocument.condition');
-
   return {
     heading: localizer.getMessage('unopenableDocument.heading'),
-    descriptions: [description],
+    descriptions: [describeReason(localizer, reason)],
     actions: [
       {
         label: localizer.getMessage('unopenableDocument.openInTextEditor'),
@@ -46,4 +42,24 @@ export function buildUnopenableDocumentOverlay(
       },
     ],
   };
+}
+
+/**
+ * Picks the sentence that tells the user why the document cannot be opened and what to do about it.
+ *
+ * @param localizer The localizer.
+ * @param reason Why the document was deemed unopenable.
+ * @returns The second sentence of the overlay.
+ */
+function describeReason(localizer: Localizer, reason: UnopenableReason): string {
+  switch (reason.kind) {
+    case 'forbiddenTag':
+      // The tag name tells users what to do next. Without it, they would have to search in the standard
+      // text editor without knowing which part of the document caused the problem.
+      return localizer.getMessage('unopenableDocument.forbiddenTag', { tagName: reason.tagName });
+    case 'encodingMismatch':
+      return localizer.getMessage('unopenableDocument.encodingMismatch');
+    case 'boundary':
+      return localizer.getMessage('unopenableDocument.condition');
+  }
 }

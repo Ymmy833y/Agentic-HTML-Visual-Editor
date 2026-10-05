@@ -287,6 +287,13 @@ export interface InitializeMessage {
    * and a redisplay omit this.
    */
   readonly restoring?: boolean;
+  /**
+   * A flag attached when the text buffer was decoded with an encoding that does not match the file's bytes.
+   *
+   * The view does not mount such text, because saving it would write replacement characters over the original
+   * characters. Only the host can read the bytes, so it decides; a document without the mismatch omits this.
+   */
+  readonly encodingMismatch?: boolean;
 }
 
 /** A message telling the view that the restore connection has finished and input may resume. */

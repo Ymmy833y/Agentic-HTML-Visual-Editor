@@ -2,6 +2,7 @@
   "unopenableDocument.heading": "This document cannot be edited in the visual editor.",
   "unopenableDocument.condition": "The visual editor can open a document only when it contains exactly one <body> start tag followed by exactly one </body> end tag.",
   "unopenableDocument.forbiddenTag": "This document cannot be opened because its body contains a <{tagName}> element.",
+  "unopenableDocument.encodingMismatch": "Some characters in this document could not be read with the current encoding. In the text editor, run Reopen with Encoding to choose the file's encoding, then open the document in the visual editor again.",
   "unopenableDocument.openInTextEditor": "Open in Text Editor",
   "documentUnreadable.message": "The visual editor could not read this file, so nothing was loaded and the file was left unchanged.",
   "errorReport.showDetails": "Show Details",

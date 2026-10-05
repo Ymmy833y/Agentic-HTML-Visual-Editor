@@ -7,6 +7,7 @@ import {
 } from '../../common/index';
 import type { InitializeMessage, LineEnding } from '../../common/index';
 import { resolveDocumentResourceRoot } from '../security/resource-scope';
+import { detectEncodingMismatch } from './encoding-mismatch';
 
 /** The normalized initialize message, the line ending before normalization, and the source it was read from. */
 export interface CreatedInitializeMessage {
@@ -43,6 +44,7 @@ export async function createInitializeMessage(
   const textDocument = await vscode.workspace.openTextDocument(uri);
 
   const text = textDocument.getText();
+  const encodingMismatch = await detectEncodingMismatch(text, () => vscode.workspace.fs.readFile(uri));
 
   return {
     // Do not replace this with the last known content. It becomes the initial sync base, which must not treat unsaved
@@ -59,6 +61,8 @@ export async function createInitializeMessage(
       text: lastKnownContent ?? normalizeLineEndings(text),
       documentUri: webview.asWebviewUri(uri).toString(),
       resourceRootUri: webview.asWebviewUri(resolveDocumentResourceRoot(uri)).toString(),
+      // The view cannot read the file's bytes, so the host decides and the view only shows the reason.
+      ...(encodingMismatch ? { encodingMismatch: true } : {}),
     },
   };
 }
