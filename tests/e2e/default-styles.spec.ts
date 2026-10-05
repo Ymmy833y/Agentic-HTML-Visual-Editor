@@ -32,6 +32,18 @@ async function giveThemeVariable(page: Page, name: string, value: string): Promi
   );
 }
 
+// VS Code marks a high contrast theme with a class on the body. Put it in the same place to simulate one.
+async function giveHighContrastClass(page: Page, name: string): Promise<void> {
+  await page.evaluate((className) => document.body.classList.add(className), name);
+}
+
+// VS Code puts a default stylesheet into every webview that colors code with this theme variable. In the light high
+// contrast theme the color is white. Reproduce that rule and color to simulate it.
+async function giveVsCodeCodeColor(page: Page): Promise<void> {
+  await page.addStyleTag({ content: 'code { color: var(--vscode-textPreformat-foreground); }' });
+  await giveThemeVariable(page, '--vscode-textPreformat-foreground', 'rgb(255, 255, 255)');
+}
+
 test.describe('default style scope', () => {
   test('adds a left border to a blockquote inside the editor root', async ({ page }) => {
     await openWebviewHost(page);
@@ -186,5 +198,101 @@ test.describe('theme integration', () => {
     await giveThemeVariable(page, '--vscode-font-family', '"Comic Sans MS"');
 
     expect(await readStyle(page, `${EDITOR_ROOT} #text`, 'font-family')).toBe(before);
+  });
+});
+
+test.describe('code block frame in high contrast themes', () => {
+  const CODE_BLOCK = '<pre id="code"><code>a</code></pre>';
+
+  test('frames a code block with a solid border in a high contrast theme', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(CODE_BLOCK));
+
+    await giveHighContrastClass(page, 'vscode-high-contrast');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'border-top-style')).toBe('solid');
+  });
+
+  test('draws the frame of a code block in the border theme variable', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(CODE_BLOCK));
+    await giveHighContrastClass(page, 'vscode-high-contrast');
+
+    await giveThemeVariable(page, '--vscode-panel-border', 'rgb(7, 8, 9)');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'border-top-color')).toBe('rgb(7, 8, 9)');
+  });
+
+  test('frames a code block with the light high contrast class alone', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(CODE_BLOCK));
+
+    await giveHighContrastClass(page, 'vscode-high-contrast-light');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'border-top-style')).toBe('solid');
+  });
+
+  test('leaves a code block without a frame outside high contrast themes', async ({ page }) => {
+    await openWebviewHost(page);
+
+    await sendToWebview(page, initialize(CODE_BLOCK));
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'border-top-style')).toBe('none');
+  });
+
+  test('leaves a diagram source block without a frame in a high contrast theme', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize('<pre id="diagram" class="mermaid"></pre>'));
+    // Wait until the view has taken the block as a diagram; before that it is styled as an ordinary code block.
+    await page.waitForFunction(
+      () => document.getElementById('diagram')?.hasAttributeNS('urn:ahve:diagram', 'data-ahve-diagram-block') === true,
+    );
+
+    await giveHighContrastClass(page, 'vscode-high-contrast');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #diagram`, 'border-top-style')).toBe('none');
+  });
+});
+
+test.describe('code text color in high contrast themes', () => {
+  const INLINE_CODE = '<p id="text" style="color: rgb(1, 2, 3)">a <code id="code">b</code></p>';
+
+  test('gives inline code the color of the surrounding text in the light high contrast theme', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(INLINE_CODE));
+    await giveVsCodeCodeColor(page);
+
+    await giveHighContrastClass(page, 'vscode-high-contrast-light');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'color')).toBe('rgb(1, 2, 3)');
+  });
+
+  test('gives the code in a code block the body text color in the light high contrast theme', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize('<pre><code id="code">a</code></pre>'));
+    await giveVsCodeCodeColor(page);
+
+    await giveHighContrastClass(page, 'vscode-high-contrast-light');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'color')).toBe('rgb(31, 35, 40)');
+  });
+
+  test('gives inline code the color of the surrounding text in the dark high contrast theme', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(INLINE_CODE));
+    await giveVsCodeCodeColor(page);
+
+    await giveHighContrastClass(page, 'vscode-high-contrast');
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'color')).toBe('rgb(1, 2, 3)');
+  });
+
+  test('leaves the code color of VS Code outside high contrast themes', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(INLINE_CODE));
+
+    await giveVsCodeCodeColor(page);
+
+    expect(await readStyle(page, `${EDITOR_ROOT} #code`, 'color')).toBe('rgb(255, 255, 255)');
   });
 });
