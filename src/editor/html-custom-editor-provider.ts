@@ -59,6 +59,7 @@ import type {
   TestHotExitBackup,
 } from '../testing/test-support-api';
 import { DirtyStateNotifier } from './dirty-state-notifier';
+import { buildDocumentSkeleton } from './document-skeleton';
 import type { EditorSwitcher } from './editor-switch';
 import { HtmlCustomDocument } from './html-custom-document';
 import { createInitializeMessage } from './initialize-message';
@@ -195,6 +196,10 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
   // Documents being saved to clear a dirty mark that came from a backup. Only this save succeeds without writing
   // to the file.
   private readonly clearingDirtyDocuments = new WeakSet<HtmlCustomDocument>();
+
+  // Documents whose skeleton is being written. A second press while the first is running would find the source no
+  // longer blank and report a failure for a write that is about to succeed.
+  private readonly writingSkeletonDocuments = new WeakSet<HtmlCustomDocument>();
 
   private nextTestControlId = 1;
 
@@ -1301,6 +1306,56 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
   }
 
   /**
+   * Writes an HTML skeleton to the blank document of the requesting view, then recreates that view so it opens the
+   * skeleton.
+   *
+   * The view of a blank document is not mounted and cannot take the skeleton as a replacement, so it is recreated
+   * instead; the new view asks for its initialization and reads the skeleton from the text buffer. The same panel is
+   * reused, so the tab keeps its place in its group.
+   *
+   * @param document The document of the requesting view.
+   * @param webview The webview of the panel that received the request.
+   */
+  private async createDocumentSkeleton(document: HtmlCustomDocument, webview: vscode.Webview): Promise<void> {
+    const key = document.sourceUri.toString();
+    const coordinator = this.findSessionOf(document)?.saveCoordinator;
+    if (coordinator === undefined) {
+      // A request that arrived after the panel was disposed. The pressed tab is gone, so it is only logged.
+      this.errorReporter.reportInternalError(`Discarded the skeleton request because there is no session: ${key}`);
+      return;
+    }
+    if (this.writingSkeletonDocuments.has(document)) {
+      this.errorReporter.reportInternalError(
+        `Discarded a later skeleton request because the skeleton of the same file is being written: ${key}`,
+      );
+      return;
+    }
+
+    this.writingSkeletonDocuments.add(document);
+    try {
+      const fileName = document.sourceUri.path.slice(document.sourceUri.path.lastIndexOf('/') + 1);
+      const outcome = await coordinator.writeSkeleton(buildDocumentSkeleton(fileName));
+      if (outcome.kind === 'notWritten') {
+        // Not awaited: the notification resolves only when the user closes it, and a press made after fixing the
+        // cause must not be discarded as a duplicate in the meantime.
+        void this.errorReporter.reportUserError('documentSkeleton.failed.message', outcome.cause);
+        return;
+      }
+      if (this.findSessionOf(document) === undefined) {
+        // The tab was closed while the skeleton was being written. Its webview is disposed and cannot be recreated;
+        // the file already holds the skeleton, so opening it again shows the document.
+        this.errorReporter.reportInternalError(
+          `Did not recreate the view after writing the skeleton because the tab was closed: ${key}`,
+        );
+        return;
+      }
+      this.renderWebview(webview);
+    } finally {
+      this.writingSkeletonDocuments.delete(document);
+    }
+  }
+
+  /**
    * Handles messages received from the view according to their type.
    *
    * The handling itself lives in a module that does not use vscode. This method only records the
@@ -1365,6 +1420,10 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
         void this.ownersOf(document).restore.selectAction(action);
       },
       receiveTextEditorSwitchRequest: () => this.switchToTextEditor(document),
+      // Not awaited, so a slow write does not hold up the handling of later messages from the same panel.
+      receiveSkeletonRequest: () => {
+        void this.createDocumentSkeleton(document, webview);
+      },
       // Bound to the document the message came from, so no value sent by the view can change the
       // target.
       receiveSaveRequest: () => this.receiveSaveRequest(document),

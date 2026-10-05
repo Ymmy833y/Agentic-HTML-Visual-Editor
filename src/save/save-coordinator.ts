@@ -7,6 +7,7 @@ import {
   VIEW_TO_HOST_MESSAGE_TYPE,
   decideHistoryTransition,
   detectLineEnding,
+  isBlankDocument,
   normalizeLineEndings,
   restoreLineEndings,
   rewriteCharsetDeclaration,
@@ -240,6 +241,16 @@ export type BodyOutputResult =
   | { readonly kind: 'unresponsive' }
   // A response of null or a value outside the contract, or the request could not be sent.
   | { readonly kind: 'unavailable' };
+
+/**
+ * The outcome of writing an HTML skeleton to a blank document.
+ *
+ * The cause of a skeleton that was not written goes to the diagnostic log only; the user sees one message whatever it
+ * is, because in every case the file was left unchanged.
+ */
+export type SkeletonWriteOutcome =
+  | { readonly kind: 'written' }
+  | { readonly kind: 'notWritten'; readonly cause: string };
 
 /** A port for performing recovery reads and writes within one unit of the operation queue. */
 export interface RecoveryOperationPort {
@@ -734,6 +745,79 @@ export class SaveCoordinator {
       readFile: async () => normalizeLineEndings(await this.host.readFile(this.documentUri)),
       writeText: (text, lineEnding) => this.host.writeFile(this.documentUri, restoreLineEndings(text, lineEnding)),
     }));
+  }
+
+  /**
+   * Writes an HTML skeleton over a blank source as one unit of the operation queue.
+   *
+   * The source is checked again here because it may have changed since the view decided to offer the skeleton.
+   * Writing over a source that is no longer blank, or while a text tab holds unsaved edits, would overwrite content
+   * the user wrote. The file on disk is checked as well, because the buffer can still lag behind a write made outside
+   * VS Code. The sync base moves to the skeleton together with the write, so the change notices this write
+   * causes match it and send nothing to the view: the view of a blank document is not mounted and could not apply
+   * them. The buffer follow is awaited so that the view recreated afterwards reads the skeleton from the buffer.
+   *
+   * @param text The skeleton text (LF).
+   * @returns Whether the skeleton was written, or why not.
+   */
+  async writeSkeleton(text: string): Promise<SkeletonWriteOutcome> {
+    if (this.queue.isClosed) {
+      return { kind: 'notWritten', cause: `Did not write the skeleton because the document is closed: ${this.documentUri}` };
+    }
+    const result = await this.queue.run(() => this.writeSkeletonInQueue(text));
+    return result.ran
+      ? result.value
+      : { kind: 'notWritten', cause: `Did not write the skeleton because the document is closed: ${this.documentUri}` };
+  }
+
+  /**
+   * The body of `writeSkeleton`, run inside the operation queue.
+   *
+   * @param text The skeleton text (LF).
+   */
+  private async writeSkeletonInQueue(text: string): Promise<SkeletonWriteOutcome> {
+    const resolution = await this.resolveCurrentSource('save');
+    if (resolution.kind !== 'resolved') {
+      return {
+        kind: 'notWritten',
+        cause: `Did not write the skeleton because the source could not be resolved (${resolution.kind}): ${this.documentUri}`,
+      };
+    }
+    if (!isBlankDocument(resolution.text)) {
+      return {
+        kind: 'notWritten',
+        cause: `Did not write the skeleton because the source is no longer blank: ${this.documentUri}`,
+      };
+    }
+    let diskText: string;
+    try {
+      diskText = await this.host.readFile(this.documentUri);
+    } catch (error) {
+      return { kind: 'notWritten', cause: `Did not write the skeleton because the file could not be read: ${String(error)}` };
+    }
+    if (!isBlankDocument(diskText)) {
+      return {
+        kind: 'notWritten',
+        cause: `Did not write the skeleton because the file on disk is no longer blank: ${this.documentUri}`,
+      };
+    }
+
+    try {
+      await this.host.writeFile(this.documentUri, text);
+    } catch (error) {
+      return { kind: 'notWritten', cause: `Failed to write the skeleton to ${this.documentUri}: ${String(error)}` };
+    }
+    this.retainWrittenBody(text, resolution.text);
+
+    const followed = await this.resolveCurrentSource('save');
+    if (followed.kind !== 'resolved' || followed.text !== text) {
+      // The file already holds the skeleton, so it still counts as written. A recreated view that reads a buffer
+      // still behind shows the blank document dialog again, and the user can retry from there.
+      this.host.reportInternalError(
+        `Could not confirm that the text buffer followed the skeleton (${followed.kind}): ${this.documentUri}`,
+      );
+    }
+    return { kind: 'written' };
   }
 
   /**

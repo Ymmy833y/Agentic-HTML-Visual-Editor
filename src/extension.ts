@@ -9,6 +9,7 @@ import { EditorSwitcher } from './editor/editor-switch';
 import { createEditorSwitchHost } from './editor/editor-switch-host';
 import { HtmlCustomEditorProvider } from './editor/html-custom-editor-provider';
 import { registerOpenEditorCommands } from './editor/open-editor-commands';
+import { registerSplitNotice } from './editor/split-notice';
 import { registerHistoryCommands } from './history/history-commands';
 import { loadMessages } from './i18n/message-resource-loader';
 import { normalizeDocumentUri } from './session/document-uri';
@@ -75,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   // Register before activate completes so that the first execution is not lost even when this command triggers
   // activation.
   context.subscriptions.push(registerCopyAsHtmlCommand(sessionRegistry, copyAsHtmlPorts));
+  context.subscriptions.push(registerSplitNotice(errorReporter));
   // Receive the restricted backup access only when registration completes. This keeps the test support API from
   // owning a backup path of its own, so it goes through the production entry points.
   let backupAccess: BackupTestAccess | undefined;

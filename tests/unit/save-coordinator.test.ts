@@ -1781,3 +1781,56 @@ describe('source resolution for restore and abandoned Revert', () => {
     expect([outcome, harness.notifications]).toEqual(['failed', ['revertFailed.message']]);
   });
 });
+
+describe('writing a skeleton to a blank document', () => {
+  const SKELETON = '<!DOCTYPE html>\n<html>\n<head>\n<title>a</title>\n</head>\n<body>\n</body>\n</html>\n';
+
+  it('writes the skeleton over a blank, clean source and sends no replacement for the change notice it causes', async () => {
+    const harness = createHarness();
+    harness.setBuffer('\n', false);
+    harness.setFileText('\n');
+    harness.syncState.initialize('\n');
+    // The buffer follows the write at once, as it does when the text tab is clean.
+    harness.setWriteObserver(() => harness.setBuffer(SKELETON, false));
+
+    const outcome = await harness.coordinator.writeSkeleton(SKELETON);
+    await harness.reconcile('textBufferChange');
+
+    expect([outcome, harness.written, harness.applied]).toEqual([
+      { kind: 'written' },
+      [{ uri: DOCUMENT_URI, text: SKELETON }],
+      [],
+    ]);
+  });
+
+  it('writes nothing when the source is no longer blank', async () => {
+    const harness = createHarness();
+    harness.setBuffer('<p>a</p>\n', false);
+    harness.syncState.initialize('');
+
+    const outcome = await harness.coordinator.writeSkeleton(SKELETON);
+
+    expect([outcome.kind, harness.written]).toEqual(['notWritten', []]);
+  });
+
+  it('writes nothing when the file on disk is no longer blank although the text buffer still is', async () => {
+    const harness = createHarness();
+    harness.setBuffer('', false);
+    harness.syncState.initialize('');
+    harness.setFileText('<p>written outside</p>\n');
+
+    const outcome = await harness.coordinator.writeSkeleton(SKELETON);
+
+    expect([outcome.kind, harness.written]).toEqual(['notWritten', []]);
+  });
+
+  it('writes nothing when the text buffer has unsaved edits', async () => {
+    const harness = createHarness();
+    harness.setBuffer('', true);
+    harness.syncState.initialize('');
+
+    const outcome = await harness.coordinator.writeSkeleton(SKELETON);
+
+    expect([outcome.kind, harness.written]).toEqual(['notWritten', []]);
+  });
+});

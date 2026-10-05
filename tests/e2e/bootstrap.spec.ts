@@ -7,6 +7,7 @@ import { getOutboundMessages, openWebviewHost, sendToWebview, setSendFailure } f
 
 const VIEW_READY = { type: 'viewReady' };
 const TEXT_EDITOR_SWITCH_REQUESTED = { type: 'textEditorSwitchRequested' };
+const DOCUMENT_SKELETON_REQUESTED = { type: 'documentSkeletonRequested' };
 
 const OPENABLE_DOCUMENT = '<html><body><p>a</p></body></html>';
 const UNCLOSED_DOCUMENT = '<html><body><p>a</p></html>';
@@ -32,6 +33,13 @@ function switchButton(page: Page): Locator {
   return page
     .locator(`#${OVERLAY_ELEMENT_ID}`)
     .getByRole('button', { name: 'unopenableDocument.openInTextEditor' });
+}
+
+// The skeleton button's label is shown as its message key for the same reason.
+function skeletonButton(page: Page): Locator {
+  return page
+    .locator(`#${OVERLAY_ELEMENT_ID}`)
+    .getByRole('button', { name: 'unopenableDocument.createSkeleton' });
 }
 
 async function embedForbiddenTagMessage(page: Page): Promise<void> {
@@ -253,5 +261,26 @@ test.describe('editor switch requests from the unopenable document dialog', () =
     await switchButton(page).click();
 
     expect(await getOutboundMessages(page)).toEqual([VIEW_READY, TEXT_EDITOR_SWITCH_REQUESTED]);
+  });
+});
+
+test.describe('skeleton requests from the dialog for a blank document', () => {
+  for (const [label, text] of [['an empty document', ''], ['a document of whitespace only', ' \n\t\n']]) {
+    test(`sends one skeleton request to the host when the skeleton button is pressed for ${label}`, async ({ page }) => {
+      await openWebviewHost(page);
+      await sendToWebview(page, initialize(text));
+
+      await skeletonButton(page).click();
+
+      expect(await getOutboundMessages(page)).toEqual([VIEW_READY, DOCUMENT_SKELETON_REQUESTED]);
+    });
+  }
+
+  test('shows no skeleton button for a document without a closing tag', async ({ page }) => {
+    await openWebviewHost(page);
+    await sendToWebview(page, initialize(UNCLOSED_DOCUMENT));
+    await expect(switchButton(page)).toBeVisible();
+
+    await expect(skeletonButton(page)).toHaveCount(0);
   });
 });

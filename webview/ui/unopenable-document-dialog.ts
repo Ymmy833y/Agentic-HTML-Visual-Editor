@@ -1,5 +1,5 @@
 import type { Localizer } from '../../common/index';
-import type { OverlayContent } from './overlay-presenter';
+import type { OverlayAction, OverlayContent } from './overlay-presenter';
 
 /** Why the document was deemed unopenable. */
 export type UnopenableReason =
@@ -8,7 +8,9 @@ export type UnopenableReason =
   /** The body contained a tag that makes the document unopenable. */
   | { readonly kind: 'forbiddenTag'; readonly tagName: string }
   /** The host found that the text was decoded with an encoding that does not match the file's bytes. */
-  | { readonly kind: 'encodingMismatch' };
+  | { readonly kind: 'encodingMismatch' }
+  /** The text holds nothing but whitespace, as in a newly created file. */
+  | { readonly kind: 'blank' };
 
 /**
  * Builds the overlay content explaining that the document cannot be edited and the conditions under
@@ -17,30 +19,41 @@ export type UnopenableReason =
  * Showing only an empty view without an explanation would look broken to the user.
  *
  * Places one button that switches to the standard text editor. The file cannot be edited in this view, so it
- * gives the user a direct way to fix it.
+ * gives the user a direct way to fix it. A blank document also gets a button, placed first, that writes an HTML
+ * skeleton and opens the document again, so that a new file can be started in this view.
  *
  * @param localizer The localizer.
  * @param reason Why the document was deemed unopenable. The heading is shared; only the second
  * sentence varies by this reason.
  * @param requestTextEditorSwitch The receiver called each time the text editor switch button is pressed.
+ * @param requestSkeleton The receiver called each time the skeleton button is pressed. Used only for a blank document.
  * @returns The overlay content.
  */
 export function buildUnopenableDocumentOverlay(
   localizer: Localizer,
   reason: UnopenableReason,
   requestTextEditorSwitch: () => void,
+  requestSkeleton: () => void,
 ): OverlayContent {
+  const switchAction: OverlayAction = {
+    label: localizer.getMessage('unopenableDocument.openInTextEditor'),
+    // Repeated clicks are not throttled here. The host discards later requests that arrive while a switch of the
+    // same file is in progress.
+    run: requestTextEditorSwitch,
+  };
   return {
     heading: localizer.getMessage('unopenableDocument.heading'),
     descriptions: [describeReason(localizer, reason)],
-    actions: [
-      {
-        label: localizer.getMessage('unopenableDocument.openInTextEditor'),
-        // Repeated clicks are not throttled here. The host discards later requests that arrive while a switch of the
-        // same file is in progress.
-        run: requestTextEditorSwitch,
-      },
-    ],
+    actions: reason.kind === 'blank'
+      ? [
+        {
+          label: localizer.getMessage('unopenableDocument.createSkeleton'),
+          // Not throttled either. The host discards requests that arrive while it is writing the skeleton.
+          run: requestSkeleton,
+        },
+        switchAction,
+      ]
+      : [switchAction],
   };
 }
 
@@ -60,6 +73,7 @@ function describeReason(localizer: Localizer, reason: UnopenableReason): string 
     case 'encodingMismatch':
       return localizer.getMessage('unopenableDocument.encodingMismatch');
     case 'boundary':
+    case 'blank':
       return localizer.getMessage('unopenableDocument.condition');
   }
 }

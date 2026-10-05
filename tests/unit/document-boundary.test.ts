@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { joinDocument, splitDocument } from '../../common/index';
+import { isBlankDocument, joinDocument, splitDocument } from '../../common/index';
 import type { DocumentBoundary } from '../../common/index';
 
 const PLAIN_DOCUMENT = '<!DOCTYPE html>\n<html>\n<head>\n<title>t</title>\n</head>\n<body>\n<p>a</p>\n</body>\n</html>\n';
@@ -120,5 +120,20 @@ describe('document boundary', () => {
 
   it('does not split an empty string', () => {
     expect(splitDocument('')).toBeUndefined();
+  });
+});
+
+describe('blank document', () => {
+  it.each([
+    ['an empty string', ''],
+    ['spaces and tabs', ' \t '],
+    ['line breaks', '\n\r\n'],
+    ['a byte order mark followed by a line break', `${BYTE_ORDER_MARK}\n`],
+  ])('treats %s as blank', (_label, text) => {
+    expect(isBlankDocument(text)).toBe(true);
+  });
+
+  it('does not treat text with one non-whitespace character as blank', () => {
+    expect(isBlankDocument('\n a \n')).toBe(false);
   });
 });

@@ -20,7 +20,7 @@ Write a complete document and put the content inside `<body>`:
 </html>
 ```
 
-The editor opens a file only when it contains exactly one `<body>` start tag and exactly one `</body>` end tag, in that order. When either tag is missing or appears more than once, or when the file is empty, the editor does not open the document for editing. It shows the reason, offers to switch to the text editor, and leaves the file as it is.
+The editor opens a file only when it contains exactly one `<body>` start tag and exactly one `</body>` end tag, in that order. When either tag is missing or appears more than once, or when the file is empty, the editor does not open the document for editing. It shows the reason, offers to switch to the text editor, and leaves the file as it is. For a file that is empty or holds only whitespace, it also offers to write a minimal skeleton (doctype, a head with `<meta charset="utf-8">` and a title taken from the file name, and an empty body) and open the result; the file changes only when the user chooses that.
 
 The editor also refuses a file that VS Code read with the wrong encoding, which shows as replacement characters (U+FFFD) in place of bytes that are not valid UTF-8. Reopening the file with its encoding in the text editor lets the editor open it.
 
