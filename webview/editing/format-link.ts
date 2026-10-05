@@ -19,7 +19,7 @@ import type { FormatTarget } from './format-segment';
  * @returns The link containing the whole selection, or `undefined` when there is no target, the
  * selection is outside a link, or it spans more than one link.
  */
-export function findEnclosingLink(target: FormatTarget, root: Element): Element | undefined {
+export function findEnclosingLink(target: FormatTarget<AbstractRange>, root: Element): Element | undefined {
   if (target.kind === 'none') {
     return undefined;
   }
