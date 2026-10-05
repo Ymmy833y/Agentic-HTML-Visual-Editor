@@ -11,7 +11,7 @@ import englishMessages from '../../messages/messages.en.json';
 import { CELL_RANGE_MARK_NAME, CELL_RANGE_MARK_NAMESPACE } from '../../webview/editing/cell-range';
 import { DETAILS_TOGGLE_EDIT_KIND } from '../../webview/editing/details-toggle';
 import { BLOCK_TYPE_MENU_CLASS } from '../../webview/ui/block-type-menu';
-import { COMMENT_POPUP_ELEMENT_ID } from '../../webview/ui/comment-popup';
+import { COMMENT_OPEN_MARK_NAME, COMMENT_OPEN_MARK_NAMESPACE, COMMENT_POPUP_ELEMENT_ID } from '../../webview/ui/comment-popup';
 import { FLOATING_MENU_ELEMENT_ID } from '../../webview/ui/floating-menu';
 import { INPUT_STOP_REASON } from '../../webview/ui/input-stop';
 import { OVERLAY_ELEMENT_ID } from '../../webview/ui/overlay-presenter';
@@ -45,6 +45,11 @@ const ID_PATTERN = /^c-[a-z0-9]{8}$/u;
 
 /** A comment in a paragraph whose only entry is one body. */
 const BODY_WITH_COMMENT = '<p>x<comment id="c-1">abcd<comment-body>note</comment-body></comment>y</p><p>outside</p>';
+
+/** A comment with a thread taller than half the view, between spacers that let it scroll to any height. */
+const LONG_THREAD_IN_MIDDLE = '<p style="height: 2000px">spacer</p><p>x<comment id="c-1">abcd<comment-body>note</comment-body>'
+  + Array.from({ length: 40 }, (_, index) => `<comment-reply>reply ${index}</comment-reply>`).join('')
+  + '</comment>y</p><p style="height: 2000px">spacer</p>';
 
 /** An unopenable document (the body contains a forbidden tag). */
 const UNOPENABLE_DOCUMENT = '<html><body><p>a</p><script>b</script></body></html>';
@@ -266,6 +271,19 @@ async function readForwardedKeys(page: Page): Promise<string[]> {
 }
 
 /**
+ * Scrolls the view so that the middle of the annotated text sits at the given share of the view height from the top.
+ *
+ * @param page The page to operate.
+ * @param ratio The share of the view height, from 0 (top) to 1 (bottom).
+ */
+async function scrollCommentTo(page: Page, ratio: number): Promise<void> {
+  await page.locator(COMMENT).evaluate((comment, share) => {
+    const rect = comment.getBoundingClientRect();
+    window.scrollBy(0, rect.top + rect.height / 2 - document.documentElement.clientHeight * share);
+  }, ratio);
+}
+
+/**
  * Reads the body output.
  *
  * @param page The page to operate.
@@ -396,7 +414,7 @@ test.describe('Creating comments', () => {
 
     await page.locator(COMMENT_ITEM).click();
 
-    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID">bc</comment>d');
+    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID" data-ahve-comment-open="">bc</comment>d');
   });
 
   test('the id of the created comment consists of c- and 8 lowercase letters and digits', async ({ page }) => {
@@ -494,7 +512,7 @@ test.describe('Creating comments', () => {
 
     await page.locator(FLOATING_COMMENT_ITEM).click();
 
-    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID">bc</comment>d');
+    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID" data-ahve-comment-open="">bc</comment>d');
   });
 
   test('moving from Alt+F10 to the comment button with arrows and pressing Enter creates a comment and moves focus to the body field', async ({ page }) => {
@@ -510,18 +528,18 @@ test.describe('Creating comments', () => {
     await page.keyboard.press('Enter');
 
     await expect(page.locator(BODY_FIELD)).toBeFocused();
-    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID">bc</comment>d');
+    expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`)).toBe('a<comment id="ID" data-ahve-comment-open="">bc</comment>d');
   });
 
   test('pressing with the caret inside the annotated text of an existing comment creates nothing and moves focus to the popup of that comment', async ({ page }) => {
     await openCommentEditor(page, BODY_WITH_COMMENT);
-    const before = await readBodyHtml(page);
+    const before = await readBodyOutput(page);
     await placeCaretAt(page, at(COMMENT, 0, 2));
 
     await page.locator(COMMENT_ITEM).click();
 
     await expect(page.locator(POPUP)).toBeFocused();
-    expect([await readBodyHtml(page), await readPopupEntries(page)]).toEqual([before, ['note']]);
+    expect([await readBodyOutput(page), await readPopupEntries(page)]).toEqual([before, ['note']]);
   });
 
   test('pressing with a range spanning two paragraphs changes neither the tree nor the selection', async ({ page }) => {
@@ -562,7 +580,7 @@ test.describe('Creating comments', () => {
     await page.locator(COMMENT_ITEM).click();
 
     expect(await readHtmlWithoutId(page, `${EDITOR_ROOT} p`))
-      .toBe('a<strong>b</strong><comment id="ID"><strong>c</strong>d</comment>e');
+      .toBe('a<strong>b</strong><comment id="ID" data-ahve-comment-open=""><strong>c</strong>d</comment>e');
   });
 
   test('for a range of bare text directly under the editor root, it is wrapped in a paragraph and then the comment is created', async ({ page }) => {
@@ -705,6 +723,43 @@ test.describe('Highlighting the annotated text', () => {
 
     expect([background !== pageBackground, line]).toEqual([true, 'underline']);
   });
+
+  test('opening by click thickens the border of only that comment, and closing with Esc returns it to 1px', async ({ page }) => {
+    await openCommentEditor(
+      page,
+      '<p>x<comment id="a">ab<comment-body>one</comment-body></comment>y'
+      + '<comment id="b">cd<comment-body>two</comment-body></comment>z</p>',
+    );
+
+    await page.locator(`${EDITOR_ROOT} #a`).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    const open = [
+      await readComputed(page, `${EDITOR_ROOT} #a`, ['outline-width']),
+      await readComputed(page, `${EDITOR_ROOT} #b`, ['outline-width']),
+    ];
+    await page.keyboard.press('Escape');
+    await expect(page.locator(POPUP)).toBeHidden();
+
+    expect([open, await readComputed(page, `${EDITOR_ROOT} #a`, ['outline-width'])])
+      .toEqual([[['2px'], ['1px']], ['1px']]);
+  });
+
+  test('opening and closing sends no view edited message, and the open mark does not appear in the body output', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await installReceiver(page);
+
+    await page.locator(COMMENT).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    const marked = await page.locator(COMMENT).evaluate(
+      (comment, mark) => comment.hasAttributeNS(mark.namespace, mark.name),
+      { namespace: COMMENT_OPEN_MARK_NAMESPACE, name: COMMENT_OPEN_MARK_NAME },
+    );
+    const output = await readBodyOutput(page);
+    await page.keyboard.press('Escape');
+    await expect(page.locator(POPUP)).toBeHidden();
+
+    expect([marked, output.includes(COMMENT_OPEN_MARK_NAME), (await readRecord(page)).kinds]).toEqual([true, false, []]);
+  });
 });
 
 test.describe('Opening and closing the popup by clicking', () => {
@@ -783,6 +838,51 @@ test.describe('Opening and closing the popup by clicking', () => {
     await expect(page.locator(POPUP)).toBeVisible();
     const [comment, popup] = [await readBox(page, COMMENT), await readBox(page, POPUP)];
     expect(Math.round(comment.top - popup.bottom)).toBe(6);
+  });
+
+  test('for annotated text in the middle of the view with a long thread, the popup stays inside the view and scrolls inside', async ({ page }) => {
+    await openCommentEditor(page, LONG_THREAD_IN_MIDDLE);
+    await scrollCommentTo(page, 0.5);
+
+    await page.locator(COMMENT).click();
+
+    await expect(page.locator(POPUP)).toBeVisible();
+    const [toolbar, popup] = [await readBox(page, TOOLBAR), await readBox(page, POPUP)];
+    const [viewHeight, scrollable] = await page.locator(POPUP).evaluate((element) => [
+      document.documentElement.clientHeight,
+      element.scrollHeight > element.clientHeight,
+    ]);
+    expect([popup.top >= toolbar.bottom, popup.bottom <= viewHeight, scrollable]).toEqual([true, true, true]);
+  });
+
+  test('scrolling a popup with a limited height to the bottom reaches the end of its contents', async ({ page }) => {
+    await openCommentEditor(page, LONG_THREAD_IN_MIDDLE);
+    await scrollCommentTo(page, 0.5);
+    await page.locator(COMMENT).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+
+    // The popup's own listener runs after the capture-phase listener that places the popup again, so the values are read
+    // after that placement.
+    const [scrollTop, end] = await page.locator(POPUP).evaluate((element) => new Promise<number[]>((resolve) => {
+      element.addEventListener('scroll', () => resolve([element.scrollTop, element.scrollHeight - element.clientHeight]), { once: true });
+      element.scrollTop = element.scrollHeight;
+    }));
+
+    expect(end - scrollTop).toBeLessThan(1);
+  });
+
+  test('after opening with a limited height, scrolling until it fits below returns the popup to its full height', async ({ page }) => {
+    await openCommentEditor(page, LONG_THREAD_IN_MIDDLE);
+    await scrollCommentTo(page, 0.5);
+    await page.locator(COMMENT).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    const limited = await readBox(page, POPUP);
+
+    await scrollCommentTo(page, 0.15);
+
+    await expect.poll(() => page.locator(POPUP).evaluate((element) => (element as HTMLElement).style.maxHeight)).toBe('');
+    const full = await readBox(page, POPUP);
+    expect(full.bottom - full.top > limited.bottom - limited.top).toBe(true);
   });
 
   test('keeps the popup inside the visible width for annotated text at the right end, even when its width has a fraction below half a pixel', async ({ page }) => {
@@ -1220,10 +1320,10 @@ test.describe('Popup appearance and key handling', () => {
 
   test('pressing Ctrl+B in the popup does not bold the comment contents', async ({ page }) => {
     await openCommentEditor(page, BODY_WITH_COMMENT);
-    const before = await readBodyHtml(page);
     await selectRange(page, at(COMMENT, 0, 1), at(COMMENT, 0, 3));
     await page.locator(COMMENT_ITEM).click();
     await expect(page.locator(POPUP)).toBeFocused();
+    const before = await readBodyHtml(page);
 
     await page.keyboard.press('ControlOrMeta+B');
 

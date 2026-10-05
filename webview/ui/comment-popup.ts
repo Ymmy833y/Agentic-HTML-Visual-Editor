@@ -1,4 +1,5 @@
 import type { EncodedSelection, Localizer } from '../../common/index';
+import { INTERNAL_ATTRIBUTE_NAMESPACE_PREFIX } from '../document/internal-attribute';
 import { readSelectionRange } from '../editing/caret';
 import { readCommentEntries } from '../editing/comment-read';
 import { isInsideClosedDetailsBody } from '../editing/details-body-guard';
@@ -8,6 +9,17 @@ import { TOOLBAR_ELEMENT_ID } from './toolbar';
 
 /** The ID of the popup element. The bundled stylesheet and E2E look it up by the same spelling. */
 export const COMMENT_POPUP_ELEMENT_ID = 'editor-comment-popup';
+
+/**
+ * The namespace of the mark on the open comment.
+ *
+ * Placed under the internal namespace that the inverse transform drops from the output. The mark only shows which annotated
+ * text the popup belongs to and must not appear in the saved content, the unsaved content, or the history.
+ */
+export const COMMENT_OPEN_MARK_NAMESPACE = `${INTERNAL_ATTRIBUTE_NAMESPACE_PREFIX}comment-open`;
+
+/** The local name of the mark attribute. The bundled stylesheet and E2E tests look it up with the same spelling. */
+export const COMMENT_OPEN_MARK_NAME = 'data-ahve-comment-open';
 
 // The ID of the entries container. The popup's description points at it, so assistive technology reads the entries after the name.
 const ENTRIES_ELEMENT_ID = 'editor-comment-popup-entries';
@@ -186,6 +198,10 @@ export class CommentPopup {
   // text by default.
   private content: CommentPopupContent | undefined;
 
+  // The comment carrying the open mark. Kept apart from the state, because closing and reattaching replace the state
+  // before the mark is removed from the earlier comment.
+  private marked: Element | undefined;
+
   /**
    * @param view The view's window.
    * @param root The editor root.
@@ -226,6 +242,7 @@ export class CommentPopup {
       // Capture before moving focus. Whether the selection survives after focus leaves the editor root differs between browsers.
       const returnRange = moveFocus ? copySelectionRange(this.root) : undefined;
       this.state = { comment, returnRange };
+      this.moveOpenMark(comment);
       this.drawOpening(comment);
       this.element.hidden = false;
       if (!this.placeElement(comment)) {
@@ -285,6 +302,7 @@ export class CommentPopup {
       this.state = undefined;
       this.notifyDeparted({ kind: 'switch' });
       this.state = { comment, returnRange: state.returnRange };
+      this.moveOpenMark(comment);
       this.drawOpening(comment);
       if (!this.placeElement(comment)) {
         this.close({ kind: 'treeChange' });
@@ -354,6 +372,7 @@ export class CommentPopup {
       return;
     }
     this.state = { comment, returnRange: undefined };
+    this.moveOpenMark(comment);
     const content = this.content;
     if (content === undefined) {
       this.refresh();
@@ -389,6 +408,7 @@ export class CommentPopup {
     const focusedInside = active !== null && this.element.contains(active);
     // Clear the state first, so the editor root's focusin caused by the return is not counted as entering the editor root by other means.
     this.state = undefined;
+    this.moveOpenMark(undefined);
     this.element.hidden = true;
     this.entries.replaceChildren();
     // Notify after clearing the state, so that the notification of the edit in which the content committed its inputs
@@ -524,6 +544,23 @@ export class CommentPopup {
   }
 
   /**
+   * Moves the open mark from the previously marked comment to the given one, or only removes it.
+   *
+   * An attribute already there is not set again, because an attribute change stops edit endpoints from being reused.
+   *
+   * @param comment The comment to mark. `undefined` only removes the mark.
+   */
+  private moveOpenMark(comment: Element | undefined): void {
+    if (this.marked !== undefined && this.marked !== comment) {
+      this.marked.removeAttributeNS(COMMENT_OPEN_MARK_NAMESPACE, COMMENT_OPEN_MARK_NAME);
+    }
+    this.marked = comment;
+    if (comment !== undefined && !comment.hasAttributeNS(COMMENT_OPEN_MARK_NAMESPACE, COMMENT_OPEN_MARK_NAME)) {
+      comment.setAttributeNS(COMMENT_OPEN_MARK_NAMESPACE, COMMENT_OPEN_MARK_NAME, '');
+    }
+  }
+
+  /**
    * Draws the contents on opening. With a registered content, the content draws instead of the default drawing.
    *
    * @param comment Comment to open.
@@ -614,9 +651,13 @@ export class CommentPopup {
       return false;
     }
     // Measured at the previous position, the width could come out shrunk near the right edge of the screen. Move it back
-    // to the top left before measuring its natural size.
+    // to the top left and drop the previous height limit before measuring its natural size.
     this.element.style.left = '0px';
     this.element.style.top = '0px';
+    // Dropping the limit clamps the inner scroll position to the taller box, and scrolling inside places the popup again,
+    // so without putting the position back the last part of a long thread could never be scrolled into view.
+    const scrollTop = this.element.scrollTop;
+    this.element.style.removeProperty('max-height');
     // Overlapping the fixed toolbar strip would make its items unpressable, so the area above the strip's bottom edge is excluded.
     const toolbar = this.view.document.getElementById(TOOLBAR_ELEMENT_ID)?.getBoundingClientRect();
     // The rendered size rather than offsetWidth, which rounds to whole pixels and would let the popup overflow the right
@@ -632,6 +673,10 @@ export class CommentPopup {
     );
     this.element.style.left = `${position.left}px`;
     this.element.style.top = `${position.top}px`;
+    if (position.maxHeight !== undefined) {
+      this.element.style.maxHeight = `${position.maxHeight}px`;
+    }
+    this.element.scrollTop = scrollTop;
     return true;
   }
 
@@ -685,25 +730,35 @@ export function attachCommentPopup(view: Window, root: HTMLElement, ports: Comme
 /**
  * Decides where to place the popup from the rectangle of the annotated text.
  *
- * Placed below the annotated text, and flipped above only when it does not fit below but fits above. Horizontally it is
- * pulled into the area, but not vertically: pulling it in vertically too would leave the popup alone at the edge after the
- * annotated text scrolls off screen.
+ * Placed below the annotated text when it fits. Otherwise it goes on the side with more room, and when that room is
+ * shorter than the popup, the height is limited to it and the rest scrolls inside; a popup running off the screen could
+ * not show the end of a long thread. Horizontally it is pulled into the area, but not vertically: pulling it in vertically
+ * too would leave the popup alone at the edge after the annotated text scrolls off screen. When the annotated text covers
+ * the area and there is no room on either side, it stays below without a limit.
  *
  * @param anchor The rectangle of the annotated text (viewport coordinates).
  * @param size The size of the popup.
  * @param area The area where the popup can go (viewport coordinates).
- * @returns The top left of the popup (viewport coordinates).
+ * @returns The top left of the popup (viewport coordinates), and the height limit when the popup must be shortened.
  */
 export function readCommentPopupPlacement(
   anchor: { readonly left: number; readonly top: number; readonly bottom: number },
   size: { readonly width: number; readonly height: number },
   area: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number },
-): { readonly left: number; readonly top: number } {
-  const below = anchor.bottom + ANNOTATION_GAP_PX;
-  const above = anchor.top - ANNOTATION_GAP_PX - size.height;
-  const top = below + size.height > area.bottom && above >= area.top ? above : below;
+): { readonly left: number; readonly top: number; readonly maxHeight: number | undefined } {
   const left = Math.max(area.left, Math.min(anchor.left, area.right - size.width));
-  return { left, top };
+  const below = anchor.bottom + ANNOTATION_GAP_PX;
+  const roomBelow = area.bottom - below;
+  const roomAbove = anchor.top - ANNOTATION_GAP_PX - area.top;
+  if (size.height <= roomBelow || Math.max(roomBelow, roomAbove) <= 0) {
+    return { left, top: below, maxHeight: undefined };
+  }
+  const room = Math.max(roomBelow, roomAbove);
+  const height = Math.min(size.height, room);
+  const maxHeight = height < size.height ? height : undefined;
+  return roomAbove > roomBelow
+    ? { left, top: anchor.top - ANNOTATION_GAP_PX - height, maxHeight }
+    : { left, top: below, maxHeight };
 }
 
 /**
