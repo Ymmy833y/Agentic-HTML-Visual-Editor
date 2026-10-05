@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { joinDocument, splitDocument } from '../../webview/document/document-boundary';
-import type { DocumentBoundary } from '../../webview/document/document-boundary';
+import { joinDocument, splitDocument } from '../../common/index';
+import type { DocumentBoundary } from '../../common/index';
 
 const PLAIN_DOCUMENT = '<!DOCTYPE html>\n<html>\n<head>\n<title>t</title>\n</head>\n<body>\n<p>a</p>\n</body>\n</html>\n';
 

@@ -1,6 +1,5 @@
-import { splitLines } from '../../common/index';
+import { splitDocument, splitLines } from '../../common/index';
 import type { EncodedSelection, LineRange } from '../../common/index';
-import { splitDocument } from '../document/document-boundary';
 import { remapPosition, remapSelection } from '../selection/position-remap';
 
 /** Input for remapping a recorded selection onto the body of the candidate actually applied. */

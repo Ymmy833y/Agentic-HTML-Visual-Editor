@@ -9,6 +9,7 @@ import {
   detectLineEnding,
   normalizeLineEndings,
   restoreLineEndings,
+  rewriteCharsetDeclaration,
 } from '../../common/index';
 import type {
   BodyOutputResponseMessage,
@@ -575,7 +576,8 @@ export class SaveCoordinator {
 
       const written = await this.writeDocumentText(
         destinationUri,
-        output.text,
+        // The destination is written as UTF-8 too, so it must not keep declaring another encoding.
+        rewriteCharsetDeclaration(output.text),
         this.state.lineEnding,
         isCancelled,
       );
@@ -1214,7 +1216,13 @@ export class SaveCoordinator {
     const base = this.state.syncState.mergeBase;
     // Do not perform a save-time merge with an uninitialized sync base. Using the source as the common ancestor would
     // hide source changes in the base and treat content that has not been synchronized as synchronized.
-    return base === undefined ? undefined : mergeSaveCandidate(base, sourceText, viewText);
+    if (base === undefined) {
+      return undefined;
+    }
+    const merged = mergeSaveCandidate(base, sourceText, viewText);
+    // The file is written as UTF-8. The declaration is rewritten in the candidate, before it is applied to the view,
+    // so that the view, the file, and the sync base keep agreeing on the full text.
+    return { ...merged, text: rewriteCharsetDeclaration(merged.text) };
   }
 
   /**

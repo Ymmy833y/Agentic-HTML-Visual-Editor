@@ -31,6 +31,9 @@ const MERGE_VIEW_TEXT = MERGE_BASE_TEXT.replace('<p>second</p>', '<p>SECOND</p>'
 const MERGED_TEXT = MERGE_SOURCE_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
 const CRLF_TEXT = INITIAL_TEXT.replace(/\n/g, '\r\n');
 const NON_ASCII_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>Japanese and emoji 🎈</p>\n</body>\n</html>\n';
+// ASCII only, so its bytes read the same in Shift_JIS and UTF-8 and only the declaration differs.
+const SHIFT_JIS_DECLARED_TEXT =
+  '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="shift_jis">\n</head>\n<body>\n<p>ab</p>\n</body>\n</html>\n';
 // Line 3 has trailing whitespace. If the save participants run, that whitespace is trimmed.
 const TRAILING_SPACE_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>   \n</body>\n</html>\n';
 
@@ -351,6 +354,20 @@ describe('writing to the file on save', () => {
     const bytes = await readFileBytes(uri);
     assert.deepStrictEqual([bytes[0], bytes[1], bytes[2]], [0x3c, 0x21, 0x44]);
     assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+  });
+
+  it('declares UTF-8 in the head on save and leaves the other lines unchanged when the file declares another encoding', async () => {
+    const uri = await resetScratch(SHIFT_JIS_DECLARED_TEXT);
+    await openWysiwyg(uri);
+    await makeViewDirty(uri);
+
+    await vscode.commands.executeCommand('workbench.action.files.save');
+
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+    assert.strictEqual(
+      await readFileText(uri),
+      SHIFT_JIS_DECLARED_TEXT.replace('<meta charset="shift_jis">', '<meta charset="utf-8">'),
+    );
   });
 
   it('leaves the characters unchanged when saving a file containing non-ASCII text', async () => {

@@ -8,15 +8,16 @@ import {
   VIEW_TO_HOST_MESSAGE_TYPE,
   createLocalizer,
   discardUnhandledMessage,
+  joinDocument,
+  splitDocument,
 } from '../../common/index';
 import type {
+  DocumentBoundary,
   HostToViewMessage,
   InitializeMessage,
   TestHostToViewMessage,
   TestViewToHostMessage,
 } from '../../common/index';
-import { joinDocument, splitDocument } from '../document/document-boundary';
-import type { DocumentBoundary } from '../document/document-boundary';
 import { mountBody } from '../document/document-mount';
 import { sanitizeBody } from '../document/document-sanitizer';
 import { SerializationState } from '../document/serialization-state';
@@ -618,7 +619,11 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     channel,
   };
 
-  const reason = applyDocumentText(message.text, target);
+  // A mismatch is decided before the boundary, because the text itself is already wrong: mounting it would let the
+  // next save write the replacement characters over the file.
+  const reason: UnopenableReason | undefined = message.encodingMismatch === true
+    ? { kind: 'encodingMismatch' }
+    : applyDocumentText(message.text, target);
   if (reason !== undefined) {
     showUnopenable(view, reason, channel);
     return false;

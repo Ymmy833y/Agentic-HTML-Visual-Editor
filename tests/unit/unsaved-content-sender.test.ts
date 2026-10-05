@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { VIEW_TO_HOST_MESSAGE_TYPE, createLocalizer } from '../../common/index';
-import type { ViewToHostMessage } from '../../common/index';
-import type { DocumentBoundary } from '../../webview/document/document-boundary';
+import type { DocumentBoundary, ViewToHostMessage } from '../../common/index';
 import type { BodyOutput } from '../../webview/document/serialization-state';
 import { UnsavedContentSender } from '../../webview/messaging/unsaved-content-sender';
 import { DeliveryFailureController } from '../../webview/messaging/delivery-failure-controller';

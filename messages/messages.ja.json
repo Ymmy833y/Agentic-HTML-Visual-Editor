@@ -2,6 +2,7 @@
   "unopenableDocument.heading": "このドキュメントはビジュアルエディターで編集できません。",
   "unopenableDocument.condition": "ビジュアルエディターで開けるのは、<body> の開始タグと </body> の終了タグが 1 つずつ、この順にあるドキュメントだけです。",
   "unopenableDocument.forbiddenTag": "本文に <{tagName}> 要素があるため、このドキュメントは開けません。",
+  "unopenableDocument.encodingMismatch": "今の文字コードでは読めない文字があります。テキストエディターの「エンコード付きで再度開く」でファイルの文字コードを選び、ビジュアルエディターで開き直してください。",
   "unopenableDocument.openInTextEditor": "テキストエディターで開く",
   "documentUnreadable.message": "ビジュアルエディターでこのファイルを読み込めませんでした。ファイルは変更されていません。",
   "errorReport.showDetails": "詳細を表示",

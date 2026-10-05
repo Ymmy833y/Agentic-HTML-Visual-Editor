@@ -5,8 +5,7 @@ import {
   VIEW_TO_HOST_MESSAGE_TYPE,
   createLocalizer,
 } from '../../common/index';
-import type { EditSnapshot, EncodedSelection, ViewToHostMessage } from '../../common/index';
-import type { DocumentBoundary } from '../../webview/document/document-boundary';
+import type { DocumentBoundary, EditSnapshot, EncodedSelection, ViewToHostMessage } from '../../common/index';
 import { SerializationState } from '../../webview/document/serialization-state';
 import { EditSnapshotCapture } from '../../webview/history/edit-snapshot';
 import { createEditUnitIdFactory } from '../../webview/history/edit-unit-id';

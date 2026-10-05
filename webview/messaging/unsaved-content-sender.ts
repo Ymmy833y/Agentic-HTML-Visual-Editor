@@ -1,6 +1,5 @@
-import { VIEW_TO_HOST_MESSAGE_TYPE } from '../../common/index';
-import { joinDocument } from '../document/document-boundary';
-import type { DocumentBoundary } from '../document/document-boundary';
+import { VIEW_TO_HOST_MESSAGE_TYPE, joinDocument } from '../../common/index';
+import type { DocumentBoundary } from '../../common/index';
 import type { BodyOutput } from '../document/serialization-state';
 import type { EditKind, OutputReceiver } from '../editing/change-tracker';
 import type { DeliveryFailureController } from './delivery-failure-controller';

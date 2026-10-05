@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { DocumentBoundary } from '../../webview/document/document-boundary';
+import type { DocumentBoundary } from '../../common/index';
 import { SerializationState } from '../../webview/document/serialization-state';
 import { placeCaret } from '../../webview/editing/caret';
 import { EditSnapshotCapture } from '../../webview/history/edit-snapshot';

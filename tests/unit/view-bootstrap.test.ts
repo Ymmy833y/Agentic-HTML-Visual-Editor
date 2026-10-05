@@ -4,9 +4,9 @@ import {
   EDITOR_ROOT_ELEMENT_ID,
   HOST_TO_VIEW_MESSAGE_TYPE,
   VIEW_TO_HOST_MESSAGE_TYPE,
+  splitDocument,
 } from '../../common/index';
 import type { HostToViewMessage, ViewToHostMessage } from '../../common/index';
-import { splitDocument } from '../../webview/document/document-boundary';
 import type { EditingSession } from '../../webview/editing/editing-session';
 import type { WebviewWindow } from '../../webview/messaging/host-channel';
 import { OVERLAY_ELEMENT_ID } from '../../webview/ui/overlay-presenter';
