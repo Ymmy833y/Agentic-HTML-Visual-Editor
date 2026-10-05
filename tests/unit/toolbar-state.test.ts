@@ -27,6 +27,7 @@ const localizer = createLocalizer({
   'toolbar.blockType': 'Test block type',
   'blockType.quote': 'Test quote',
   'blockType.paragraph': 'Test paragraph',
+  'alert.note': 'Test note',
 });
 
 // Slots registered to receive reflection, with their message keys at registration. Link is not registered.
@@ -143,6 +144,28 @@ describe('Reflecting onto the fixed toolbar', () => {
     reflectToolbarState(
       harness.ports,
       createState({ blockKind: BLOCK_KIND.quote, convertible: true }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test quote');
+  });
+
+  it('when the kind is quote with a known alert, the block type item label becomes the message of that alert kind', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.quote, convertible: true, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test note');
+  });
+
+  it('when the kind is quote with an unknown alert, the block type item label stays the quote message', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.quote, convertible: true, alert: ALERT_STATE.unknown }),
     );
 
     expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test quote');

@@ -377,6 +377,16 @@ test.describe('Reflecting onto the fixed toolbar', () => {
       .toHaveText(BLOCK_KIND_MESSAGE_KEY.heading3);
   });
 
+  test('placing the caret in an alert blockquote makes the block type item label the message of that alert kind', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="warning">abcd</blockquote>\n');
+    await focusEditor(page);
+
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    expect(await readBlockTypeLabel(page)).toBe(ALERT_MESSAGE_KEY.warning);
+  });
+
   test('placing the caret in a blockquote and opening the popup marks the quote item alone', async ({ page }) => {
     await openEditor(page, '\n<blockquote>abcd</blockquote>\n');
     await focusEditor(page);
@@ -492,12 +502,12 @@ test.describe('Reflecting onto the fixed toolbar', () => {
     await embedEnglishCatalog(page);
     await sendToWebview(page, {
       type: 'initialize',
-      text: `${PROLOGUE}\n<blockquote>abcd</blockquote>\n<pre><code>efgh</code></pre>\n${EPILOGUE}`,
+      text: `${PROLOGUE}\n<blockquote data-alert="tip">abcd</blockquote>\n<pre><code>efgh</code></pre>\n${EPILOGUE}`,
       documentUri: '',
       resourceRootUri: '',
     });
     await focusEditor(page);
-    // Div is shown with the paragraph message, so quote has the shortest label.
+    // An alert blockquote shows its alert kind, and Tip is the shortest of all labels.
     await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 0, offset: 2 });
     await settleFollow(page);
     const shortest = await readBlockTypeLabel(page);
@@ -507,7 +517,7 @@ test.describe('Reflecting onto the fixed toolbar', () => {
     await settleFollow(page);
 
     expect([shortest, await readBlockTypeLabel(page), await readItemLeft(page, TOOLBAR_SLOT.bold) - before])
-      .toEqual([englishMessages['blockType.quote'], englishMessages['blockType.codeBlock'], 0]);
+      .toEqual([englishMessages['alert.tip'], englishMessages['blockType.codeBlock'], 0]);
   });
 });
 
