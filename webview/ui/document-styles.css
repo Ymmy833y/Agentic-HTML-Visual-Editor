@@ -117,6 +117,20 @@
   font-size: inherit;
 }
 
+/* High contrast themes can give the code background the same color as the page, which leaves a code block without a
+   visible edge. VS Code marks these themes only with a class on the body, so the frame hangs on that class. A diagram
+   source block is left out because it is hidden and draws a frame of its own. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-root pre:not([*|data-ahve-diagram-block]) {
+  border: 1px solid var(--ahve-border);
+}
+
+/* VS Code's default webview stylesheet colors code for its own code background, which is replaced above. In the light
+   high contrast theme that color is white and vanishes on the light code background, so code takes the color of the
+   text around it. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-root code {
+  color: inherit;
+}
+
 /* Mermaid diagrams
    A diagram source block stays in the tree as written. The drawn image is painted by the pseudo-element after it,
    from a rule the view generates for each drawing, so it is never saved, copied, searched or selected. The marks
