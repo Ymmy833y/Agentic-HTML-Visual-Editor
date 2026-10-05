@@ -199,27 +199,56 @@ test.describe('handling key input', () => {
       .toEqual([BODY, expect.arrayContaining(['Digit1', 'KeyB'])]);
   });
 
-  test('a Tab shortcut added through the registration port is called, and the Tab it takes over does not reach the forwarded key record', async ({ page }) => {
+  test('a Shift+Tab shortcut added through the registration port is called, and the Shift+Tab it takes over does not reach the forwarded key record', async ({ page }) => {
     await openEditor(page, BODY);
     await placeCaretInParagraph(page, 2);
     await installForwardRecord(page);
     await page.evaluate(() => {
       window.__shortcutRuns = [];
       window.__shortcutReceiverProbe?.()?.register({
-        key: { code: 'Tab', primary: false, shift: false, alt: false },
+        key: { code: 'Tab', primary: false, shift: true, alt: false },
         run: () => {
-          window.__shortcutRuns?.push('Tab');
+          window.__shortcutRuns?.push('Shift+Tab');
           return 'preventDefault';
         },
       });
     });
 
-    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
 
     expect([
       await page.evaluate(() => window.__shortcutRuns ?? []),
       (await readForwardedKeys(page)).includes('Tab'),
-    ]).toEqual([['Tab'], false]);
+    ]).toEqual([['Shift+Tab'], false]);
+  });
+
+  test('Tab with the caret in a paragraph before a collapsible section keeps focus, the caret and the tree, and does not reach the forwarded key record', async ({ page }) => {
+    const body = '\n<p>abcd</p>\n<details open="">\n<summary>t</summary>\n<p>x</p>\n</details>\n';
+    await openEditor(page, body);
+    await placeCaretInParagraph(page, 2);
+    await installForwardRecord(page);
+
+    await page.keyboard.press('Tab');
+
+    expect([
+      await page.evaluate((id) => document.activeElement?.id === id, EDITOR_ROOT_ELEMENT_ID),
+      await page.evaluate(() => [window.getSelection()?.anchorNode?.textContent, window.getSelection()?.anchorOffset]),
+      await readBodyHtml(page),
+      (await readForwardedKeys(page)).includes('Tab'),
+    ]).toEqual([true, ['abcd', 2], body, false]);
+  });
+
+  test('Tab with the caret in a collapsible section title keeps focus and the caret', async ({ page }) => {
+    await openEditor(page, '\n<details open="">\n<summary>title</summary>\n<p>x</p>\n</details>\n<p>y</p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} summary`, childIndex: 0, offset: 2 });
+
+    await page.keyboard.press('Tab');
+
+    expect([
+      await page.evaluate((id) => document.activeElement?.id === id, EDITOR_ROOT_ELEMENT_ID),
+      await page.evaluate(() => [window.getSelection()?.anchorNode?.textContent, window.getSelection()?.anchorOffset]),
+    ]).toEqual([true, ['title', 2]]);
   });
 
   test('pressing Ctrl+Shift+1 while an overlay is up leaves the tree unchanged and the key reaches the forwarded key record', async ({ page }) => {

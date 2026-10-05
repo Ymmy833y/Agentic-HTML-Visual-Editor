@@ -43,8 +43,8 @@ export interface ActionDialogField {
   /** The initial value. */
   readonly initialValue: string;
   /**
-   * Whether the field takes several lines. Enter inside such a field breaks the line, and the primary modifier+Enter
-   * confirms instead.
+   * Whether the field takes several lines. Shift+Enter inside such a field breaks the line, and Enter confirms as in
+   * any other field.
    */
   readonly multiline?: boolean;
   /**
@@ -196,8 +196,9 @@ export class ActionDialogPresenter {
       return;
     }
     if (event.key === 'Enter') {
-      if (event.target instanceof HTMLTextAreaElement && !event.ctrlKey && !event.metaKey) {
-        // Left to the field, which breaks the line. The primary modifier+Enter confirms from there instead.
+      if (event.target instanceof HTMLTextAreaElement && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // Left to the field, which breaks the line. Enter confirms from a multi-line field as well, the same way the
+        // comment fields commit, so that every field in the view takes the same keys.
         return;
       }
       if (event.target instanceof HTMLButtonElement) {

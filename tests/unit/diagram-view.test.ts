@@ -9,6 +9,7 @@ import {
   DIAGRAM_MARK_NAME,
   DIAGRAM_MARK_NAMESPACE,
   DIAGRAM_SELECTED_MARK_NAME,
+  DIAGRAM_ZOOMED_MARK_NAME,
   DiagramView,
 } from '../../webview/diagram/diagram-view';
 import { createRange, readChildText, readElement, select } from './helpers/format-dom';
@@ -214,5 +215,43 @@ describe('following the selection', () => {
     selectAndFollow(createRange(before, 1, before, 1));
 
     expect([across, readMarks(root, DIAGRAM_SELECTED_MARK_NAME)]).toEqual([[true], [false]]);
+  });
+});
+
+describe('zooming diagrams', () => {
+  /**
+   * Mounts a body, waits until its first diagram is drawn, and reads the drawn width from its rule.
+   *
+   * @param html The body.
+   * @returns The harness and the drawn width in px.
+   */
+  async function mountDrawn(html: string): Promise<Harness & { width: string }> {
+    const harness = createHarness(html);
+    harness.view.handleMountCompleted(SESSION);
+    await vi.waitFor(() => expect(readMark(harness.root, DIAGRAM_MARK_NAME)).not.toBeNull());
+    const width = /width: (\d+(?:\.\d+)?)px;/u.exec(harness.rules.at(-1) ?? '')?.[1] ?? '';
+    return { ...harness, width };
+  }
+
+  it('scales the usual width of the image in its rule and puts the zoomed mark on the block', async () => {
+    const { root, view, rules, width } = await mountDrawn('<pre class="mermaid">flowchart TD</pre>');
+
+    const changed = view.zoomDiagram(readElement(root, 'pre'), 1.25);
+
+    expect([changed, rules.at(-1)?.includes(`width: calc(min(${width}px, 100%) * 1.25); max-width: none;`), readMark(root, DIAGRAM_ZOOMED_MARK_NAME)])
+      .toEqual([true, true, '']);
+  });
+
+  it('keeps the zoom level for the same source after the tree is replaced, and shows an edited source at 100%', async () => {
+    const { root, view } = await mountDrawn('<pre class="mermaid">flowchart TD</pre>');
+    view.zoomDiagram(readElement(root, 'pre'), 2);
+
+    root.innerHTML = '<p>a</p><pre class="mermaid">flowchart TD</pre>';
+    view.handleMountCompleted(SESSION);
+    const kept = [view.readZoom(readElement(root, 'pre')), readMark(root, DIAGRAM_ZOOMED_MARK_NAME)];
+    root.innerHTML = '<pre class="mermaid">flowchart LR</pre>';
+    view.handleMountCompleted(SESSION);
+
+    expect([...kept, view.readZoom(readElement(root, 'pre'))]).toEqual([2, '', 1]);
   });
 });

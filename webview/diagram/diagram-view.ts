@@ -25,6 +25,15 @@ export const DIAGRAM_EMPTY_MARK_NAME = 'data-ahve-diagram-empty';
 /** The mark of a diagram that a range selection wholly contains. */
 export const DIAGRAM_SELECTED_MARK_NAME = 'data-ahve-diagram-selected';
 
+/** The mark of a drawn diagram shown at a zoom level other than 100%. */
+export const DIAGRAM_ZOOMED_MARK_NAME = 'data-ahve-diagram-zoomed';
+
+/**
+ * The zoom levels a diagram steps through, as factors of its usual size: the drawn size, or the column width for a
+ * diagram wider than the column. Finer steps below 100% and coarser ones above keep each step a visible change.
+ */
+export const DIAGRAM_ZOOM_LEVELS: readonly number[] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
 /** The custom property on the page root that hands the error notice to the stylesheet. */
 export const DIAGRAM_ERROR_LABEL_PROPERTY = '--ahve-diagram-error-label';
 
@@ -122,6 +131,10 @@ export class DiagramView {
 
   private readonly inFlight = new Set<string>();
 
+  // Zoom levels by source rather than by block: undo, redo and saving replace the whole tree, and a diagram keeps its
+  // zoom level across them. Levels at 100% are not held.
+  private readonly zooms = new Map<string, number>();
+
   private nextToken = 1;
 
   private nextRenderId = 1;
@@ -214,6 +227,41 @@ export class DiagramView {
       this.scan();
       this.followSelection();
     });
+  }
+
+  /**
+   * Returns the zoom level of a diagram.
+   *
+   * @param block The diagram source block.
+   * @returns The factor of its usual size. 1 for a diagram never zoomed.
+   */
+  readZoom(block: Element): number {
+    return this.zooms.get(readDiagramSource(block)) ?? 1;
+  }
+
+  /**
+   * Shows a diagram, and every diagram with the same source, at a zoom level. Only the generated rules and the marks
+   * change, so neither the saved HTML nor the edit history sees it.
+   *
+   * @param block The diagram source block.
+   * @param level The factor of its usual size.
+   * @returns Whether the zoom level changed.
+   */
+  zoomDiagram(block: Element, level: number): boolean {
+    const source = readDiagramSource(block);
+    if ((this.zooms.get(source) ?? 1) === level) {
+      return false;
+    }
+    if (level === 1) {
+      this.zooms.delete(source);
+    } else {
+      this.zooms.set(source, level);
+    }
+    const root = this.ports.readEditorRoot();
+    if (root !== undefined) {
+      this.runGuarded(() => this.updateRules(root));
+    }
+    return true;
   }
 
   /**
@@ -408,11 +456,17 @@ export class DiagramView {
   }
 
   /**
-   * Replaces the generated rules with one rule per image shown in the tree.
+   * Replaces the generated rules with one rule per image shown in the tree, and moves the zoomed mark to the blocks
+   * whose image is shown at another zoom level.
    *
    * @param root The editor root.
    */
   private updateRules(root: Element): void {
+    const zoomsByToken = new Map<number, number>();
+    for (const [key, token] of this.tokens) {
+      // The key holds the theme before the first line break, and the source after it.
+      zoomsByToken.set(token, this.zooms.get(key.slice(key.indexOf('\n') + 1)) ?? 1);
+    }
     const rules: string[] = [];
     for (const token of this.readShownTokens(root)) {
       const image = this.images.get(token);
@@ -423,9 +477,13 @@ export class DiagramView {
       rules.push(
         `#${EDITOR_ROOT_ELEMENT_ID} pre[*|${DIAGRAM_MARK_NAME}="${token}"]::after {`
         + ` background-image: url("${image.url}");`
-        + ` width: ${image.width}px;`
+        + ` ${readImageWidth(image, zoomsByToken.get(token) ?? 1)}`
         + ` aspect-ratio: ${image.width} / ${image.height}; }`,
       );
+    }
+    for (const block of findDiagramSources(root)) {
+      const token = block.getAttributeNS(DIAGRAM_MARK_NAMESPACE, DIAGRAM_MARK_NAME);
+      toggleMark(block, DIAGRAM_ZOOMED_MARK_NAME, token !== null && (zoomsByToken.get(Number(token)) ?? 1) !== 1);
     }
     const text = rules.join('\n');
     if (text !== this.appliedRules) {
@@ -499,6 +557,23 @@ export class DiagramView {
       this.ports.reportDiagnostic(`Could not update the diagrams: ${String(error)}`);
     }
   }
+}
+
+/**
+ * Returns the width declarations of an image at a zoom level.
+ *
+ * The usual size is the drawn width, shrunk to the column when wider. A zoom level scales that usual size, so the
+ * first step from a shrunk diagram grows it from what is on screen, and the diagram may then outgrow the column.
+ *
+ * @param image The drawn image.
+ * @param level The zoom level.
+ * @returns The declarations.
+ */
+function readImageWidth(image: DiagramImage, level: number): string {
+  if (level === 1) {
+    return `width: ${image.width}px;`;
+  }
+  return `width: calc(min(${image.width}px, 100%) * ${level}); max-width: none;`;
 }
 
 /**

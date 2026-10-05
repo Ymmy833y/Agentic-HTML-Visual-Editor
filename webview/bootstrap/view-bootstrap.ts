@@ -35,6 +35,7 @@ import { attachCellRangeSelection } from '../editing/cell-range';
 import type { CellMergeState, CellRangeSelection } from '../editing/cell-range';
 import { attachClipboardCopy } from '../editing/clipboard-copy';
 import type { ClipboardCopyPorts } from '../editing/clipboard-copy';
+import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
 import { runCommentItem } from '../editing/comment-create';
 import type { CommentItemPorts } from '../editing/comment-create';
 import { registerCommentCompositionHook } from '../editing/comment-guard-rule';
@@ -66,6 +67,7 @@ import type { ShortcutReceiver } from '../editing/shortcut-receiver';
 import { runTableOperation } from '../editing/table-command';
 import type { TableOperation } from '../editing/table-command';
 import { readTableHeaderState } from '../editing/table-header';
+import { registerTabFallback } from '../editing/tab-fallback';
 import { registerTableShortcuts } from '../editing/table-navigation';
 import { readTableWidthUnit } from '../editing/table-width';
 import { replaceTexts } from '../editing/text-replace';
@@ -109,6 +111,8 @@ import { registerDetailsButton } from '../ui/details-button';
 import { registerDiagramButton } from '../ui/diagram-button';
 import { attachDiagramClick, openDiagramDialog } from '../ui/diagram-dialog';
 import type { DiagramDialogPorts } from '../ui/diagram-dialog';
+import { attachDiagramZoom } from '../ui/diagram-zoom';
+import type { DiagramZoom } from '../ui/diagram-zoom';
 import { labelEditorRoot } from '../ui/editor-root-label';
 import { EditorReturn } from '../ui/editor-return';
 import { registerFormatButtons } from '../ui/format-buttons';
@@ -270,6 +274,9 @@ let sidebar: Sidebar | undefined;
 // Created on the first mount whether or not there is a toolbar, and kept. The button lives outside the editor root and
 // its listeners stay attached to the same editor root, so it is not recreated; each replacement only hides it.
 let codeBlockCopy: CodeBlockCopy | undefined;
+
+// Created on the first mount whether or not there is a toolbar, and kept, for the same reasons as the copy button.
+let diagramZoom: DiagramZoom | undefined;
 
 /**
  * Sends a one-line maintainer diagnostic to the host.
@@ -552,6 +559,8 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   // The code block the copy button was shown for went away with the old tree, so hide the button. On the first mount
   // there is no button yet.
   codeBlockCopy?.handleMountCompleted();
+  // Likewise, the diagram the zoom buttons were shown for went away with the old tree.
+  diagramZoom?.handleMountCompleted();
   return undefined;
 }
 
@@ -823,11 +832,15 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   labelEditorRoot(target.root, localizer);
   registerReachKey(receiver, () => toolbarBar?.focusStop());
 
+  // Before the list and table Tab, so that a code block inside a list item or a cell indents its code.
+  registerCodeBlockIndentShortcuts(receiver, blockCommandPorts);
   // Added after the reach key. The autoformat table is reused across document replacements, so its entries are
   // added only once, on the first mount.
   registerListShortcuts(receiver, blockCommandPorts);
   // The conditions for taking over do not overlap with the list Tab, so registration order is not relied on.
   registerTableShortcuts(receiver, blockCommandPorts);
+  // After every other Tab shortcut, so that it only catches the Tab none of them took over.
+  registerTabFallback(receiver, () => floatingMenu?.visible === true);
   // The column resize is attached before the cell range selection, so it receives the same capture-phase press first
   // and keeps a press on a column band from reaching the range selection and the details toggle. Attached regardless
   // of whether a toolbar exists.
@@ -1048,6 +1061,17 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     readAreaTop: () => search.readOverlayBottom(),
     requestCopy: (text) => requestCodeBlockCopy(channel, text, (detail) => postDiagnostic(channel, detail)),
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  // The zoom buttons of diagrams follow the copy button in every respect: once, after the search, with or without a
+  // toolbar.
+  diagramZoom = attachDiagramZoom(view, target.root, {
+    localizer,
+    registerTooltip: (element, label) => viewShell.tooltip.registerTarget(element, label),
+    readAreaTop: () => search.readOverlayBottom(),
+    readZoom: (block) => diagrams.readZoom(block),
+    zoomDiagram: (block, level) => {
+      diagrams.zoomDiagram(block, level);
+    },
   });
   for (const entry of createListAutoformatEntries(blockCommandPorts)) {
     autoformatTable.addEntry(entry);

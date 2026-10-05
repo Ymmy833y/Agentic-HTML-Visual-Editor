@@ -245,6 +245,19 @@ describe('English message resource', () => {
     ]).toEqual([2, true]);
   });
 
+  it('has English messages for the 3 diagram zoom keys', () => {
+    const keys = [
+      'diagramZoom.zoomIn',
+      'diagramZoom.zoomOut',
+      'diagramZoom.reset',
+    ];
+
+    expect([
+      MESSAGE_KEYS.filter((key) => keys.includes(key)).length,
+      keys.every((key) => typeof Reflect.get(englishMessages, key) === 'string'),
+    ]).toEqual([3, true]);
+  });
+
   it('contains no keys that are not defined', () => {
     const definedKeys = new Set<string>(MESSAGE_KEYS);
     const extraKeys = Object.keys(englishMessages).filter((key) => !definedKeys.has(key));

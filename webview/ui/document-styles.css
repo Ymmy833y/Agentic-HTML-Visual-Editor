@@ -211,6 +211,30 @@
   outline-offset: 2px;
 }
 
+/* A diagram shown at another zoom level. Grown past the column, it scrolls sideways inside its block, and a hidden
+   block neither shows a scroll bar nor scrolls on the wheel, so the block is made visible. It stays read-only, so the
+   caret passes over its source as before, and the source has no size or color. The block draws the frame itself,
+   because the frame laid over it would scroll away with the diagram; the padding gives back the width of the border. */
+#editor-root pre[*|data-ahve-diagram-zoomed] {
+  visibility: visible;
+  -webkit-user-modify: read-only;
+  color: transparent;
+  background: none;
+  border: 1px solid var(--ahve-border);
+  border-radius: 0.25rem;
+  padding: calc(1rem - 1px);
+  overflow-y: hidden;
+}
+
+#editor-root pre[*|data-ahve-diagram-zoomed]::before {
+  display: none;
+}
+
+#editor-root pre[*|data-ahve-diagram-zoomed][*|data-ahve-diagram-selected] {
+  outline: 2px solid var(--ahve-accent);
+  outline-offset: 2px;
+}
+
 /* Blockquotes */
 #editor-root blockquote {
   border-left: 4px solid var(--ahve-border);

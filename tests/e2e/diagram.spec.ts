@@ -411,16 +411,16 @@ test.describe('Editing diagrams in the dialog', () => {
     expect(await readBodyOutput(page)).toBe(BODY);
   });
 
-  test('Enter inside the field breaks the line, and the primary modifier+Enter saves', async ({ page }) => {
+  test('Shift+Enter inside the field breaks the line, and Enter saves', async ({ page }) => {
     await openEditor(page, BODY);
     await waitForDrawing(page);
     await clickDiagram(page);
     await page.locator(SOURCE_FIELD).press('ControlOrMeta+End');
 
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('Shift+Enter');
     await page.keyboard.type('  B --> C');
     const typed = await page.locator(SOURCE_FIELD).inputValue();
-    await page.keyboard.press('ControlOrMeta+Enter');
+    await page.keyboard.press('Enter');
 
     await expect(page.locator(DIALOG)).toHaveCount(0);
     expect(typed).toBe(`${FLOWCHART}\n  B --> C`);

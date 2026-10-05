@@ -190,5 +190,8 @@
   "sidebar.emptyText": "(空)",
   "sidebar.resolved": "解決済み",
   "codeBlockCopy.name": "コードをコピー",
-  "codeBlockCopy.failed.message": "コードをコピーできなかったため、クリップボードは変更されていません。"
+  "codeBlockCopy.failed.message": "コードをコピーできなかったため、クリップボードは変更されていません。",
+  "diagramZoom.zoomIn": "拡大",
+  "diagramZoom.zoomOut": "縮小",
+  "diagramZoom.reset": "元の大きさ"
 }
