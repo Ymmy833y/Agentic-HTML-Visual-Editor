@@ -27,21 +27,21 @@ A list is a `ul` or an `ol` with `li` items. A nested list goes inside the item 
 </ol>
 ```
 
-A table puts each row on a line of its own. Column widths go on `col` elements:
+A table puts each row on a line of its own. Column widths go on `col` elements. Write the header row as the first row, with `th scope="col"` cells, and do not use `thead`. Put every row, the header row included, in one `tbody`:
 
 ```html
 <table>
 <colgroup><col style="width: 30%;"><col style="width: 70%;"></colgroup>
-<thead>
-<tr><th scope="col">Item</th><th scope="col">Decision</th></tr>
-</thead>
 <tbody>
+<tr><th scope="col">Item</th><th scope="col">Decision</th></tr>
 <tr><th scope="row">Storage</th><td>Plain HTML on disk</td></tr>
 <tr><th scope="row">Comments</th><td>Kept inside the HTML</td></tr>
 <tr><td colspan="2">A cell that spans both columns</td></tr>
 </tbody>
 </table>
 ```
+
+The editor decides which row is a header row from its cells, not from its section, and it inserts a table in this form. When a person turns a header row off, the editor changes only the cells and leaves the row in its section, so a row in a `thead` becomes a row of `td` cells that stays in the `thead`.
 
 An image is an `img` with `src` and `alt`. To size it, set `width` and `height` in `style`:
 
