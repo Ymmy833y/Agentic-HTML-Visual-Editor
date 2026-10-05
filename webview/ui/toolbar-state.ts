@@ -1,4 +1,4 @@
-import type { Localizer, MessageKey } from '../../common/index';
+import type { AlertKind, Localizer, MessageKey } from '../../common/index';
 import { ALERT_STATE } from '../editing/alert-state';
 import { BLOCK_KIND } from '../editing/block-format';
 import type { BlockKind } from '../editing/block-format';
@@ -71,7 +71,7 @@ export function reflectToolbarState(ports: ToolbarStatePorts, state: CaretState)
   });
 
   updateRegistered(ports.toolbar, TOOLBAR_SLOT.blockType, {
-    label: ports.localizer.getMessage(readBlockTypeLabelKey(kind)),
+    label: ports.localizer.getMessage(readBlockTypeLabelKey(kind, readKnownAlert(state))),
   });
 
   ports.blockTypeMenu.applyMarks(readBlockTypeMarks(state));
@@ -90,11 +90,12 @@ export function readBlockTypeMarks(state: CaretState): ReadonlySet<MessageKey> {
     return marks;
   }
 
-  if (state.alert !== ALERT_STATE.unknown && state.alert !== ALERT_STATE.none) {
+  const alert = readKnownAlert(state);
+  if (alert !== undefined) {
     // In an alert blockquote the quote item gets no menu mark. The quote item clears the alert, so marking it would
     // make it look like an item that changes nothing when pressed. An unknown value looks like an ordinary
     // blockquote and the quote item leaves it alone, so quote is marked below in that case.
-    marks.add(ALERT_MESSAGE_KEY[state.alert]);
+    marks.add(ALERT_MESSAGE_KEY[alert]);
     return marks;
   }
   // Code block and div have no item in the menu, so no item is marked for them.
@@ -109,16 +110,31 @@ export function readBlockTypeMarks(state: CaretState): ReadonlySet<MessageKey> {
  *
  * Anything other than a heading, a quote or a code block (a paragraph, a div, or no kind) gets the paragraph
  * message. Div, which is not in the menu, and list items and details titles, which have no kind, are shown as
- * paragraphs, so that the registered message, which is not a kind, never appears as the item label.
+ * paragraphs, so that the registered message, which is not a kind, never appears as the item label. A quote with a
+ * known alert is shown by its alert kind, because every alert blockquote would otherwise read as the same quote.
  *
  * @param kind The kind to reflect, or `undefined` when there is no kind.
+ * @param alert The known alert kind, or `undefined` when there is none.
  * @returns The message key.
  */
-function readBlockTypeLabelKey(kind: BlockKind | undefined): MessageKey {
+function readBlockTypeLabelKey(kind: BlockKind | undefined, alert: AlertKind | undefined): MessageKey {
   if (kind === undefined || kind === BLOCK_KIND.div) {
     return BLOCK_KIND_MESSAGE_KEY.paragraph;
   }
+  if (kind === BLOCK_KIND.quote && alert !== undefined) {
+    return ALERT_MESSAGE_KEY[alert];
+  }
   return BLOCK_KIND_MESSAGE_KEY[kind];
+}
+
+/**
+ * Returns the alert kind when the caret state holds a known one.
+ *
+ * @param state The caret state.
+ * @returns The alert kind. `undefined` for an unknown value and when there is no alert.
+ */
+function readKnownAlert(state: CaretState): AlertKind | undefined {
+  return state.alert === ALERT_STATE.unknown || state.alert === ALERT_STATE.none ? undefined : state.alert;
 }
 
 /**
