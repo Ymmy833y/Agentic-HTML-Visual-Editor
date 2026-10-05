@@ -56,7 +56,7 @@ describe('presenting the overlay', () => {
 
     harness.overlay.present(
       INPUT_STOP_REASON.unopenableDocument,
-      buildUnopenableDocumentOverlay(localizer, { kind: 'boundary' }, ignore),
+      buildUnopenableDocumentOverlay(localizer, { kind: 'boundary' }, ignore, ignore),
     );
     harness.overlay.present(
       INPUT_STOP_REASON.restoreIncomplete,
@@ -89,7 +89,7 @@ describe('presenting the overlay', () => {
     const harness = createOverlayHarness();
     harness.overlay.present(
       INPUT_STOP_REASON.unopenableDocument,
-      buildUnopenableDocumentOverlay(localizer, { kind: 'boundary' }, ignore),
+      buildUnopenableDocumentOverlay(localizer, { kind: 'boundary' }, ignore, ignore),
     );
 
     harness.overlay.dismiss(INPUT_STOP_REASON.restoreIncomplete);
@@ -159,7 +159,7 @@ describe('presenting the overlay', () => {
 
     harness.overlay.present(
       INPUT_STOP_REASON.unopenableDocument,
-      buildUnopenableDocumentOverlay(localizer, { kind: 'forbiddenTag', tagName: 'script' }, ignore),
+      buildUnopenableDocumentOverlay(localizer, { kind: 'forbiddenTag', tagName: 'script' }, ignore, ignore),
     );
 
     expect(harness.readOverlay()?.querySelector('script')).toBeNull();

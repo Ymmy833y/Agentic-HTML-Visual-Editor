@@ -76,6 +76,14 @@ export interface ViewMessageContext {
   receiveTextEditorSwitchRequest(): void;
 
   /**
+   * Receives a request to write an HTML skeleton to a blank document and open it again.
+   *
+   * Takes no arguments. Whoever assembles this set has already captured the target document as the sending view's
+   * document.
+   */
+  receiveSkeletonRequest(): void;
+
+  /**
    * Receives a save request from the toolbar's save button.
    *
    * It takes no argument. Whoever assembles this port has already pinned the target to the document
@@ -245,6 +253,10 @@ export async function handleViewMessage(
       // The target is determined by the document of the panel that received the message. Nothing but the type is
       // read, so no value sent by the view can change the target.
       context.receiveTextEditorSwitchRequest();
+      return;
+    case VIEW_TO_HOST_MESSAGE_TYPE.documentSkeletonRequested:
+      // Nothing but the type is read, so no value sent by the view can change which file is written.
+      context.receiveSkeletonRequest();
       return;
     case VIEW_TO_HOST_MESSAGE_TYPE.saveRequested:
       // Nothing but the type is read, so no value sent by the view can change what is saved.

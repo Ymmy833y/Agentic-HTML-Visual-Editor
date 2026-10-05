@@ -10,6 +10,7 @@ const CONDITION = 'These are the opening conditions';
 const FORBIDDEN_TAG = 'The body contains <{tagName}>';
 const ENCODING_MISMATCH = 'Reopen it with the right encoding';
 const OPEN_IN_TEXT_EDITOR = 'Switch to text';
+const CREATE_SKELETON = 'Create a skeleton';
 
 // Use a catalog with short values because this test checks which message is selected for each
 // reason, not the wording itself.
@@ -19,14 +20,15 @@ const localizer: Localizer = createLocalizer({
   'unopenableDocument.forbiddenTag': FORBIDDEN_TAG,
   'unopenableDocument.encodingMismatch': ENCODING_MISMATCH,
   'unopenableDocument.openInTextEditor': OPEN_IN_TEXT_EDITOR,
+  'unopenableDocument.createSkeleton': CREATE_SKELETON,
 });
 
-// Button presses are not verified in this file. The result of a press, including the send to the host, is checked in
+// Only the skeleton button's press is verified in this file. The send to the host that a press leads to is checked in
 // the E2E layer.
-const ignoreSwitchRequest = (): void => undefined;
+const ignoreRequest = (): void => undefined;
 
 function build(reason: UnopenableReason): ReturnType<typeof buildUnopenableDocumentOverlay> {
-  return buildUnopenableDocumentOverlay(localizer, reason, ignoreSwitchRequest);
+  return buildUnopenableDocumentOverlay(localizer, reason, ignoreRequest, ignoreRequest);
 }
 
 describe('the content of the unopenable document overlay', () => {
@@ -50,9 +52,36 @@ describe('the content of the unopenable document overlay', () => {
     );
   });
 
-  it('offers exactly one switch action whatever the reason', () => {
+  it('offers exactly one switch action when the boundary could not be established', () => {
     expect(build({ kind: 'boundary' }).actions.map((action) => action.label)).toEqual([
       OPEN_IN_TEXT_EDITOR,
     ]);
+  });
+
+  it('offers the skeleton action before the switch action for a blank document', () => {
+    expect(build({ kind: 'blank' }).actions.map((action) => action.label)).toEqual([
+      CREATE_SKELETON,
+      OPEN_IN_TEXT_EDITOR,
+    ]);
+  });
+
+  it('calls the skeleton receiver once for each press of the skeleton action', () => {
+    let requests = 0;
+    const overlay = buildUnopenableDocumentOverlay(localizer, { kind: 'blank' }, ignoreRequest, () => {
+      requests += 1;
+    });
+
+    overlay.actions[0].run();
+    overlay.actions[0].run();
+
+    expect(requests).toBe(2);
+  });
+
+  it.each<UnopenableReason>([
+    { kind: 'boundary' },
+    { kind: 'forbiddenTag', tagName: 'script' },
+    { kind: 'encodingMismatch' },
+  ])('offers no skeleton action when the reason is $kind', (reason) => {
+    expect(build(reason).actions.map((action) => action.label)).not.toContain(CREATE_SKELETON);
   });
 });

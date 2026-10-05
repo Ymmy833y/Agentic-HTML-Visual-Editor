@@ -24,8 +24,12 @@ interface SessionInspection {
 }
 
 interface ExtensionApi {
+  getMessage(key: string): string;
   readWebviewInspection(documentUri: string): WebviewInspection | undefined;
   readSessionInspection(): SessionInspection;
+  readDiagnosticInspection(): { readonly notifications: readonly string[]; readonly logLines: readonly string[] };
+  clearDiagnosticInspection(): void;
+  injectViewMessage(documentUri: string, message: unknown): Promise<boolean>;
 }
 
 function findExtension(): vscode.Extension<ExtensionApi> {
@@ -294,5 +298,147 @@ describe('opening a file decoded with a mismatched encoding', () => {
     const initialize = await readInitializeMessage(uri);
 
     assert.strictEqual(readMessageValue(initialize, 'encodingMismatch'), undefined);
+  });
+});
+
+describe('writing an HTML skeleton to a blank document', () => {
+  const SCRATCH_FILE_NAME = 'bootstrap-skeleton-scratch.html';
+  const DIRTY_SCRATCH_FILE_NAME = 'bootstrap-skeleton-dirty-scratch.html';
+  const CLOSED_SCRATCH_FILE_NAME = 'bootstrap-skeleton-closed-scratch.html';
+
+  beforeEach(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  });
+
+  after(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    for (const fileName of [SCRATCH_FILE_NAME, DIRTY_SCRATCH_FILE_NAME, CLOSED_SCRATCH_FILE_NAME]) {
+      await vscode.workspace.fs.delete(fixtureUri(fileName)).then(undefined, () => undefined);
+    }
+  });
+
+  // Each case uses its own file, because VS Code keeps the text model of a closed file for a while.
+  async function openBlankScratch(fileName: string): Promise<vscode.Uri> {
+    const uri = fixtureUri(fileName);
+    await vscode.workspace.fs.writeFile(uri, new Uint8Array());
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+    await readInitializeMessage(uri);
+    return uri;
+  }
+
+  // Writes an empty file and returns once the extension host has received a change notice for it. A session opened
+  // afterwards never receives that notice, so no reconcile is left waiting for the buffer when the test starts. A new
+  // watcher starts reporting only after a moment, so the write is repeated until the first notice arrives.
+  async function writeBlankScratchAndSettle(fileName: string): Promise<vscode.Uri> {
+    const uri = fixtureUri(fileName);
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, '..'), fileName));
+    let notified = false;
+    watcher.onDidCreate(() => {
+      notified = true;
+    });
+    watcher.onDidChange(() => {
+      notified = true;
+    });
+    try {
+      const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
+      while (!notified) {
+        assert.ok(Date.now() < deadline, 'Timed out before the write of the scratch file was notified');
+        await vscode.workspace.fs.writeFile(uri, new Uint8Array());
+        await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+      }
+    } finally {
+      watcher.dispose();
+    }
+    return uri;
+  }
+
+  async function readInitializeTexts(uri: vscode.Uri): Promise<(string | undefined)[]> {
+    return (await readRecordedMessages(uri))
+      .filter((recorded) => recorded.direction === 'toView'
+        && readMessageField(recorded.message, 'type') === 'initialize')
+      .map((recorded) => readMessageField(recorded.message, 'text'));
+  }
+
+  it('writes the skeleton, initializes the recreated view with it, and shows no notice', async () => {
+    const extensionApi = await findExtension().activate();
+    const uri = await openBlankScratch(SCRATCH_FILE_NAME);
+    extensionApi.clearDiagnosticInspection();
+    const skeleton = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n'
+      + '<title>bootstrap-skeleton-scratch</title>\n</head>\n<body>\n</body>\n</html>\n';
+
+    assert.ok(
+      await extensionApi.injectViewMessage(uri.toString(), { type: 'documentSkeletonRequested' }),
+      'could not deliver the skeleton request because there is no session',
+    );
+    const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
+    while ((await readInitializeTexts(uri)).length < 2) {
+      assert.ok(Date.now() < deadline, 'Timed out before the recreated view was initialized');
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+
+    assert.deepStrictEqual(
+      {
+        file: await readFileText(uri),
+        initializeTexts: await readInitializeTexts(uri),
+        notifications: extensionApi.readDiagnosticInspection().notifications,
+      },
+      { file: skeleton, initializeTexts: ['', skeleton], notifications: [] },
+    );
+  });
+
+  it('leaves the file unchanged and shows one failure notice when a text editor holds unsaved edits', async () => {
+    const extensionApi = await findExtension().activate();
+    // The buffer is made dirty before the WYSIWYG opens. An edit made while the view is open would itself reach the
+    // view as a source change, which a blank document's view cannot take, and the test would no longer be about the
+    // skeleton request.
+    const uri = await writeBlankScratchAndSettle(DIRTY_SCRATCH_FILE_NAME);
+    const textDocument = await vscode.workspace.openTextDocument(uri);
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(uri, new vscode.Position(0, 0), '\n');
+    assert.ok(await vscode.workspace.applyEdit(edit), 'could not make the text buffer dirty');
+    assert.ok(textDocument.isDirty, 'the text buffer is not dirty');
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+    await readInitializeMessage(uri);
+    extensionApi.clearDiagnosticInspection();
+
+    assert.ok(
+      await extensionApi.injectViewMessage(uri.toString(), { type: 'documentSkeletonRequested' }),
+      'could not deliver the skeleton request because there is no session',
+    );
+    const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
+    while (extensionApi.readDiagnosticInspection().notifications.length === 0) {
+      assert.ok(Date.now() < deadline, 'Timed out before a notice was shown');
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+
+    assert.deepStrictEqual(
+      { file: await readFileText(uri), notifications: extensionApi.readDiagnosticInspection().notifications },
+      { file: '', notifications: [extensionApi.getMessage('documentSkeleton.failed.message')] },
+    );
+  });
+
+  it('writes the skeleton but logs one line instead of recreating the view when the tab is closed during the write', async () => {
+    const extensionApi = await findExtension().activate();
+    const uri = await writeBlankScratchAndSettle(CLOSED_SCRATCH_FILE_NAME);
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+    await readInitializeMessage(uri);
+    extensionApi.clearDiagnosticInspection();
+
+    // The request is handled up to the start of the write before this resolves, so the close lands during the write.
+    assert.ok(
+      await extensionApi.injectViewMessage(uri.toString(), { type: 'documentSkeletonRequested' }),
+      'could not deliver the skeleton request because there is no session',
+    );
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
+    while (!extensionApi.readDiagnosticInspection().logLines.some((line) => line.includes('the tab was closed'))) {
+      assert.ok(Date.now() < deadline, 'Timed out before the closed tab was logged');
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+
+    assert.deepStrictEqual(
+      { file: (await readFileText(uri)).startsWith('<!DOCTYPE html>'), notifications: extensionApi.readDiagnosticInspection().notifications },
+      { file: true, notifications: [] },
+    );
   });
 });

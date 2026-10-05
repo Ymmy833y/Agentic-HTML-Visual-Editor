@@ -131,7 +131,7 @@ export {
   COMMENT_TAG_NAME,
 } from './html/comment-annotation';
 export type { CommentAuthor } from './html/comment-annotation';
-export { joinDocument, splitDocument } from './html/document-boundary';
+export { isBlankDocument, joinDocument, splitDocument } from './html/document-boundary';
 export type { DocumentBoundary } from './html/document-boundary';
 export { rewriteCharsetDeclaration } from './html/charset-declaration';
 export { joinLines, splitLines } from './text/lines';

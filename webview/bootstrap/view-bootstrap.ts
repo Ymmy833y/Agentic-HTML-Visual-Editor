@@ -8,6 +8,7 @@ import {
   VIEW_TO_HOST_MESSAGE_TYPE,
   createLocalizer,
   discardUnhandledMessage,
+  isBlankDocument,
   joinDocument,
   splitDocument,
 } from '../../common/index';
@@ -379,8 +380,8 @@ function readShell(view: Window): ViewShell {
 /**
  * Shows the overlay with the reason the document was deemed unopenable.
  *
- * Each press of the text editor switch button sends one editor switch request to the host. The view does not wait
- * for the result.
+ * Each press of the text editor switch button sends one editor switch request to the host, and each press of the
+ * skeleton button sends one skeleton request. The view does not wait for either result.
  *
  * @param view The view window.
  * @param reason Why the document was deemed unopenable.
@@ -401,6 +402,14 @@ function showUnopenable(view: Window, reason: UnopenableReason, channel: HostCha
           postDiagnostic(channel, `Could not send the text editor switch request: ${String(error)}`);
         }
       },
+      () => {
+        try {
+          channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.documentSkeletonRequested });
+        } catch (error) {
+          // The button stays, so it can be pressed again.
+          postDiagnostic(channel, `Could not send the skeleton request: ${String(error)}`);
+        }
+      },
     ),
   );
 }
@@ -417,6 +426,9 @@ function showUnopenable(view: Window, reason: UnopenableReason, channel: HostCha
  * @returns The unopenable reason, or `undefined` on success.
  */
 function applyDocumentText(text: string, target: MountTarget): UnopenableReason | undefined {
+  if (isBlankDocument(text)) {
+    return { kind: 'blank' };
+  }
   const boundary = splitDocument(text);
   if (boundary === undefined) {
     return { kind: 'boundary' };

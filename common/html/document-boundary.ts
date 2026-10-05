@@ -208,6 +208,20 @@ export function splitDocument(text: string): DocumentBoundary | undefined {
 }
 
 /**
+ * Determines whether document text holds nothing but whitespace.
+ *
+ * Such a document has nothing that writing an HTML skeleton over it could lose, so it is the only kind of unopenable
+ * document the view offers to fill in. The BOM counts as whitespace because an empty file saved by some editors
+ * consists of it alone.
+ *
+ * @param text The entire file text.
+ * @returns `true` for an empty string or text made only of whitespace, line breaks, and the BOM.
+ */
+export function isBlankDocument(text: string): boolean {
+  return /^[\s﻿]*$/.test(text);
+}
+
+/**
  * Joins a prologue, body, and epilogue into one document text.
  *
  * Emits the prologue and epilogue exactly as received. Avoiding interpretation and regeneration is

@@ -46,6 +46,7 @@ interface Harness {
   readonly restoreActions: RestoreAction[];
   /** How many times the text editor switch receiver was called. */
   readonly readTextEditorSwitchCount: () => number;
+  readonly readSkeletonRequestCount: () => number;
   /** How many times the save request receiver was called, and the arguments it was passed. */
   readonly saveRequestCalls: unknown[][];
   /** The arguments passed to the relative link receiver, in the order received. */
@@ -77,6 +78,7 @@ function createHarness(unreadable = false): Harness {
   const historyMessages: unknown[] = [];
   let editNoticeCount = 0;
   let textEditorSwitchCount = 0;
+  let skeletonRequestCount = 0;
   const saveRequestCalls: unknown[][] = [];
   const relativeLinkCalls: unknown[][] = [];
   const copyRequestCalls: unknown[][] = [];
@@ -106,6 +108,7 @@ function createHarness(unreadable = false): Harness {
     },
     readEditNoticeCount: () => editNoticeCount,
     readTextEditorSwitchCount: () => textEditorSwitchCount,
+    readSkeletonRequestCount: () => skeletonRequestCount,
     saveRequestCalls,
     relativeLinkCalls,
     copyRequestCalls,
@@ -136,6 +139,9 @@ function createHarness(unreadable = false): Harness {
       receiveRestoreAction: (action) => restoreActions.push(action),
       receiveTextEditorSwitchRequest: () => {
         textEditorSwitchCount += 1;
+      },
+      receiveSkeletonRequest: () => {
+        skeletonRequestCount += 1;
       },
       receiveSaveRequest: (...args: unknown[]) => {
         saveRequestCalls.push(args);
@@ -405,6 +411,15 @@ describe('text editor switch requests', () => {
     await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.textEditorSwitchRequested }, harness.context);
 
     expect([harness.readTextEditorSwitchCount(), harness.reporter.readInspection().logLines])
+      .toEqual([1, []]);
+  });
+
+  it('calls the skeleton receiver once and leaves nothing in the diagnostic log when a skeleton request is received', async () => {
+    const harness = createHarness();
+
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.documentSkeletonRequested }, harness.context);
+
+    expect([harness.readSkeletonRequestCount(), harness.reporter.readInspection().logLines])
       .toEqual([1, []]);
   });
 });

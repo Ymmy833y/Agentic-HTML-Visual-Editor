@@ -42,6 +42,7 @@ export const VIEW_TO_HOST_MESSAGE_TYPE = {
   documentInitialized: 'documentInitialized',
   restoreActionSelected: 'restoreActionSelected',
   textEditorSwitchRequested: 'textEditorSwitchRequested',
+  documentSkeletonRequested: 'documentSkeletonRequested',
   saveRequested: 'saveRequested',
   relativeLinkRequested: 'relativeLinkRequested',
   copyRequested: 'copyRequested',
@@ -362,6 +363,17 @@ export interface TextEditorSwitchRequestedMessage {
 }
 
 /**
+ * The message by which the button in the dialog for a blank document asks the host to write an HTML skeleton to the
+ * file and open it again.
+ *
+ * It has no response. On success the host recreates the sending view; on failure the host notifies the user. The
+ * target document is determined by the panel that receives the message, so it carries no content.
+ */
+export interface DocumentSkeletonRequestedMessage {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.documentSkeletonRequested;
+}
+
+/**
  * The view → host message carrying a press on the toolbar's save button, with no response.
  *
  * It carries neither a body nor a destination. What is saved is determined by the document of the
@@ -523,6 +535,7 @@ export type ViewToHostMessage =
   | DocumentInitializedMessage
   | RestoreActionSelectedMessage
   | TextEditorSwitchRequestedMessage
+  | DocumentSkeletonRequestedMessage
   | SaveRequestedMessage
   | RelativeLinkRequestedMessage
   | CopyRequestedMessage
