@@ -473,6 +473,13 @@
   outline-color: var(--ahve-comment-ai-resolved);
 }
 
+/* While its popup is open, the comment's border is thicker, so the thread can be told apart from other annotations. Only the
+   width changes; the style and color stay those of the author and resolved rules. The mark is in the internal namespace,
+   matched with * as esbuild does not handle @namespace. */
+#editor-root comment[*|data-ahve-comment-open] {
+  outline-width: 2px;
+}
+
 /* Entries (body and replies) are not shown in the document flow, only in the popup. Hidden regardless of contenteditable,
    so the caret cannot enter them either. */
 #editor-root :is(comment-body, comment-reply) {

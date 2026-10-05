@@ -819,8 +819,8 @@ test.describe('Managing inputs', () => {
 
   test('Esc in an active field leaves the tree unchanged, empties the field, and keeps the popup open', async ({ page }) => {
     await openCommentEditor(page, HUMAN_COMMENT);
-    const before = await readBodyHtml(page);
     await openByClick(page);
+    const before = await readBodyHtml(page);
     await page.locator(REPLY_FIELD).click();
     await page.keyboard.type('abc');
 
@@ -1200,8 +1200,8 @@ test.describe('Confirming the other party\'s entries', () => {
 
   test('canceling the confirmation when editing an AI entry opens no field and leaves the tree unchanged', async ({ page }) => {
     await openCommentEditor(page, AI_COMMENT);
-    const before = await readBodyHtml(page);
     await openByClick(page);
+    const before = await readBodyHtml(page);
     await entryButton(page, 0, 'commentThread.editEntry').click();
 
     await dialogButton(page, 'commentThread.cancel').click();
@@ -1357,6 +1357,19 @@ test.describe('Moving between comments', () => {
     expect(await readPopupEntries(page)).toEqual(['three']);
   });
 
+  test('pressing the next button moves the thick border to the next annotated text and returns the earlier one to 1px', async ({ page }) => {
+    await openCommentEditor(page, THREE_COMMENTS);
+    await openByClick(page, `${EDITOR_ROOT} #b`);
+
+    await page.locator(NEXT).click();
+
+    await expect.poll(() => readPopupEntries(page)).toEqual(['three']);
+    expect([
+      await readComputed(page, `${EDITOR_ROOT} #b`, ['outline-width']),
+      await readComputed(page, `${EDITOR_ROOT} #c`, ['outline-width']),
+    ]).toEqual([['1px'], ['2px']]);
+  });
+
   test('outside the fields, ↓ and → move to the next and ↑ and ← to the previous', async ({ page }) => {
     await openCommentEditor(page, THREE_COMMENTS);
     await openByItem(page, `${EDITOR_ROOT} #b`);
@@ -1373,12 +1386,12 @@ test.describe('Moving between comments', () => {
   test('moving changes neither the editor root selection nor the tree', async ({ page }) => {
     await openCommentEditor(page, THREE_COMMENTS);
     await openByItem(page, `${EDITOR_ROOT} #b`);
-    const before = [await readSelectionEnds(page), await readBodyHtml(page)];
+    const before = [await readSelectionEnds(page), await readBodyOutput(page)];
 
     await page.keyboard.press('ArrowDown');
 
     expect(await readPopupEntries(page)).toEqual(['three']);
-    expect([await readSelectionEnds(page), await readBodyHtml(page)]).toEqual(before);
+    expect([await readSelectionEnds(page), await readBodyOutput(page)]).toEqual(before);
   });
 
   test('closing with Esc after moving returns to the editor root selection from the first opening', async ({ page }) => {

@@ -4,6 +4,8 @@ import { createLocalizer } from '../../common/index';
 import type { EncodedSelection } from '../../common/index';
 import { captureSelection } from '../../webview/selection/selection-capture';
 import {
+  COMMENT_OPEN_MARK_NAME,
+  COMMENT_OPEN_MARK_NAMESPACE,
   COMMENT_POPUP_ELEMENT_ID,
   attachCommentPopup,
   readCommentPopupPlacement,
@@ -155,22 +157,51 @@ describe('Popup placement', () => {
 
   it('when it fits below, returns a position a gap below the annotated text with the left edge aligned to it', () => {
     expect(readCommentPopupPlacement({ left: 100, top: 50, bottom: 70 }, { width: 200, height: 100 }, area))
-      .toEqual({ left: 100, top: 76 });
+      .toEqual({ left: 100, top: 76, maxHeight: undefined });
   });
 
   it('when it does not fit below but fits above, returns a position flipped above the annotated text', () => {
     expect(readCommentPopupPlacement({ left: 100, top: 500, bottom: 520 }, { width: 200, height: 100 }, area))
-      .toEqual({ left: 100, top: 394 });
+      .toEqual({ left: 100, top: 394, maxHeight: undefined });
   });
 
   it('when it overflows the right edge, it is pulled into the area horizontally', () => {
     expect(readCommentPopupPlacement({ left: 700, top: 50, bottom: 70 }, { width: 200, height: 100 }, area))
-      .toEqual({ left: 600, top: 76 });
+      .toEqual({ left: 600, top: 76, maxHeight: undefined });
   });
 
-  it('when it fits neither above nor below, it is not pulled in vertically and is placed below the annotated text', () => {
-    expect(readCommentPopupPlacement({ left: 100, top: 50, bottom: 70 }, { width: 200, height: 580 }, area))
-      .toEqual({ left: 100, top: 76 });
+  it('when it fits neither above nor below and there is more room below, it is placed below with its height limited to that room', () => {
+    expect(readCommentPopupPlacement({ left: 100, top: 250, bottom: 270 }, { width: 200, height: 400 }, area))
+      .toEqual({ left: 100, top: 276, maxHeight: 324 });
+  });
+
+  it('when it fits neither above nor below and there is more room above, its top is at the top of the area with its height limited to that room', () => {
+    expect(readCommentPopupPlacement({ left: 100, top: 330, bottom: 350 }, { width: 200, height: 400 }, area))
+      .toEqual({ left: 100, top: 0, maxHeight: 324 });
+  });
+
+  it('when there is no room on either side, it is placed below the annotated text without a height limit', () => {
+    expect(readCommentPopupPlacement({ left: 100, top: -10, bottom: 610 }, { width: 200, height: 100 }, area))
+      .toEqual({ left: 100, top: 616, maxHeight: undefined });
+  });
+});
+
+describe('Open mark', () => {
+  it('reattaching puts the open mark on the comment in the new tree and removes it from the earlier comment', () => {
+    const harness = createPopup(COMMENT);
+    const earlier = readElement(harness.root, 'comment');
+    giveRect(earlier);
+    harness.popup.open(earlier, false);
+    harness.root.innerHTML = '<p>z<comment id="c-1">ab<comment-body>new</comment-body></comment></p>';
+    const next = readElement(harness.root, 'comment');
+    giveRect(next);
+
+    harness.popup.reattach(next);
+
+    expect([
+      next.hasAttributeNS(COMMENT_OPEN_MARK_NAMESPACE, COMMENT_OPEN_MARK_NAME),
+      earlier.hasAttributeNS(COMMENT_OPEN_MARK_NAMESPACE, COMMENT_OPEN_MARK_NAME),
+    ]).toEqual([true, false]);
   });
 });
 
