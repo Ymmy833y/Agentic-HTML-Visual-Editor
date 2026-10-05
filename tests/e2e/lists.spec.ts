@@ -564,14 +564,15 @@ test.describe('indenting and outdenting with Tab and Shift+Tab', () => {
     ]).toEqual([body, EDITOR_ROOT_ELEMENT_ID, false]);
   });
 
-  test('pressing Tab in a paragraph outside the list is not taken over, and the key reaches the forwarded key record', async ({ page }) => {
-    await openEditor(page, '\n<p>a</p>\n<ul><li>b</li></ul>\n');
+  test('pressing Tab in a paragraph outside the list leaves the paragraph and the list unchanged, and the key does not reach the forwarded key record', async ({ page }) => {
+    const body = '\n<p>a</p>\n<ul><li>b</li></ul>\n';
+    await openEditor(page, body);
     await placeCaretInText(page, `${EDITOR_ROOT} p`, 1);
     await installForwardRecord(page);
 
     await page.keyboard.press('Tab');
 
-    expect((await readForwardedKeys(page)).includes('Tab')).toBe(true);
+    expect([await readBodyHtml(page), (await readForwardedKeys(page)).includes('Tab')]).toEqual([body, false]);
   });
 
   test('pressing Tab in a cell inside an item leaves the list unchanged', async ({ page }) => {

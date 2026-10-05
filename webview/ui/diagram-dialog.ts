@@ -1,5 +1,6 @@
 import type { Localizer } from '../../common/index';
 import { findContainingDiagramSource, readDiagramSource } from '../diagram/diagram-source';
+import { DIAGRAM_MARK_NAMESPACE, DIAGRAM_ZOOMED_MARK_NAME } from '../diagram/diagram-view';
 import { buildRequirementLabels } from './action-dialog';
 import type { ActionDialogResult, ActionDialogSpec } from './action-dialog';
 
@@ -145,10 +146,12 @@ function readTrailingWhitespace(source: string): string {
 }
 
 /**
- * Attaches one click listener to the editor root that calls an operation with the diagram clicked in it.
+ * Attaches to the editor root a click listener that calls an operation with the diagram clicked in it, and a press
+ * listener that keeps the caret out of a zoomed diagram.
  *
  * Only a primary-button click without modifiers counts; a click with a modifier means something else, such as
- * extending the selection. Neither the default nor propagation is stopped, so the other listeners still see it.
+ * extending the selection. Neither the default nor propagation is stopped, so the other listeners still see it. A press
+ * on the scroll bar of a zoomed diagram fires no click, so it only scrolls.
  *
  * @param root The editor root. It stays the same element across document replacements, so call this only once, on
  *   the first mount.
@@ -163,6 +166,15 @@ export function attachDiagramClick(root: HTMLElement, open: (block: Element) => 
     const block = target instanceof Node ? findContainingDiagramSource(target, root) : undefined;
     if (block !== undefined) {
       open(block);
+    }
+  });
+  // A zoomed diagram is a visible block, so that it can scroll, and a press on it would put the caret into its source,
+  // where typing does nothing. The press is kept from placing the caret; dragging its scroll bar still works.
+  root.addEventListener('mousedown', (event) => {
+    const target = event.target;
+    const block = target instanceof Node ? findContainingDiagramSource(target, root) : undefined;
+    if (block?.hasAttributeNS(DIAGRAM_MARK_NAMESPACE, DIAGRAM_ZOOMED_MARK_NAME) === true) {
+      event.preventDefault();
     }
   });
 }

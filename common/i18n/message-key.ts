@@ -191,6 +191,9 @@ export const MESSAGE_KEYS = [
   'sidebar.resolved',
   'codeBlockCopy.name',
   'codeBlockCopy.failed.message',
+  'diagramZoom.zoomIn',
+  'diagramZoom.zoomOut',
+  'diagramZoom.reset',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

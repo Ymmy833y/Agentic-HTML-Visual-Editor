@@ -190,5 +190,8 @@
   "sidebar.emptyText": "(Empty)",
   "sidebar.resolved": "Resolved",
   "codeBlockCopy.name": "Copy Code",
-  "codeBlockCopy.failed.message": "The code could not be copied, so the clipboard was left unchanged."
+  "codeBlockCopy.failed.message": "The code could not be copied, so the clipboard was left unchanged.",
+  "diagramZoom.zoomIn": "Zoom In",
+  "diagramZoom.zoomOut": "Zoom Out",
+  "diagramZoom.reset": "Reset Zoom"
 }

@@ -1496,6 +1496,44 @@
   height: 1em;
 }
 
+/* The zoom buttons of diagrams. The ID matches the constant in diagram-zoom.ts. The strip of three buttons takes the
+   place, stacking level and look of the copy button of code blocks, which a diagram never shows. */
+#editor-diagram-zoom {
+  position: fixed;
+  z-index: 0;
+  display: inline-flex;
+  color: var(--ahve-fg);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
+  border-radius: 4px;
+  box-shadow: var(--ahve-shadow-small);
+}
+
+#editor-diagram-zoom[hidden] {
+  display: none;
+}
+
+#editor-diagram-zoom > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+}
+
+#editor-diagram-zoom > button:hover {
+  background: var(--ahve-code-bg);
+}
+
+#editor-diagram-zoom svg {
+  width: 1em;
+  height: 1em;
+}
+
 /* The overlay. The ID matches the constant in overlay-presenter.ts.
    It sits in front of the toolbar, the editor root and the action dialog's backdrop, so that pointer
    actions do not reach past it and an overlay that goes up while a dialog is open is not dimmed. Its

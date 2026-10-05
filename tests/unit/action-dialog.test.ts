@@ -473,7 +473,12 @@ describe('a multi-line field of the action dialog', () => {
     return event.defaultPrevented;
   }
 
-  it('is built as a text area, where Enter breaks the line without confirming and the primary modifier+Enter confirms', async () => {
+  /**
+   * Opens a dialog with one multi-line field.
+   *
+   * @returns The text area and the pending result.
+   */
+  function openMultiline(): { field: HTMLTextAreaElement; result: Promise<unknown> } {
     const presenter = createPresenter();
     const result = presenter.open({
       ...SPEC,
@@ -483,17 +488,30 @@ describe('a multi-line field of the action dialog', () => {
     if (!(field instanceof HTMLTextAreaElement)) {
       throw new Error('no text area');
     }
+    return { field, result };
+  }
 
+  it('is built as a text area, where Shift+Enter breaks the line without confirming and Enter confirms', async () => {
+    const { field, result } = openMultiline();
+
+    const shiftPrevented = pressEnter(field, { shiftKey: true });
+    const afterShift = await settleOrPending(result);
     const plainPrevented = pressEnter(field);
-    const afterPlain = await settleOrPending(result);
-    const controlPrevented = pressEnter(field, { ctrlKey: true });
 
-    expect([field.value, plainPrevented, afterPlain, controlPrevented, await result]).toEqual([
+    expect([field.value, shiftPrevented, afterShift, plainPrevented, await result]).toEqual([
       'graph TD',
       false,
       PENDING,
       true,
       { confirmed: true, values: { source: 'graph TD' } },
     ]);
+  });
+
+  it('confirms on the primary modifier+Enter as well', async () => {
+    const { field, result } = openMultiline();
+
+    const controlPrevented = pressEnter(field, { ctrlKey: true });
+
+    expect([controlPrevented, await result]).toEqual([true, { confirmed: true, values: { source: 'graph TD' } }]);
   });
 });
