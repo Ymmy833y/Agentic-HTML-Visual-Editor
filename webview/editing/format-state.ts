@@ -1,9 +1,9 @@
 import { isHtmlWhitespaceOnly } from './block';
 import { findEnclosingLink } from './format-link';
-import { collectFormatTarget } from './format-segment';
+import { readFormatTarget } from './format-segment';
 import { INLINE_FORMAT, isFormatElement } from './inline-format';
 import type { InlineFormat } from './inline-format';
-import type { FormatSegment, FormatTarget } from './format-segment';
+import type { FormatTarget } from './format-segment';
 
 /** Whether each of the five formats is formatted. No format is omitted. */
 export type FormatState = Readonly<Record<InlineFormat, boolean>>;
@@ -24,12 +24,13 @@ const INLINE_FORMATS: readonly InlineFormat[] = Object.values(INLINE_FORMAT);
 /**
  * Reads, for each format, whether the target is formatted. Does not change the tree.
  *
- * @param target A list of format segments, a caret position, or no target.
+ * @param target A list of format segments, a caret position, or no target. The format segments may hold live or
+ *   static ranges.
  * @returns Whether each format is formatted. Every format is false when there is no target text.
  *   The link alone is an exception: if the format segments hold images and all of them are inside a link, it is
  *   true even without target text.
  */
-export function readFormatState(target: FormatTarget): FormatState {
+export function readFormatState(target: FormatTarget<AbstractRange>): FormatState {
   if (target.kind === 'none') {
     return createState();
   }
@@ -39,20 +40,27 @@ export function readFormatState(target: FormatTarget): FormatState {
 
   const state = createState();
   let counted = 0;
-  for (const segment of target.segments) {
-    for (const text of collectTargetTexts(segment)) {
-      const formats = readAncestorFormats(text);
-      for (const format of INLINE_FORMATS) {
-        // If even one character of the target text lies outside the format, that format is not formatted.
-        state[format] = counted === 0 ? formats[format] : state[format] && formats[format];
+  const images: Element[] = [];
+  // One probe is moved onto each format segment in turn, so that a read over many segments leaves no live range
+  // per segment registered with the document.
+  const probe = target.segments[0]?.parent.ownerDocument?.createRange();
+  if (probe !== undefined) {
+    for (const segment of target.segments) {
+      placeProbe(probe, segment.parent, segment.range);
+      for (const text of collectTargetTexts(segment.parent, probe)) {
+        const formats = readAncestorFormats(text);
+        for (const format of INLINE_FORMATS) {
+          // If even one character of the target text lies outside the format, that format is not formatted.
+          state[format] = counted === 0 ? formats[format] : state[format] && formats[format];
+        }
+        counted += 1;
       }
-      counted += 1;
+      images.push(...collectTargetImages(segment.parent, probe));
     }
   }
 
   // A link can wrap images too, so it is not formatted if an image in the format segments lies outside the link.
   // The other four formats give images no appearance, so they stay decided by the target text alone.
-  const images = target.segments.flatMap(collectTargetImages);
   const imagesLinked = images.every((image) => readAncestorFormats(image).link);
   if (counted === 0) {
     return { ...createState(), link: images.length > 0 && imagesLinked };
@@ -71,7 +79,7 @@ export function readFormatState(target: FormatTarget): FormatState {
  * @returns The link state.
  */
 export function readLinkState(root: Element): LinkState {
-  const target = collectFormatTarget(root, true);
+  const target = readFormatTarget(root, true);
   return {
     formatted: readFormatState(target).link,
     hasSegments: target.kind === 'segments' && target.segments.length > 0,
@@ -109,27 +117,44 @@ function readAncestorFormats(node: Node): Record<InlineFormat, boolean> {
 }
 
 /**
+ * Moves the probe onto the range of a format segment.
+ *
+ * The probe is first set to the contents of the segment's parent, so that setting the ends compares positions only
+ * within that parent and not with wherever the previous segment was.
+ *
+ * @param probe The probe.
+ * @param parent The parent node of the format segment.
+ * @param range The range of the format segment.
+ */
+function placeProbe(probe: Range, parent: Node, range: AbstractRange): void {
+  probe.selectNodeContents(parent);
+  probe.setStart(range.startContainer, range.startOffset);
+  probe.setEnd(range.endContainer, range.endOffset);
+}
+
+/**
  * Returns, in document order, the texts a format segment covers that hold target text.
  *
  * A whitespace-only run is not target text. Counting even the whitespace that falls between format
  * elements would make a formatted selection read as not formatted.
  *
- * @param segment The format segment.
+ * @param parent The parent node of the format segment.
+ * @param probe The probe placed on the format segment's range.
  * @returns The text nodes that hold target text.
  */
-function collectTargetTexts(segment: FormatSegment): Text[] {
-  const document = segment.parent.ownerDocument;
+function collectTargetTexts(parent: Node, probe: Range): Text[] {
+  const document = parent.ownerDocument;
   if (document === null) {
     return [];
   }
 
   const texts: Text[] = [];
-  const walker = document.createTreeWalker(segment.parent, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(parent, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     if (!(node instanceof Text)) {
       continue;
     }
-    const covered = readCoveredText(segment.range, node);
+    const covered = readCoveredText(probe, node);
     if (covered === undefined || isHtmlWhitespaceOnly(covered)) {
       continue;
     }
@@ -141,20 +166,21 @@ function collectTargetTexts(segment: FormatSegment): Text[] {
 /**
  * Returns, in document order, the images a format segment covers.
  *
- * @param segment The format segment.
+ * @param parent The parent node of the format segment.
+ * @param probe The probe placed on the format segment's range.
  * @returns The `img` elements contained in the range.
  */
-function collectTargetImages(segment: FormatSegment): Element[] {
-  const document = segment.parent.ownerDocument;
+function collectTargetImages(parent: Node, probe: Range): Element[] {
+  const document = parent.ownerDocument;
   if (document === null) {
     return [];
   }
 
   const images: Element[] = [];
-  const walker = document.createTreeWalker(segment.parent, NodeFilter.SHOW_ELEMENT);
+  const walker = document.createTreeWalker(parent, NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     // An image has no positions inside it, so if it overlaps the range it is covered whole.
-    if (node instanceof Element && node.localName === 'img' && segment.range.intersectsNode(node)) {
+    if (node instanceof Element && node.localName === 'img' && probe.intersectsNode(node)) {
       images.push(node);
     }
   }

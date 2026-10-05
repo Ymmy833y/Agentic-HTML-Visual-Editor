@@ -3,7 +3,7 @@ import type { AlertState } from './alert-state';
 import { readCurrentBlock } from './block-collect';
 import { isConvertibleBlock, readBlockKind } from './block-format';
 import type { BlockKind } from './block-format';
-import { collectFormatTarget } from './format-segment';
+import { readFormatTarget } from './format-segment';
 import { readFormatState } from './format-state';
 import type { FormatState } from './format-state';
 import type { ListKind } from './list-structure';
@@ -55,7 +55,7 @@ export function readCaretState(root: Element): CaretState {
     alert: readAlertState(block),
     // Images are counted too, so that the link item's pressed state matches the check for opening the link dialog in
     // the edit state. The four other formats are decided by the target text alone, so this option does not change them.
-    formats: readFormatState(collectFormatTarget(root, true)),
+    formats: readFormatState(readFormatTarget(root, true)),
     listKind: readListKindAt(root),
   };
 }

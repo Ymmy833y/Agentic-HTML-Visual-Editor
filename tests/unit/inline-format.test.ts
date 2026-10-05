@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { collectFormatSegments } from '../../webview/editing/format-segment';
+import { collectFormatSegments, collectFormatTarget, readFormatTarget } from '../../webview/editing/format-segment';
 import { readFormatState } from '../../webview/editing/format-state';
 import type { FormatState } from '../../webview/editing/format-state';
 import {
@@ -10,7 +10,7 @@ import {
   isFormatElement,
   isFormattingExcluded,
 } from '../../webview/editing/inline-format';
-import { createRange, createRoot, readChildText, readElement } from './helpers/format-dom';
+import { createRange, createRoot, mountRoot, readChildText, readElement, select } from './helpers/format-dom';
 
 // A state in which no format is formatted.
 const NO_FORMAT: FormatState = {
@@ -106,6 +106,16 @@ describe('reading the format state', () => {
     const segments = collectFormatSegments(root, createRange(paragraph, 0, paragraph, 2), true);
 
     expect(readFormatState({ kind: 'segments', segments }).link).toBe(false);
+  });
+});
+
+describe('reading the format state from the read-only target', () => {
+  it('gives the same state as the command target over two paragraphs that are only partly bold', () => {
+    const root = mountRoot('<p><strong>ab</strong></p>\n<p>c<strong>d</strong></p>');
+    const last = readChildText(root.querySelectorAll('strong')[1], 0);
+    select(createRange(readChildText(readElement(root, 'strong'), 0), 0, last, 1));
+
+    expect(readFormatState(readFormatTarget(root))).toEqual(readFormatState(collectFormatTarget(root)));
   });
 });
 

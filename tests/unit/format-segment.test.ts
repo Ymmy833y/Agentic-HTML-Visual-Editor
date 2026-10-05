@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { collectFormatSegments } from '../../webview/editing/format-segment';
-import type { FormatSegment } from '../../webview/editing/format-segment';
-import { createRange, createRoot, readChildText, readElement } from './helpers/format-dom';
+import { collectFormatSegments, collectFormatTarget, readFormatTarget } from '../../webview/editing/format-segment';
+import type { FormatSegment, FormatTarget } from '../../webview/editing/format-segment';
+import { createRange, createRoot, mountRoot, readChildText, readElement, select } from './helpers/format-dom';
+
+// Fifty paragraphs, one per line, so that whitespace-only text lies between them.
+const PARAGRAPHS = Array.from({ length: 50 }, (_, index) => `<p>paragraph ${index}</p>`).join('\n');
 
 /**
  * Turns the format segments into a list of "parent element name:covered text".
@@ -14,6 +17,24 @@ function describeSegments(segments: readonly FormatSegment[]): string[] {
   return segments.map(
     (segment) => `${segment.parent.nodeName.toLowerCase()}:${segment.range.toString()}`,
   );
+}
+
+/**
+ * Lists the parent and the ends of each format segment of a target.
+ *
+ * @param target The format target.
+ * @returns One entry per format segment, or an empty list when the target holds none.
+ */
+function describeBounds(target: FormatTarget<AbstractRange>): unknown[] {
+  return target.kind === 'segments'
+    ? target.segments.map(({ parent, range }) => [
+      parent,
+      range.startContainer,
+      range.startOffset,
+      range.endContainer,
+      range.endOffset,
+    ])
+    : [];
 }
 
 describe('cutting out format segments', () => {
@@ -154,5 +175,57 @@ describe('cutting out format segments with images counted', () => {
       collectFormatSegments(root, createRange(pre, 0, pre, 1), true),
       collectFormatSegments(root, createRange(body, 0, body, 1), true),
     ]).toEqual([[], []]);
+  });
+});
+
+describe('ranges made while cutting out format segments', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('the read-only entry creates no Range for a selection over 50 paragraphs', () => {
+    const root = mountRoot(PARAGRAPHS);
+    const paragraphs = root.querySelectorAll('p');
+    const last = readChildText(paragraphs[paragraphs.length - 1], 0);
+    select(createRange(readChildText(paragraphs[0], 0), 0, last, last.data.length));
+    const createRangeSpy = vi.spyOn(document, 'createRange');
+
+    readFormatTarget(root);
+
+    expect(createRangeSpy).not.toHaveBeenCalled();
+  });
+
+  it('cutting out for a command over 50 paragraphs separated by whitespace creates one Range per format segment', () => {
+    const root = createRoot(PARAGRAPHS);
+    const paragraphs = root.querySelectorAll('p');
+    const last = readChildText(paragraphs[paragraphs.length - 1], 0);
+    const range = createRange(readChildText(paragraphs[0], 0), 0, last, last.data.length);
+    const createRangeSpy = vi.spyOn(document, 'createRange');
+
+    const segments = collectFormatSegments(root, range);
+
+    expect([createRangeSpy.mock.calls.length, segments.length]).toEqual([50, 50]);
+  });
+});
+
+describe('the read-only entry', () => {
+  it('returns format segments with the same parents and ends as the command entry over a partial a, a comment, a pre, a bare run and an image', () => {
+    const root = mountRoot(
+      '<p>x<a href="t.html">yz</a>w</p>'
+      + '<p>a<comment id="c1">b<comment-body>note</comment-body></comment>c</p>'
+      + '<pre>code</pre>bare <strong>run</strong><p><img src="a.png"></p>',
+    );
+    const imageParagraph = readElement(root, 'p:last-of-type');
+    select(createRange(readChildText(readElement(root, 'a'), 0), 1, imageParagraph, 1));
+
+    expect(describeBounds(readFormatTarget(root, true))).toEqual(describeBounds(collectFormatTarget(root, true)));
+  });
+});
+
+describe('selection ends placed between children', () => {
+  it('makes format segments of only the children between ends placed in the editor root itself', () => {
+    const root = createRoot('<p>a</p><p>b</p><p>c</p><p>d</p>');
+
+    expect(describeSegments(collectFormatSegments(root, createRange(root, 1, root, 3)))).toEqual(['p:b', 'p:c']);
   });
 });
