@@ -922,6 +922,91 @@ describe('text buffer while waiting for buffer follow', () => {
   });
 });
 
+// A write empties the file before writing the content, so a buffer reloaded in between holds only the start of it.
+describe('a source read mid-write', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('waits past an empty source and clears the write reconcile without replacing the view or entering protection', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer('', false);
+    // A view cannot open an empty document, so taking it as an external change would fail and enter protection.
+    harness.setViewBehavior('unavailable');
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+    harness.setBuffer(VIEW_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([
+      harness.appliedOfKind('externalChange'),
+      harness.history.protections,
+      harness.syncState.writeReconcile,
+    ]).toEqual([[], [], undefined]);
+  });
+
+  it('waits past an empty source after a save that rewrites the same content', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    harness.setViewText(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer('', false);
+    harness.setViewBehavior('unavailable');
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+    harness.setBuffer(DISK_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([
+      harness.appliedOfKind('externalChange'),
+      harness.history.protections,
+      harness.syncState.writeReconcile,
+    ]).toEqual([[], [], undefined]);
+  });
+
+  it('merges the written full text, not a mid-write source, as the source of the next save', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    const nextViewText = VIEW_TEXT.replace('<p>ab</p>', '<p>abc</p>');
+    harness.setViewText(nextViewText);
+    harness.setBuffer(VIEW_TEXT.slice(0, VIEW_TEXT.indexOf('</body>')), false);
+
+    const saving = harness.coordinator.save(notCancelled);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+    harness.setBuffer(VIEW_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([await saving, harness.written.map((record) => record.text)]).toEqual([
+      'completed',
+      [VIEW_TEXT, nextViewText],
+    ]);
+  });
+
+  it('takes a source still mid-write at the timeout as a later external change', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer('', false);
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS + BUFFER_FOLLOW_POLL_MS);
+
+    expect([harness.appliedOfKind('externalChange'), harness.syncState.writeReconcile]).toEqual([
+      [''],
+      undefined,
+    ]);
+  });
+});
+
 describe('polling delayed buffer follow', () => {
   it('does not poll the buffer during initial reconciliation when no notification was missed', async () => {
     const harness = createHarness();

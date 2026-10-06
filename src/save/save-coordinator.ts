@@ -1127,12 +1127,20 @@ export class SaveCoordinator {
       // Determine the remaining time from the write timestamp. Repeated waits across paths never exceed the same limit
       // measured from the original write.
       const remaining = BUFFER_FOLLOW_TIMEOUT_MS - (Date.now() - reconcile.writtenAt);
+      // A write empties the file before writing the content, so a buffer reloaded in between holds only the start of the
+      // written full text. Settling on it would hand a partial document to the view as an external change.
+      const isMidWrite = (text: string): boolean => text !== reconcile.previousSource
+        && text.length < reconcile.writtenBody.length
+        && reconcile.writtenBody.startsWith(text);
       const settled = await this.pollBuffer(
-        // If the buffer is still at the previous source, the direct write has not reached it. Poll and wait. Either a
-        // match or a later external change settles the buffer follow being awaited.
-        (text) => text === reconcile.writtenBody || text !== reconcile.previousSource,
+        // If the buffer is still at the previous source or in the middle of the write, the direct write has not reached
+        // it. Poll and wait. Either a match or a later external change settles the buffer follow being awaited.
+        (text) => text === reconcile.writtenBody || (text !== reconcile.previousSource && !isMidWrite(text)),
         current,
         remaining,
+        // Past the deadline a mid-write source cannot be told apart from a truncation made outside, so it is taken
+        // as a later external change, like any other content that differs from both texts.
+        isMidWrite,
       );
 
       if (settled === undefined) {
@@ -1200,12 +1208,16 @@ export class SaveCoordinator {
    * @param isSettled Function that receives LF-normalized text and reports whether the decision is final.
    * @param current Buffer content from the initial read.
    * @param timeoutMs Maximum wait in milliseconds.
-   * @returns A resolved clean buffer, dirty state detected while waiting, or `undefined` on timeout.
+   * @param isSettledAtTimeout Function that receives the last clean LF-normalized text read before the timeout and
+   * reports whether it is final after all.
+   * @returns A resolved clean buffer, dirty state detected while waiting, the last read accepted by
+   * `isSettledAtTimeout`, or `undefined` on timeout.
    */
   private async pollBuffer(
     isSettled: (text: string) => boolean,
     current: BufferText,
     timeoutMs: number,
+    isSettledAtTimeout: (text: string) => boolean = () => false,
   ): Promise<BufferFollowOutcome | undefined> {
     // The initial read has already occurred. Reading again here would add a round trip even when no wait is needed.
     if (isSettled(current.text)) {
@@ -1214,9 +1226,18 @@ export class SaveCoordinator {
 
     let raw = current.raw;
     let isDirty = false;
-    return pollTextBuffer<BufferFollowOutcome>(
+    let last: BufferText = current;
+    let readFailed = false;
+    const outcome = await pollTextBuffer<BufferFollowOutcome>(
       async () => {
-        const snapshot = await this.host.readTextBuffer();
+        let snapshot: TextBufferSnapshot;
+        try {
+          snapshot = await this.host.readTextBuffer();
+        } catch (error) {
+          // A failed read also ends the wait early. Only a wait that ran to its deadline settles at the timeout.
+          readFailed = true;
+          throw error;
+        }
         raw = snapshot.text;
         isDirty = snapshot.isDirty;
         return raw;
@@ -1227,10 +1248,15 @@ export class SaveCoordinator {
         if (isDirty) {
           return { kind: 'dirty' };
         }
-        return isSettled(text) ? { text, raw } : undefined;
+        last = { text, raw };
+        return isSettled(text) ? last : undefined;
       },
       timeoutMs,
     );
+    if (outcome === undefined && !readFailed && isSettledAtTimeout(last.text)) {
+      return last;
+    }
+    return outcome;
   }
 
   /**
