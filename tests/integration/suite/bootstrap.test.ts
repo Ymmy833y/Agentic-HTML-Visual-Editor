@@ -1,6 +1,9 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
+import { DelayedFileSystem } from '../helpers/delayed-file-system';
+import { customTabMatchesSource } from '../helpers/editor-tabs';
+
 const EXTENSION_ID = 'YuyaMiyamoto.agentic-html-visual-editor';
 
 // This must match the package.json declaration, or the WYSIWYG editor cannot be opened.
@@ -304,7 +307,6 @@ describe('opening a file decoded with a mismatched encoding', () => {
 describe('writing an HTML skeleton to a blank document', () => {
   const SCRATCH_FILE_NAME = 'bootstrap-skeleton-scratch.html';
   const DIRTY_SCRATCH_FILE_NAME = 'bootstrap-skeleton-dirty-scratch.html';
-  const CLOSED_SCRATCH_FILE_NAME = 'bootstrap-skeleton-closed-scratch.html';
 
   beforeEach(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -312,7 +314,7 @@ describe('writing an HTML skeleton to a blank document', () => {
 
   after(async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-    for (const fileName of [SCRATCH_FILE_NAME, DIRTY_SCRATCH_FILE_NAME, CLOSED_SCRATCH_FILE_NAME]) {
+    for (const fileName of [SCRATCH_FILE_NAME, DIRTY_SCRATCH_FILE_NAME]) {
       await vscode.workspace.fs.delete(fixtureUri(fileName)).then(undefined, () => undefined);
     }
   });
@@ -357,6 +359,14 @@ describe('writing an HTML skeleton to a blank document', () => {
       .filter((recorded) => recorded.direction === 'toView'
         && readMessageField(recorded.message, 'type') === 'initialize')
       .map((recorded) => readMessageField(recorded.message, 'text'));
+  }
+
+  async function waitUntil(condition: () => boolean, description: string): Promise<void> {
+    const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
+    while (!condition()) {
+      assert.ok(Date.now() < deadline, `Timed out before ${description}`);
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
   }
 
   it('writes the skeleton, initializes the recreated view with it, and shows no notice', async () => {
@@ -419,26 +429,63 @@ describe('writing an HTML skeleton to a blank document', () => {
 
   it('writes the skeleton but logs one line instead of recreating the view when the tab is closed during the write', async () => {
     const extensionApi = await findExtension().activate();
-    const uri = await writeBlankScratchAndSettle(CLOSED_SCRATCH_FILE_NAME);
-    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
-    await readInitializeMessage(uri);
-    extensionApi.clearDiagnosticInspection();
+    const uri = vscode.Uri.parse('ahve-skeleton-test://workspace/notes/bootstrap-skeleton-closed-scratch.html');
+    const fileSystem = new DelayedFileSystem(uri, '');
+    const registration = vscode.workspace.registerFileSystemProvider(uri.scheme, fileSystem, { isCaseSensitive: true });
+    const write = fileSystem.pauseNextWrite();
+    try {
+      await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+      await readInitializeMessage(uri);
+      extensionApi.clearDiagnosticInspection();
 
-    // The request is handled up to the start of the write before this resolves, so the close lands during the write.
-    assert.ok(
-      await extensionApi.injectViewMessage(uri.toString(), { type: 'documentSkeletonRequested' }),
-      'could not deliver the skeleton request because there is no session',
-    );
-    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-    const deadline = Date.now() + ROUND_TRIP_TIMEOUT_MS;
-    while (!extensionApi.readDiagnosticInspection().logLines.some((line) => line.includes('the tab was closed'))) {
-      assert.ok(Date.now() < deadline, 'Timed out before the closed tab was logged');
-      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+      assert.ok(
+        await extensionApi.injectViewMessage(uri.toString(), { type: 'documentSkeletonRequested' }),
+        'could not deliver the skeleton request because there is no session',
+      );
+      // Dispatch only starts the request. Wait for the actual write, then hold it until the panel's disposal has
+      // unregistered the session. Neither completion of dispatch nor closeAllEditors guarantees this order.
+      let writeReached = false;
+      void write.reached.then(() => {
+        writeReached = true;
+      });
+      await waitUntil(() => writeReached, 'the skeleton write started');
+      assert.strictEqual(fileSystem.readText(), '', 'the skeleton write is still paused');
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await waitUntil(
+        () => !extensionApi.readSessionInspection().documentUris.includes(uri.toString()),
+        'the closed panel unregistered its session',
+      );
+      write.release();
+      await waitUntil(() => fileSystem.writtenUris.length === 1, 'the skeleton write completed');
+      fileSystem.notifyWrittenFile();
+      await waitUntil(
+        () => extensionApi.readDiagnosticInspection().logLines.some((line) => line.includes('the tab was closed')),
+        'the closed tab was logged',
+      );
+
+      const skeleton = '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n'
+        + '<title>bootstrap-skeleton-closed-scratch</title>\n</head>\n<body>\n</body>\n</html>\n';
+      assert.deepStrictEqual(
+        {
+          file: await readFileText(uri),
+          initializeTexts: await readInitializeTexts(uri),
+          notifications: extensionApi.readDiagnosticInspection().notifications,
+          closedTabLogs: extensionApi.readDiagnosticInspection().logLines.filter((line) => line.includes('the tab was closed')),
+          hasCustomTab: vscode.window.tabGroups.all.some((group) => group.tabs.some((tab) => customTabMatchesSource(tab, uri))),
+        },
+        {
+          file: skeleton,
+          initializeTexts: [''],
+          notifications: [],
+          closedTabLogs: [`Did not recreate the view after writing the skeleton because the tab was closed: ${uri.toString()}`],
+          hasCustomTab: false,
+        },
+      );
+    } finally {
+      write.release();
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      registration.dispose();
+      fileSystem.dispose();
     }
-
-    assert.deepStrictEqual(
-      { file: (await readFileText(uri)).startsWith('<!DOCTYPE html>'), notifications: extensionApi.readDiagnosticInspection().notifications },
-      { file: true, notifications: [] },
-    );
   });
 });
