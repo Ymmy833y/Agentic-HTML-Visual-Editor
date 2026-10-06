@@ -50,6 +50,20 @@ const WORD_LIST_HTML = '<html xmlns:o="urn:schemas-microsoft-com:office:office" 
 const GOOGLE_DOCS_HTML = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1a2b3c">'
   + '<span style="font-size:11pt;font-weight:700;">Hi</span></b>';
 
+// HTML Google Docs writes for bold, italic, and strikethrough words. Each format is only a declaration on a span, and
+// every span also carries the default black text and transparent background.
+const GOOGLE_DOCS_FORMATS_HTML = '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-4d5e6f">'
+  + ['font-weight:700;', 'font-style:italic;', 'text-decoration:line-through;']
+    .map((format, index) => '<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;'
+      + `background-color:transparent;${format}white-space:pre-wrap;">${'BIS'.charAt(index)}</span>`)
+    .join('')
+  + '</b>';
+
+// HTML Word writes for a bold English word in a Japanese document. Bold is a b element, and the text color is black.
+const WORD_BOLD_HTML = '<html xmlns:o="urn:schemas-microsoft-com:office:office">\r\n<body lang="JA">\r\n'
+  + '<!--StartFragment--><b><span lang="EN-US" style="font-family:Century;color:black;mso-themecolor:text1">X</span></b>'
+  + '<!--EndFragment-->\r\n</body>\r\n</html>';
+
 // HTML Chromium writes when copying a paragraph selected up to its break. The end of the selection is a paragraph break,
 // so a line break mark br is added at the end.
 const CHROMIUM_PARAGRAPH_HTML = '<meta charset="utf-8"><p style="margin: 0px;">X</p><br class="Apple-interchange-newline">';
@@ -480,13 +494,13 @@ test.describe('building the fragment', () => {
     expect(await readBodyHtml(page)).toBe('<p>x</p>\n<p>One</p>\n<p>Two</p>');
   });
 
-  test('pasting Google Docs HTML into the middle of a paragraph inserts only the text, without b or span', async ({ page }) => {
+  test('pasting Google Docs HTML into the middle of a paragraph inserts the bold text as strong, without the wrapping b or span', async ({ page }) => {
     await openPasteEditor(page, '<p>abcd</p>');
     await placeCaretAt(page, at(PARAGRAPH, 2, 0));
 
     await dispatchPaste(page, { 'text/plain': 'Hi', 'text/html': GOOGLE_DOCS_HTML });
 
-    expect(await readBodyHtml(page)).toBe('<p>abHicd</p>');
+    expect(await readBodyHtml(page)).toBe('<p>ab<strong>Hi</strong>cd</p>');
   });
 
   test('pasting a paragraph fragment ending with the Chromium line break mark after a paragraph inserts only the fragment paragraph and adds no empty paragraph', async ({ page }) => {
@@ -537,6 +551,33 @@ test.describe('sanitizing the fragment', () => {
 });
 
 test.describe('pruning attributes', () => {
+  test('pasting Google Docs HTML with bold, italic, and strikethrough words inserts strong, em, and s without the black text or transparent background', async ({ page }) => {
+    await openPasteEditor(page, '<p>abcd</p>');
+    await placeCaretAt(page, at(PARAGRAPH, 2, 0));
+
+    await dispatchPaste(page, { 'text/plain': 'BIS', 'text/html': GOOGLE_DOCS_FORMATS_HTML });
+
+    expect(await readBodyHtml(page)).toBe('<p>ab<strong>B</strong><em>I</em><s>S</s>cd</p>');
+  });
+
+  test('pasting MathML with a bold declaration inserts it without adding strong inside it', async ({ page }) => {
+    await openPasteEditor(page, '<p>abcd</p>');
+    await placeCaretAt(page, at(PARAGRAPH, 2, 0));
+
+    await dispatchPaste(page, { 'text/plain': 'x', 'text/html': '<math style="font-weight: 700"><mi>x</mi></math>' });
+
+    expect(await readBodyHtml(page)).toBe('<p>ab<math><mi>x</mi></math>cd</p>');
+  });
+
+  test('pasting Word HTML with a black bold word inserts only b, without the black text color', async ({ page }) => {
+    await openPasteEditor(page, '<p>abcd</p>');
+    await placeCaretAt(page, at(PARAGRAPH, 2, 0));
+
+    await dispatchPaste(page, { 'text/plain': 'X', 'text/html': WORD_BOLD_HTML });
+
+    expect(await readBodyHtml(page)).toBe('<p>ab<b>X</b>cd</p>');
+  });
+
   test('pasting HTML from an external page (span with font-family, font-size, white-space, and color) inserts a span with only color', async ({ page }) => {
     await openPasteEditor(page, '<p>abcd</p>');
     await placeCaretAt(page, at(PARAGRAPH, 2, 0));
@@ -833,22 +874,22 @@ test.describe('inserting the fragment', () => {
     expect(await readBodyHtml(page)).toBe('<p><b>X</b></p>');
   });
 
-  test('pasting a font fragment into an empty paragraph inserts it inside the paragraph, leaving no font directly under the editor root', async ({ page }) => {
+  test('pasting a font fragment into an empty paragraph inserts its text inside the paragraph, leaving no font', async ({ page }) => {
     await openPasteEditor(page, '<p><br></p>');
     await placeCaretAt(page, at(PARAGRAPH, 0));
 
     await dispatchPaste(page, { 'text/plain': 'X', 'text/html': '<font color="#ff0000">X</font>' });
 
-    expect(await readBodyHtml(page)).toBe('<p><font color="#ff0000">X</font></p>');
+    expect(await readBodyHtml(page)).toBe('<p>X</p>');
   });
 
-  test('pasting a fragment containing font and strike into the middle of a paragraph inserts it at the caret without splitting the paragraph', async ({ page }) => {
+  test('pasting a fragment containing font and strike into the middle of a paragraph unwraps font, turns strike into s, and does not split the paragraph', async ({ page }) => {
     await openPasteEditor(page, '<p>abcd</p>');
     await placeCaretAt(page, at(PARAGRAPH, 2, 0));
 
     await dispatchPaste(page, { 'text/plain': 'X Y', 'text/html': GMAIL_HTML });
 
-    expect(await readBodyHtml(page)).toBe('<p>ab<font color="#ff0000">X</font> <strike>Y</strike>cd</p>');
+    expect(await readBodyHtml(page)).toBe('<p>abX <s>Y</s>cd</p>');
   });
 
   test('pasting a fragment containing ruby with rb and g-emoji into the middle of a paragraph inserts it at the caret without splitting the paragraph', async ({ page }) => {

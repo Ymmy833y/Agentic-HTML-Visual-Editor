@@ -3,6 +3,8 @@ import { isUnsafeAttribute } from '../document/attribute-sanitizer';
 import { MERMAID_CLASS_NAME, MERMAID_LANGUAGE_CLASS_NAME } from '../diagram/diagram-source';
 import { isHtmlWhitespaceOnly } from './block';
 import { removeCommentAnnotations } from './copy-html';
+import { CREATED_FORMAT_TAG_NAME, FORMAT_TAG_NAMES } from './inline-format';
+import { isPasteBlock } from './paste-placement';
 
 // The mark in the allowlist that means every element.
 const ANY_TAG_NAME = '*';
@@ -32,7 +34,75 @@ const INTERCHANGE_NEWLINE_SELECTOR = 'br.Apple-interchange-newline';
 
 // Elements removed once they have no attributes. They are wrappers that only carry computed styles, and keeping them
 // would leave meaningless wrappers in the document.
-const STYLE_WRAPPER_SELECTOR = 'span, font';
+const STYLE_WRAPPER_SELECTOR = 'span';
+
+// Obsolete elements that only set the look of their content (font face, size, color, centering). They are unwrapped
+// with their attributes, because the look they set is lost in the target document or fights its theme.
+const LEGACY_PRESENTATIONAL_SELECTOR = 'font, basefont, big, tt, center';
+
+// The obsolete spelling of strikethrough. It is renamed to the element the editor reads as strikethrough.
+const OBSOLETE_STRIKETHROUGH_TAG_NAME = 'strike';
+
+// Formats a declaration in style can carry, in the order their elements nest from the outside.
+const DECLARED_FORMATS = ['bold', 'italic', 'strikethrough'] as const;
+
+/** A format that a declaration in `style` can carry. */
+type DeclaredFormat = (typeof DECLARED_FORMATS)[number];
+
+// Elements that already show each format, by their own spelling or by default. Headings and header cells are bold by
+// default, so a bold declaration on them or inside them is not turned into an element.
+const FORMAT_CARRIER_SELECTORS: Readonly<Record<DeclaredFormat, string>> = {
+  bold: [...FORMAT_TAG_NAMES.bold, 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th'].join(', '),
+  italic: [...FORMAT_TAG_NAMES.italic].join(', '),
+  strikethrough: [...FORMAT_TAG_NAMES.strikethrough].join(', '),
+};
+
+// The lowest numeric font weight that is bold. 600 is the semibold face, the first weight browsers draw as bold.
+const BOLD_FONT_WEIGHT = 600;
+
+// Keyword font weights that are bold.
+const BOLD_FONT_WEIGHT_KEYWORDS: ReadonlySet<string> = new Set(['bold', 'bolder']);
+
+// Font styles that slant the text.
+const ITALIC_FONT_STYLES: ReadonlySet<string> = new Set(['italic', 'oblique']);
+
+// The text decoration line that strikes the text through.
+const LINE_THROUGH = 'line-through';
+
+// Elements whose content is not HTML, and elements whose content has no formatting. Format elements are not added
+// inside them: an HTML element inside SVG or MathML is not drawn, and reopening the saved document moves it out.
+// Elements whose content the parser reads as text would show the added tags as text after reopening. A picture holds
+// only its sources and its image, which must both stay directly under it.
+const FORMAT_DECLARATION_STOP_TAG_NAMES: ReadonlySet<string> = new Set([
+  'pre',
+  'svg',
+  'math',
+  'textarea',
+  'title',
+  'xmp',
+  'picture',
+]);
+
+// Elements that only work as direct children of their parent, so they are never wrapped in format elements. Wrapped,
+// a ruby annotation is drawn on the base line and a media source is no longer read.
+const DIRECT_CHILD_TAG_NAMES: ReadonlySet<string> = new Set(['rt', 'rp', 'source', 'track', 'option', 'optgroup']);
+
+// Spellings of opaque black, compared without whitespace. External apps write it as the default text color, and
+// keeping it makes the text unreadable on a dark theme.
+const BLACK_COLORS: ReadonlySet<string> = new Set([
+  'black',
+  '#000',
+  '#000f',
+  '#000000',
+  '#000000ff',
+  'rgb(0,0,0)',
+  'rgba(0,0,0,1)',
+]);
+
+// A color whose alpha is zero, compared without whitespace. External apps write it as the default background color.
+// Only the alpha is looked at, the fourth comma-separated component or the one after a slash, because an opaque color
+// such as rgb(255, 255, 0) also ends in 0.
+const TRANSPARENT_COLOR_PATTERN = /^(?:transparent|(?:rgb|hsl)a?\((?:(?:[^,/()]*,){3}|[^,/()]*\/)0(?:\.0*)?%?\))$/u;
 
 // Line breaks at the ends of text. CF_HTML uses CRLF, but parsing normalizes it to LF.
 const LEADING_LINE_BREAKS_PATTERN = /^[\r\n]+/u;
@@ -117,19 +187,28 @@ export function sanitizePasteFragment(fragment: DocumentFragment): void {
 }
 
 /**
- * Removes `class` from the fragment's elements, prunes `style` with the allowlist, and unwraps `span` and `font` that
- * no longer have attributes.
+ * Removes `class` from the fragment's elements, prunes `style` with the allowlist, and unwraps legacy presentational
+ * elements and `span` that no longer have attributes.
  *
  * The class tokens that mark a diagram source block are the one exception: without them a copied diagram would be
  * pasted back as a plain code block. Only the marking token is kept, on the element it marks.
  *
+ * Bold, italic, and strikethrough declarations are turned into elements before pruning drops them, because Google
+ * Docs and web pages write these formats only as declarations.
+ *
  * `style` is looked up from the declarations the browser parsed, so shorthands are also judged per property (only the
  * background color inside `background` is kept). Kept declarations are rewritten with the values the browser parsed,
- * without priority. The values themselves are not inspected.
+ * without priority. Of the values, only opaque black text and transparent backgrounds are dropped.
  *
  * @param fragment The fragment.
  */
 export function prunePasteAttributes(fragment: DocumentFragment): void {
+  for (const strike of fragment.querySelectorAll(OBSOLETE_STRIKETHROUGH_TAG_NAME)) {
+    renameElement(strike, CREATED_FORMAT_TAG_NAME.strikethrough);
+  }
+  for (const child of [...fragment.children]) {
+    convertFormatDeclarations(child, new Set());
+  }
   for (const element of fragment.querySelectorAll('*')) {
     const kept = readDiagramClassName(element);
     if (kept === undefined) {
@@ -139,11 +218,156 @@ export function prunePasteAttributes(fragment: DocumentFragment): void {
     }
     pruneStyle(element);
   }
+  for (const legacy of fragment.querySelectorAll(LEGACY_PRESENTATIONAL_SELECTOR)) {
+    legacy.replaceWith(...legacy.childNodes);
+  }
   for (const wrapper of fragment.querySelectorAll(STYLE_WRAPPER_SELECTOR)) {
     if (wrapper.attributes.length === 0) {
       wrapper.replaceWith(...wrapper.childNodes);
     }
   }
+}
+
+/**
+ * Replaces the element with an element of another name that has the same attributes and children.
+ *
+ * @param element The element.
+ * @param tagName The name of the new element.
+ */
+function renameElement(element: Element, tagName: string): void {
+  const renamed = element.ownerDocument.createElement(tagName);
+  for (const attribute of element.attributes) {
+    renamed.setAttribute(attribute.name, attribute.value);
+  }
+  renamed.append(...element.childNodes);
+  element.replaceWith(renamed);
+}
+
+/**
+ * Wraps the content of the element and its descendants in the format elements their bold, italic, and strikethrough
+ * declarations ask for.
+ *
+ * Formats an element already shows (its own spelling or an ancestor's) are not added again. Blocks and children that
+ * must stay directly under their parent split the content into runs: each run is wrapped, and the formats are handed
+ * down to the splitting children, so none of them goes into a format element. Nothing inside an element of
+ * `FORMAT_DECLARATION_STOP_TAG_NAMES` is converted.
+ *
+ * @param element The element.
+ * @param inherited Formats an ancestor declared that are not yet shown by any element.
+ */
+function convertFormatDeclarations(element: Element, inherited: ReadonlySet<DeclaredFormat>): void {
+  if (FORMAT_DECLARATION_STOP_TAG_NAMES.has(element.localName)) {
+    return;
+  }
+  const declared = readDeclaredFormats(element);
+  const formats = DECLARED_FORMATS.filter(
+    (format) => (inherited.has(format) || declared.has(format)) && element.closest(FORMAT_CARRIER_SELECTORS[format]) === null,
+  );
+  const handedDown = new Set(formats);
+  const inlineElements: Element[] = [];
+  let run: ChildNode[] = [];
+  for (const child of [...element.childNodes]) {
+    if (!isRunSplitter(child)) {
+      run.push(child);
+      if (child instanceof Element) {
+        inlineElements.push(child);
+      }
+      continue;
+    }
+    wrapInFormats(element, run, formats);
+    run = [];
+    if (child instanceof Element) {
+      convertFormatDeclarations(child, handedDown);
+    }
+  }
+  wrapInFormats(element, run, formats);
+  // Inline children are now inside the new format elements, so the formats wrapped here are not added to them again.
+  for (const child of inlineElements) {
+    convertFormatDeclarations(child, new Set());
+  }
+}
+
+/**
+ * Tells whether a child splits its parent's content into separately wrapped runs.
+ *
+ * @param node The child.
+ * @returns `true` for a block and for an element that must stay directly under its parent.
+ */
+function isRunSplitter(node: ChildNode): boolean {
+  return isPasteBlock(node) || (node instanceof Element && DIRECT_CHILD_TAG_NAMES.has(node.localName));
+}
+
+/**
+ * Wraps consecutive sibling nodes in nested format elements, outermost first. Does nothing for an empty list, for
+ * whitespace-only text, or when there is no format.
+ *
+ * @param parent The parent of the nodes.
+ * @param nodes Consecutive children of the parent in document order.
+ * @param formats The formats, in the order of `DECLARED_FORMATS`.
+ */
+function wrapInFormats(parent: Element, nodes: readonly ChildNode[], formats: readonly DeclaredFormat[]): void {
+  const first = nodes[0];
+  if (first === undefined || nodes.every((node) => node instanceof Text && isHtmlWhitespaceOnly(node.data))) {
+    return;
+  }
+  const [outermost, ...inner] = formats.map((format) => parent.ownerDocument.createElement(CREATED_FORMAT_TAG_NAME[format]));
+  if (outermost === undefined) {
+    return;
+  }
+  first.before(outermost);
+  let innermost = outermost;
+  for (const wrapper of inner) {
+    innermost.append(wrapper);
+    innermost = wrapper;
+  }
+  innermost.append(...nodes);
+}
+
+/**
+ * Returns the formats the element's `style` declares.
+ *
+ * @param element The element.
+ * @returns Bold for a font weight of 600 or more, italic for a slanted font style, and strikethrough for a text
+ *   decoration that includes a line through.
+ */
+function readDeclaredFormats(element: Element): ReadonlySet<DeclaredFormat> {
+  const formats = new Set<DeclaredFormat>();
+  if (!element.hasAttribute('style')) {
+    return formats;
+  }
+  const style = readInlineStyle(element);
+  if (style === undefined) {
+    return formats;
+  }
+  const weight = style.getPropertyValue('font-weight').trim().toLowerCase();
+  if (BOLD_FONT_WEIGHT_KEYWORDS.has(weight) || Number(weight) >= BOLD_FONT_WEIGHT) {
+    formats.add('bold');
+  }
+  const [slant = ''] = style.getPropertyValue('font-style').trim().toLowerCase().split(/\s+/u);
+  if (ITALIC_FONT_STYLES.has(slant)) {
+    formats.add('italic');
+  }
+  // Read both the shorthand and the longhand, because which of them a browser expands the other into varies.
+  const decoration = `${style.getPropertyValue('text-decoration')} ${style.getPropertyValue('text-decoration-line')}`;
+  if (decoration.toLowerCase().split(/\s+/u).includes(LINE_THROUGH)) {
+    formats.add('strikethrough');
+  }
+  return formats;
+}
+
+/**
+ * Tells whether a declared value is a default color external apps write, which is dropped instead of kept.
+ *
+ * @param name The property name.
+ * @param value The value the browser parsed.
+ * @returns `true` for opaque black text and for a transparent background.
+ */
+function isDefaultColor(name: string, value: string): boolean {
+  const compact = value.toLowerCase().replace(/\s+/gu, '');
+  if (name === 'color') {
+    return BLACK_COLORS.has(compact);
+  }
+  return name === 'background-color' && TRANSPARENT_COLOR_PATTERN.test(compact);
 }
 
 /**
@@ -186,7 +410,7 @@ function pruneStyle(element: Element): void {
     // Look up each property's value from the parsed declarations. Values written as shorthands can also be looked up
     // as individual property values.
     const value = style?.getPropertyValue(name) ?? '';
-    if (value !== '') {
+    if (value !== '' && !isDefaultColor(name, value)) {
       kept.push(`${name}: ${value};`);
     }
   }

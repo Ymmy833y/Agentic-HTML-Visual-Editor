@@ -225,8 +225,10 @@ function runOperation(operation: FormatOperation, target: FormatTarget, root: El
       return applyLink(operation.url, target, root);
     case 'unlink':
       return removeLink(target, root);
-    case 'clear':
-      return target.kind === 'segments' ? clearFormats(target.segments) : [];
+    case 'clear': {
+      const range = readSelectionRange(root);
+      return target.kind === 'segments' && range !== undefined ? clearFormats(target.segments, range, root) : [];
+    }
   }
 }
 

@@ -226,7 +226,7 @@ describe('pruning attributes', () => {
   it('span and font left without attributes are unwrapped, and span that keeps color remains', () => {
     expect(prune('<p><span class="x">a</span><font style="font-size: 12px">b</font>'
       + '<span style="color: red; font-weight: bold">c</span></p>'))
-      .toBe('<p>ab<span style="color: red;">c</span></p>');
+      .toBe('<p>ab<span style="color: red;"><strong>c</strong></span></p>');
   });
 
   it('id, href, alt, data-alert, open, and colspan are unchanged', () => {
@@ -234,5 +234,98 @@ describe('pruning attributes', () => {
       + '<details open=""><summary>t</summary></details><table><tbody><tr><td colspan="2">c</td></tr></tbody></table>';
 
     expect(prune(html)).toBe(html);
+  });
+
+  it('opaque black text colors and transparent background colors are dropped', () => {
+    expect(prune('<p><span style="color: #000000">a</span><span style="color: black">b</span>'
+      + '<span style="background-color: transparent">c</span><span style="background-color: rgba(255, 255, 255, 0)">d</span></p>'))
+      .toBe('<p>abcd</p>');
+  });
+
+  it('red text, a translucent black text color, and a white background remain', () => {
+    expect(prune('<p><span style="color: red">a</span><span style="color: rgba(0, 0, 0, 0.5)">b</span>'
+      + '<span style="background-color: white">c</span></p>'))
+      .toBe('<p><span style="color: red;">a</span><span style="color: rgba(0, 0, 0, 0.5);">b</span>'
+        + '<span style="background-color: white;">c</span></p>');
+  });
+
+  it('opaque background colors whose last component is 0, such as #ffff00 and #008000, remain', () => {
+    expect(prune('<p><span style="background-color: #ffff00">a</span><span style="background-color: #008000">b</span></p>'))
+      .toBe('<p><span style="background-color: rgb(255, 255, 0);">a</span>'
+        + '<span style="background-color: rgb(0, 128, 0);">b</span></p>');
+  });
+
+  it('font, big, tt, and center are unwrapped with their attributes and basefont is removed', () => {
+    expect(prune('<center><basefont size="3"><font color="#ff0000" face="Arial">a</font><big>b</big><tt>c</tt></center>'))
+      .toBe('abc');
+  });
+
+  it('strike becomes s and keeps its other attributes', () => {
+    expect(prune('<p><strike id="x" style="font-size: small">a</strike></p>')).toBe('<p><s id="x">a</s></p>');
+  });
+});
+
+describe('turning format declarations into elements', () => {
+  it('a span with font-weight 700 or bold becomes strong', () => {
+    expect(prune('<p><span style="font-weight: 700">a</span><span style="font-weight: bold">b</span></p>'))
+      .toBe('<p><strong>a</strong><strong>b</strong></p>');
+  });
+
+  it('a span with font-weight 400 gets no element', () => {
+    expect(prune('<p><span style="font-weight: 400">a</span></p>')).toBe('<p>a</p>');
+  });
+
+  it('font-style italic becomes em', () => {
+    expect(prune('<p><span style="font-style: italic">a</span></p>')).toBe('<p><em>a</em></p>');
+  });
+
+  it('text-decoration with underline and line-through becomes s', () => {
+    expect(prune('<p><span style="text-decoration: underline line-through">a</span></p>')).toBe('<p><s>a</s></p>');
+  });
+
+  it('a span with all three declarations is wrapped in strong, em, and s from the outside', () => {
+    expect(prune('<p><span style="text-decoration: line-through; font-style: italic; font-weight: 700">a</span></p>'))
+      .toBe('<p><strong><em><s>a</s></em></strong></p>');
+  });
+
+  it('a bold declaration inside b gets no strong', () => {
+    expect(prune('<p><b><span style="font-weight: 700">a</span></b></p>')).toBe('<p><b>a</b></p>');
+  });
+
+  it('a bold declaration on a heading gets no strong', () => {
+    expect(prune('<h2 style="font-weight: 700">a</h2>')).toBe('<h2>a</h2>');
+  });
+
+  it('declarations inside pre are not turned into elements', () => {
+    expect(prune('<pre><span style="font-weight: 700">a</span></pre>')).toBe('<pre>a</pre>');
+  });
+
+  it('a bold declaration on svg adds no element inside it', () => {
+    expect(prune('<p><svg style="font-weight: 700"><path d="M0 0h1v1z"></path></svg></p>'))
+      .toBe('<p><svg><path d="M0 0h1v1z"></path></svg></p>');
+  });
+
+  it('a bold ruby wraps its base text and its rt content separately, keeping rt directly under ruby', () => {
+    expect(prune('<p><ruby style="font-weight: 700">漢<rt>かん</rt></ruby></p>'))
+      .toBe('<p><ruby><strong>漢</strong><rt><strong>かん</strong></rt></ruby></p>');
+  });
+
+  it('a bold video keeps source directly under video', () => {
+    expect(prune('<p><video style="font-weight: 700"><source src="a.mp4"></video></p>'))
+      .toBe('<p><video><source src="a.mp4"></video></p>');
+  });
+
+  it('a bold picture keeps source and img directly under picture', () => {
+    expect(prune('<p><picture style="font-weight: 700"><source srcset="a.webp"><img src="a.png" alt=""></picture></p>'))
+      .toBe('<p><picture><source srcset="a.webp"><img src="a.png" alt=""></picture></p>');
+  });
+
+  it('a bold declaration on textarea adds no element inside it', () => {
+    expect(prune('<p><textarea style="font-weight: 700">a</textarea></p>')).toBe('<p><textarea>a</textarea></p>');
+  });
+
+  it('a bold div with a paragraph child wraps the text directly under the div and the paragraph content separately', () => {
+    expect(prune('<div style="font-weight: 700">a<p>b</p></div>'))
+      .toBe('<div><strong>a</strong><p><strong>b</strong></p></div>');
   });
 });

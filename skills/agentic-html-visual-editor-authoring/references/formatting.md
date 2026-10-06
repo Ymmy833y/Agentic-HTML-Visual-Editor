@@ -77,6 +77,9 @@ Write the value exactly as one of `note`, `tip`, `important`, `warning`, and `ca
 When HTML is pasted into the editor, the editor prunes it before it inserts it:
 
 - `style` keeps only the declarations in the table below. Every other declaration is dropped.
+- Bold, italic, and strikethrough declarations (`font-weight` of 600 or more, `font-style: italic`, and `text-decoration: line-through`) become `strong`, `em`, and `s` around the content, so the formatting survives as elements.
+- An opaque black `color` and a transparent `background-color` are dropped, even though the properties are in the table.
+- `font`, `basefont`, `big`, `tt`, and `center` are removed together with their attributes, and their content stays. `strike` becomes `s`.
 - `class` is dropped. The two exceptions mark a Mermaid diagram: `mermaid` on a `pre`, and `language-mermaid` on a `code` directly inside a `pre`.
 
 | Property | Kept on |
