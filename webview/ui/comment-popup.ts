@@ -133,8 +133,9 @@ export interface CommentPopupContent {
    * Notified after focus has moved and opening has finished.
    *
    * @param comment Opened comment.
+   * @param preferReply Whether to focus the reply field, falling back to the body field when there are no entries.
    */
-  handleOpened(comment: Element): void;
+  handleOpened(comment: Element, preferReply?: boolean): void;
 
   /**
    * Redraws for a tree change.
@@ -226,8 +227,9 @@ export class CommentPopup {
    *
    * @param comment The comment to open.
    * @param moveFocus Whether to move focus into the popup.
+   * @param preferReply Whether to ask the content to focus the reply field after moving focus into the popup.
    */
-  open(comment: Element, moveFocus: boolean): void {
+  open(comment: Element, moveFocus: boolean, preferReply = false): void {
     if (this.state?.comment === comment && !moveFocus) {
       return;
     }
@@ -260,7 +262,7 @@ export class CommentPopup {
         }
         // The content moves focus to a field only after focus has moved into the popup. Moving it earlier would have
         // it taken back here.
-        this.content?.handleOpened(comment);
+        this.content?.handleOpened(comment, preferReply);
       }
     } catch (error) {
       this.fail('open', error);

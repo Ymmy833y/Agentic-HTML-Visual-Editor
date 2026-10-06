@@ -14,6 +14,7 @@ interface TriggerHarness {
   readonly root: HTMLElement;
   readonly popup: CommentPopup;
   readonly trigger: CommentPopupTrigger;
+  readonly receiver: ShortcutReceiver;
   readonly diagnostics: string[];
   /** Edit notification listeners. The ones the trigger registered on mount completion. */
   readonly editListeners: EditDetectedListener[];
@@ -49,7 +50,10 @@ function createTrigger(
       diagnostics.push(detail);
     },
   });
-  const trigger = attachCommentPopupTrigger(window, root, new ShortcutReceiver('other', () => undefined), popup, {
+  const receiver = new ShortcutReceiver('other', () => undefined);
+  const trigger = attachCommentPopupTrigger(window, root, receiver, popup, {
+    isInputStopped: () => false,
+    isComposing: () => false,
     wasPopupClosedBy,
     isInDialogOrOverlay,
     isInSearchPanel,
@@ -58,7 +62,7 @@ function createTrigger(
     },
   });
   trigger.handleMountCompleted({ addEditListener: (listener) => editListeners.push(listener) });
-  return { root, popup, trigger, diagnostics, editListeners };
+  return { root, popup, trigger, receiver, diagnostics, editListeners };
 }
 
 /**
@@ -85,6 +89,22 @@ function openComment(harness: TriggerHarness, selector: string): Element {
 }
 
 const ESCAPE = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' });
+
+describe('Opening shortcut registration', () => {
+  it('registers Alt+Enter with the shortcut receiver', () => {
+    const { receiver } = createTrigger('<p>text</p>');
+
+    expect(receiver.hasShortcut(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', altKey: true }))).toBe(true);
+  });
+
+  it.each([{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }])('does not match extra modifiers %j', (modifier) => {
+    const { receiver } = createTrigger('<p>text</p>');
+
+    expect(receiver.hasShortcut(new KeyboardEvent('keydown', {
+      key: 'Enter', code: 'Enter', altKey: true, ...modifier,
+    }))).toBe(false);
+  });
+});
 
 describe('Escape in the editor root', () => {
   it('returns "pass" when not open', () => {

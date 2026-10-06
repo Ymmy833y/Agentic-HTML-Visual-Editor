@@ -173,12 +173,17 @@ export class CommentThread implements CommentPopupContent {
   }
 
   /**
-   * Once focus has moved and opening has finished, moves focus to the body field for a comment without a body.
+   * Once focus has moved and opening has finished, focuses the requested input field.
    *
    * @param comment Opened comment.
+   * @param preferReply Whether to focus the reply field instead of the body field for a comment without a body.
    */
-  handleOpened(comment: Element): void {
-    this.inputs.focusBodyField(comment);
+  handleOpened(comment: Element, preferReply = false): void {
+    if (preferReply) {
+      this.inputs.focusReplyField(comment);
+    } else {
+      this.inputs.focusBodyField(comment);
+    }
   }
 
   /**

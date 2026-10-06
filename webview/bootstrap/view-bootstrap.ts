@@ -903,6 +903,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   });
   commentPopup = popup;
   const trigger = attachCommentPopupTrigger(view, target.root, receiver, popup, {
+    isInputStopped: () => viewShell.inputStop.isStopped(),
+    isComposing: () => readEditingSession()?.isComposing === true,
     wasPopupClosedBy: (event) => viewShell.activation.wasClosedBy(event),
     // The action dialog and the overlay are both created when opened, so look them up by ID on every press. The
     // dialog's backdrop counts as part of the dialog.
