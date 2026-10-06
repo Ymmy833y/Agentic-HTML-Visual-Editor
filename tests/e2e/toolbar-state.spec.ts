@@ -367,6 +367,34 @@ test.describe('Reflecting onto the fixed toolbar', () => {
       .toHaveAttribute('aria-pressed', 'true');
   });
 
+  test('pressing bold at a bare caret makes bold pressed before anything is typed, and moving the caret makes it not pressed again', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await settleFollow(page);
+    const held = await readPressed(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('ArrowRight');
+    await settleFollow(page);
+
+    expect([held, await readPressed(page, TOOLBAR_SLOT.bold), await readBodyHtml(page)])
+      .toEqual(['true', 'false', BODY]);
+  });
+
+  test('pressing bold at a bare caret inside bold makes bold not pressed', async ({ page }) => {
+    await openEditor(page, '\n<p><strong>abcd</strong></p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} strong`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await settleFollow(page);
+
+    expect(await readPressed(page, TOOLBAR_SLOT.bold)).toBe('false');
+  });
+
   test('moving the caret to a heading makes the block type item label the heading message', async ({ page }) => {
     await openEditor(page, '\n<p>abcd</p>\n<h3>efgh</h3>\n');
     await focusEditor(page);

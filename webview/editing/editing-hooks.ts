@@ -42,6 +42,18 @@ export type RangeDeleteGuard = (range: Range, root: Element) => readonly Element
 export type CompositionStartHook = (root: Element, keepPlaceholder: (text: Text) => void) => void;
 
 /**
+ * The hook a composition end calls.
+ *
+ * Called after the composition placeholders have been removed and before the composition is reported as an edit or
+ * abandoned, so that what a start hook built around a placeholder can be taken back out when nothing was committed.
+ * It is called on the assumption that it does not throw.
+ *
+ * @param root The editor root.
+ * @param committed Whether the composition committed text.
+ */
+export type CompositionEndHook = (root: Element, committed: boolean) => void;
+
+/**
  * The result of a split preprocessor (split preparation).
  *
  * "Split" carries the boundary where the caller runs the start, end and middle checks and the split. "Taken over" means the
@@ -76,6 +88,8 @@ export interface EditingHooks {
   readonly rangeDeleteGuards: RangeDeleteGuard[];
   /** The hooks a composition start calls in registration order. */
   readonly compositionStartHooks: CompositionStartHook[];
+  /** The hooks a composition end calls in registration order. */
+  readonly compositionEndHooks: CompositionEndHook[];
   /** Preprocessors called in registration order before a split. When empty, splitting behaves as if there were none. */
   readonly splitPreprocessors: SplitPreprocessor[];
 }

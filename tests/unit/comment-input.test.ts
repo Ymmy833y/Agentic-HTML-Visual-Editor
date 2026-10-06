@@ -20,7 +20,7 @@ const COMMENT = '<p>x<comment id="c">ab<comment-body>n</comment-body></comment>y
  * @returns The editing hooks.
  */
 function createHooks(): EditingHooks {
-  return { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [] };
+  return { rangeDeleteGuards: [], compositionStartHooks: [], compositionEndHooks: [], splitPreprocessors: [] };
 }
 
 /**

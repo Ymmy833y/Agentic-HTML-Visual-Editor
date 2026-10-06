@@ -626,6 +626,27 @@ describe('Composition placeholders placed by preprocessors', () => {
     session.dispose();
   });
 
+  it('calls the composition end hooks in registration order after the placeholder is removed and before the attempt closes, with whether text was committed', () => {
+    const { root, session, transactionCalls } = mountSession('<p>ab</p>');
+    const paragraph = readElement(root, 'p');
+    session.registerCompositionStartHook(createPlaceholderHook(paragraph));
+    const called: string[] = [];
+    session.registerCompositionEndHook((editorRoot, committed) => {
+      called.push(`first:${String(editorRoot === root)}:${String(committed)}:${paragraph.textContent ?? ''}:${transactionCalls.length}`);
+    });
+    session.registerCompositionEndHook(() => called.push('second'));
+    placeAt(readChildText(paragraph, 0), 2);
+
+    root.dispatchEvent(new CompositionEvent('compositionstart'));
+    root.dispatchEvent(new CompositionEvent('compositionend', { data: '' }));
+    root.dispatchEvent(new CompositionEvent('compositionstart'));
+    readChildText(paragraph, 1).appendData('x');
+    root.dispatchEvent(new CompositionEvent('compositionend', { data: 'x' }));
+
+    expect(called).toEqual(['first:true:false:ab:1', 'second', 'first:true:true:abx:3', 'second']);
+    session.dispose();
+  });
+
   it('ending without a commit a composition that only placed a composition placeholder returns the tree to its pre-composition state and closes with abort', () => {
     const { root, session, transactionCalls } = mountSession('<p>ab</p>');
     const paragraph = readElement(root, 'p');
@@ -663,7 +684,7 @@ describe('Composition placeholders placed by preprocessors', () => {
         completeEdit: () => transactionCalls.push('complete'),
         abortEdit: () => transactionCalls.push('abort'),
       },
-      { rangeDeleteGuards: [], compositionStartHooks: [placeOnce], splitPreprocessors: [] },
+      { rangeDeleteGuards: [], compositionStartHooks: [placeOnce], compositionEndHooks: [], splitPreprocessors: [] },
     );
     placeAt(readChildText(paragraph, 0), 2);
     guard.handleStart();

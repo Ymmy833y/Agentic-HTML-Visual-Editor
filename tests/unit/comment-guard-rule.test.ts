@@ -11,7 +11,7 @@ describe('Registering the comment rules', () => {
     const dispatcher = new InputDispatcher(root, () => undefined);
     const main = vi.spyOn(dispatcher, 'register');
     const fallback = vi.spyOn(dispatcher, 'registerFallback');
-    const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [] };
+    const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], compositionEndHooks: [], splitPreprocessors: [] };
     const deletes = [
       'deleteContentBackward',
       'deleteContentForward',

@@ -4,13 +4,12 @@ import {
   createEmptyBlock,
   isEmptyBlock,
   isHtmlWhitespaceOnly,
-  removePlaceholderBreak,
 } from './block';
 import { placeCaret, placeCaretAtStart } from './caret';
 import type { InputRule } from './input-dispatcher';
 
 /** The siblings before and after a position, skipping whitespace and HTML comments. */
-interface PositionNeighbors {
+export interface PositionNeighbors {
   /** The previous sibling, or `null` if there is none. */
   readonly previous: ChildNode | null;
   /** The next sibling, or `null` if there is none. */
@@ -135,7 +134,8 @@ export function materializeBetweenBlocks(root: Element, range: Range): Materiali
  * Creates a rule that handles text and line-break insertion in an effectively empty editor root.
  *
  * A nonempty root is not handled. In an empty root, a paragraph is always created before insertion so bare text
- * or a `br` is never left directly beneath the editor root.
+ * or a `br` is never left directly beneath the editor root. A line break is put in by this rule; typed characters
+ * are left to the later rules and the default insertion, with the caret placed in the paragraph.
  * When a collapsed caret is at a between-blocks position, the input goes into a paragraph created at that position, for the same reason.
  *
  * @returns A rule registered for `insertText` and `insertLineBreak`.
@@ -161,11 +161,13 @@ export function createMaterializationRule(): InputRule {
       return 'edited';
     }
 
-    const text = root.ownerDocument.createTextNode(data);
-    paragraph.prepend(text);
-    removePlaceholderBreak(paragraph);
-    placeCaret(text, text.data.length);
-    return 'edited';
+    // The characters themselves are left to the rules that follow and to the default insertion. Inserting them here
+    // would keep a later rule, such as the one that gives a pending format to the typed character, from ever seeing
+    // them. Materializing already changed the tree, so the attempt is closed by whichever of those inserts the text.
+    placeCaretAtStart(paragraph);
+    range.setStart(paragraph, 0);
+    range.collapse(true);
+    return 'pass';
   };
 }
 
@@ -190,12 +192,14 @@ function materializeForInput(root: Element, range: Range): Element | undefined {
 /**
  * For a position directly under the editor root, returns the siblings before and after it, skipping whitespace-only text and HTML comments.
  *
+ * The pending format reads them too, so that it tells such positions apart the same way a paragraph is placed here.
+ *
  * @param root The editor root.
  * @param container The node of the position.
  * @param offset The offset of the position.
  * @returns The siblings, or `undefined` if the position is neither directly under the editor root nor inside whitespace-only text directly under it.
  */
-function readNeighbors(root: Element, container: Node, offset: number): PositionNeighbors | undefined {
+export function readNeighbors(root: Element, container: Node, offset: number): PositionNeighbors | undefined {
   if (container === root) {
     const children = root.childNodes;
     return {

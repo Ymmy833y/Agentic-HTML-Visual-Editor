@@ -1,6 +1,7 @@
 import { NO_CARET_STATE, readCaretState } from '../editing/caret-state';
 import type { CaretState } from '../editing/caret-state';
 import type { EditingSession } from '../editing/editing-session';
+import type { ToggleFormat } from '../editing/inline-format';
 
 /**
  * Ports of the caret follow. None of them hold a value; each is read on every call, because
@@ -9,6 +10,9 @@ import type { EditingSession } from '../editing/editing-session';
 export interface CaretFollowPorts {
   /** Returns the editor root. */
   readEditorRoot(): HTMLElement | undefined;
+
+  /** Returns the formats held for the next typed character. Empty when none is held. */
+  readPendingFormats(): ReadonlySet<ToggleFormat>;
 
   /**
    * Reflects the caret state onto the fixed toolbar.
@@ -119,7 +123,9 @@ export class CaretFollow {
       const root = this.ports.readEditorRoot();
       // Update even when the value equals the previous one. Skipping reflection by comparing values
       // would leave a stale display when only the tree has changed.
-      this.state = root === undefined ? NO_CARET_STATE : readCaretState(root);
+      this.state = root === undefined
+        ? NO_CARET_STATE
+        : readCaretState(root, this.ports.readPendingFormats());
       this.ports.reflect(this.state);
       this.ports.applyMenuState(this.state);
     });

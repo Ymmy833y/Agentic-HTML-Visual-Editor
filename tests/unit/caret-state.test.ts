@@ -72,6 +72,19 @@ describe('Evaluating the current selection', () => {
     expect([state.blockKind, state.formats.italic]).toEqual([undefined, true]);
   });
 
+  it('with pending formats, only the held formats are flipped and the other fields stay as they are', () => {
+    const root = mountRoot('<p><strong>abc</strong></p>');
+    const text = readChildText(readElement(root, 'strong'), 0);
+    select(createRange(text, 1, text, 1));
+
+    const state = readCaretState(root, new Set(['bold', 'italic']));
+
+    expect([state.formats, state.blockKind]).toEqual([
+      { ...NO_FORMAT, bold: false, italic: true },
+      BLOCK_KIND.paragraph,
+    ]);
+  });
+
   it('the no-target default matches the caret state with no selection', () => {
     const root = mountRoot('<p>a</p>');
     window.getSelection()?.removeAllRanges();

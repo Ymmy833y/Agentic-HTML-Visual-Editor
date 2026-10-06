@@ -39,7 +39,12 @@ export class CompositionGuard {
     private readonly root: Element,
     private readonly tracker: ChangeTracker,
     private readonly transactions: EditTransactionLifecycle,
-    private readonly hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [] },
+    private readonly hooks: EditingHooks = {
+      rangeDeleteGuards: [],
+      compositionStartHooks: [],
+      compositionEndHooks: [],
+      splitPreprocessors: [],
+    },
     private readonly reportDiagnostic?: DiagnosticReporter,
   ) {}
 
@@ -116,6 +121,12 @@ export class CompositionGuard {
     // For a composition that only placed a composition placeholder, removing it returns the tree to its pre-composition state.
     for (const placeholder of placeholders) {
       removeCompositionPlaceholder(placeholder, this.reportDiagnostic);
+    }
+
+    // What a start hook built around its placeholder is taken back out here, before deciding whether the composition counts as an edit, so an
+    // uncommitted one leaves the tree as it was. Hooks are called on the assumption that they do not throw, so exceptions are not caught here.
+    for (const hook of this.hooks.compositionEndHooks) {
+      hook(this.root, data.length > 0);
     }
 
     if (data.length === 0) {
