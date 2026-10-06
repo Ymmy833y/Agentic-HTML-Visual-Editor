@@ -352,6 +352,7 @@ describe('Range delete guard', () => {
     const hooks: EditingHooks = {
       rangeDeleteGuards: [(range, editorRoot) => collectCommentKeep(range, editorRoot, () => undefined)],
       compositionStartHooks: [],
+      compositionEndHooks: [],
       splitPreprocessors: [],
     };
     const range = createRange(readChildText(readElement(root, 'comment'), 0), 1, readChildText(readElement(root, 'p'), 1), 1);

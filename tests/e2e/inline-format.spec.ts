@@ -494,3 +494,185 @@ test.describe('format element normalization and the output', () => {
     expect(await page.evaluate(() => window.__serializationProbe?.()?.current)).toBe(BODY);
   });
 });
+
+test.describe('typing under a pending format', () => {
+  test('wraps the character typed after pressing bold at a bare caret, keeps the next character in the same element, and sends one edit unit', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.type('xy');
+
+    await expect
+      .poll(() => countMessages(page, VIEW_TO_HOST_MESSAGE_TYPE.editTransaction))
+      .toBe(1);
+    expect(await readBodyHtml(page)).toBe('\n<p>ab<strong>xy</strong>cd</p>\n');
+  });
+
+  test('puts the character typed after Ctrl+B inside bold outside the element, splitting it', async ({ page }) => {
+    await openEditor(page, '\n<p><strong>abcd</strong></p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} strong`, childIndex: 0, offset: 2 });
+
+    await pressPrimaryShortcut(page, 'B');
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><strong>ab</strong>x<strong>cd</strong></p>\n');
+  });
+
+  test('gives no format to the character typed after the caret was moved with an arrow key', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>abcxd</p>\n');
+  });
+
+  test('gives no format after bold is pressed twice, nor after Enter is pressed in between', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 4 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.type('x');
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('y');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>abcdx</p>\n<p>y</p>\n');
+  });
+
+  test('puts the committed composition inside bold with no placeholder left, and returns the tree when the composition is cancelled', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+    const ime = await openImeSession(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await ime.send('Input.imeSetComposition', { text: 'あ', selectionStart: 1, selectionEnd: 1 });
+    await ime.send('Input.insertText', { text: 'あ' });
+    const committed = await readBodyHtml(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 1 });
+    await pressToolbarItem(page, TOOLBAR_SLOT.italic);
+    await ime.send('Input.imeSetComposition', { text: 'い', selectionStart: 1, selectionEnd: 1 });
+    await ime.send('Input.imeSetComposition', { text: '', selectionStart: -1, selectionEnd: -1 });
+
+    expect([committed, await readBodyHtml(page)]).toEqual([
+      '\n<p>ab<strong>あ</strong>cd</p>\n',
+      '\n<p>ab<strong>あ</strong>cd</p>\n',
+    ]);
+  });
+
+  test('wraps the character typed just after a comment in bold outside the comment', async ({ page }) => {
+    await openEditor(page, '\n<p>a<comment id="c1">bc<comment-body>n</comment-body></comment>d</p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 2, offset: 0 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.type('x');
+
+    expect(await page.evaluate(() => window.__serializationProbe?.()?.body))
+      .toBe('\n<p>a<comment id="c1">bc<comment-body>n</comment-body></comment><strong>x</strong>d</p>\n');
+  });
+});
+
+test.describe('typing under a pending format into a materialized paragraph', () => {
+  test('wraps the first character typed into an empty body in bold inside the created paragraph', async ({ page }) => {
+    await openEditor(page, '');
+    await focusEditor(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><strong>x</strong></p>');
+  });
+
+  test('wraps the character typed right before a table in bold inside the paragraph created there', async ({ page }) => {
+    const table = '<table><tbody><tr><td>cd</td></tr></tbody></table>';
+    await openEditor(page, `\n<p>ab</p>\n${table}\n`);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+    // Right at the end of the paragraph puts the caret directly under the editor root, right before the table.
+    await page.keyboard.press('ArrowRight');
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe(`\n<p>ab</p>\n<p><strong>x</strong></p>\n${table}\n`);
+  });
+});
+
+test.describe('moving the caret into another block under a pending format', () => {
+  test('gives no format to the character typed after Right moves the caret from the end of one paragraph to the start of the next', async ({ page }) => {
+    await openEditor(page, '\n<p>ab</p>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab</p>\n<p>xcd</p>\n');
+  });
+
+  test('gives no format to the character typed after Right moves the caret from right before a table into its first cell', async ({ page }) => {
+    const table = '<table><tbody><tr><td>cd</td></tr></tbody></table>';
+    await openEditor(page, `\n<p>ab</p>\n${table}\n`);
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+    // Right at the end of the paragraph puts the caret directly under the editor root, right before the table.
+    await page.keyboard.press('ArrowRight');
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab</p>\n<table><tbody><tr><td>xcd</td></tr></tbody></table>\n');
+  });
+});
+
+test.describe('moving the caret past an element with no text under a pending format', () => {
+  test('gives no format to the character typed after Right moves the caret from right before a horizontal rule to right after it', async ({ page }) => {
+    await openEditor(page, '\n<p>ab</p>\n<hr>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 2 });
+    // Right at the end of the paragraph puts the caret directly under the editor root, right before the rule.
+    await page.keyboard.press('ArrowRight');
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab</p>\n<hr>\n<p>x</p>\n<p>cd</p>\n');
+  });
+
+  test('gives no format to the character typed after a click moves the caret from the end of a bare run to the start of the run after a horizontal rule', async ({ page }) => {
+    await openEditor(page, 'ab<hr>cd');
+    await focusEditor(page);
+    await placeCaret(page, { selector: EDITOR_ROOT, childIndex: 0, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bold);
+    const start = await page.evaluate((selector) => {
+      const text = document.querySelector(selector)?.childNodes[2];
+      if (text === undefined) {
+        throw new Error('Run after the rule not found');
+      }
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, 1);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.left + 1, y: rect.top + rect.height / 2 };
+    }, EDITOR_ROOT);
+    // A click at the start of the next run lands in its text at the same text position as the end of the first run.
+    await page.mouse.click(start.x, start.y);
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('ab<hr>xcd');
+  });
+});

@@ -12,6 +12,7 @@ import { createRange, mountRoot, readChildText, readElement, select } from './he
 
 /** The ports to replace. Whatever is not passed in behaves as it does in production. */
 interface PortOverrides {
+  readonly isComposing?: () => boolean;
   readonly isInputStopped?: () => boolean;
   readonly runCommandEdit?: (kind: string, command: () => boolean) => boolean;
   readonly ensureTargetBlock?: () => Element | undefined;
@@ -32,12 +33,14 @@ function createPorts(root: HTMLElement, overrides: PortOverrides = {}): {
   ports: FormatCommandPorts;
   diagnostics: string[];
   attempts: string[];
+  pending: string[];
 } {
   const diagnostics: string[] = [];
   const attempts: string[] = [];
+  const pending: string[] = [];
   const ports: FormatCommandPorts = {
     readEditorRoot: () => root,
-    isComposing: () => false,
+    isComposing: overrides.isComposing ?? (() => false),
     isInputStopped: overrides.isInputStopped ?? (() => false),
     runCommandEdit: overrides.runCommandEdit ?? ((kind, command) => {
       attempts.push(`begin:${kind}`);
@@ -47,9 +50,24 @@ function createPorts(root: HTMLElement, overrides: PortOverrides = {}): {
     }),
     ensureTargetBlock: overrides.ensureTargetBlock
       ?? (() => ensureTargetBlock(root, readSelectionRange(root))),
+    togglePendingFormat: (format) => {
+      pending.push(format);
+    },
     reportDiagnostic: (detail) => diagnostics.push(detail),
   };
-  return { ports, diagnostics, attempts };
+  return { ports, diagnostics, attempts, pending };
+}
+
+/**
+ * Places a bare caret in the editor root.
+ *
+ * @param root The editor root.
+ * @param selector A CSS selector for the element holding the text to place the caret in.
+ * @param offset The caret's offset.
+ */
+function placeCaretIn(root: Element, selector: string, offset: number): void {
+  const text = readChildText(readElement(root, selector), 0);
+  select(createRange(text, offset, text, offset));
 }
 
 /**
@@ -130,6 +148,50 @@ describe('running a format command', () => {
 
     expect([changed, root.innerHTML, window.getSelection()?.toString()])
       .toEqual([false, '<p>ab</p>', 'ab']);
+  });
+});
+
+describe('toggling a format at a bare caret', () => {
+  it('opens no attempt, toggles the pending format with the format, and returns false', () => {
+    const root = mountRoot('<p>ab</p>');
+    placeCaretIn(root, 'p', 1);
+    const { ports, attempts, pending } = createPorts(root);
+
+    const changed = runFormatOperation(ports, { kind: 'toggle', format: 'italic' }, 'rule');
+
+    expect([changed, attempts, pending, root.innerHTML]).toEqual([false, [], ['italic'], '<p>ab</p>']);
+  });
+
+  it('does not toggle the pending format for a caret inside a pre', () => {
+    const root = mountRoot('<pre><code>ab</code></pre>');
+    placeCaretIn(root, 'code', 1);
+    const { ports, attempts, pending } = createPorts(root);
+
+    const changed = runFormatOperation(ports, { kind: 'toggle', format: 'bold' }, 'command');
+
+    expect([changed, attempts, pending]).toEqual([false, [], []]);
+  });
+
+  it('does not toggle the pending format for a clear at a bare caret', () => {
+    const root = mountRoot('<p><strong>ab</strong></p>');
+    placeCaretIn(root, 'strong', 1);
+    const { ports, pending } = createPorts(root);
+
+    const changed = runFormatOperation(ports, { kind: 'clear' }, 'command');
+
+    expect([changed, pending, root.innerHTML]).toEqual([false, [], '<p><strong>ab</strong></p>']);
+  });
+
+  it('does not toggle the pending format during a composition or while input is stopped', () => {
+    const root = mountRoot('<p>ab</p>');
+    placeCaretIn(root, 'p', 1);
+    const composing = createPorts(root, { isComposing: () => true });
+    const stopped = createPorts(root, { isInputStopped: () => true });
+
+    runFormatOperation(composing.ports, { kind: 'toggle', format: 'bold' }, 'command');
+    runFormatOperation(stopped.ports, { kind: 'toggle', format: 'bold' }, 'command');
+
+    expect([composing.pending, stopped.pending]).toEqual([[], []]);
   });
 });
 

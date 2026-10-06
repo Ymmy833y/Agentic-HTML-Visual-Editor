@@ -6,8 +6,10 @@ import type { BlockKind } from './block-format';
 import { readFormatTarget } from './format-segment';
 import { readFormatState } from './format-state';
 import type { FormatState } from './format-state';
+import type { ToggleFormat } from './inline-format';
 import type { ListKind } from './list-structure';
 import { readListKindAt } from './list-target';
+import { NO_PENDING_FORMATS, applyPendingFormats } from './pending-format';
 
 /** The caret state for the current selection: the return values of each query gathered into one set as-is. */
 export interface CaretState {
@@ -45,9 +47,14 @@ export const NO_CARET_STATE: CaretState = {
  * from the same decision as the result of pressing the button, so the two never disagree.
  *
  * @param root The editor root.
+ * @param pendingFormats The formats held for the next typed character. They are laid over the format state, so
+ *   the pressed state shows what that character gets.
  * @returns The caret state.
  */
-export function readCaretState(root: Element): CaretState {
+export function readCaretState(
+  root: Element,
+  pendingFormats: ReadonlySet<ToggleFormat> = NO_PENDING_FORMATS,
+): CaretState {
   const block = readCurrentBlock(root);
   return {
     blockKind: readBlockKind(block),
@@ -55,7 +62,7 @@ export function readCaretState(root: Element): CaretState {
     alert: readAlertState(block),
     // Images are counted too, so that the link item's pressed state matches the check for opening the link dialog in
     // the edit state. The four other formats are decided by the target text alone, so this option does not change them.
-    formats: readFormatState(readFormatTarget(root, true)),
+    formats: applyPendingFormats(readFormatState(readFormatTarget(root, true)), pendingFormats),
     listKind: readListKindAt(root),
   };
 }

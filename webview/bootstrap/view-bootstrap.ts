@@ -60,6 +60,8 @@ import { insertImage } from '../editing/image-insert';
 import type { ImageInsertPorts } from '../editing/image-insert';
 import { insertLink } from '../editing/link-insert';
 import { registerListRules } from '../editing/list-input-rule';
+import { PendingFormat } from '../editing/pending-format';
+import { registerPendingFormatRules } from '../editing/pending-format-rule';
 import { createListAutoformatEntries, registerListShortcuts } from '../editing/list-shortcuts';
 import { registerPlainTextPasteShortcut } from '../editing/plain-text-paste';
 import type { PlainTextPastePorts } from '../editing/plain-text-paste';
@@ -531,6 +533,15 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   registerCommentSplit(nextEditingSession, (detail) => postDiagnostic(target.channel, detail));
   // The composition start preprocessor is also lost on document replacement, so register it on every mount. It applies after the structure and collapsible section preprocessors have adjusted the selection.
   registerCommentCompositionHook(nextEditingSession, (detail) => postDiagnostic(target.channel, detail));
+  // The pending format rule and hooks are also lost with the editing session, so register them on every mount. They come
+  // after the structural text rules, which keep winning the typed character, and after the comment composition hook, so
+  // that the placeholder goes in on the side of the comment edge that hook has chosen.
+  registerPendingFormatRules(
+    nextEditingSession,
+    pendingFormat,
+    formatCommandPorts,
+    (detail) => postDiagnostic(target.channel, detail),
+  );
   // The HTML paste rule is also lost with the editing session on document replacement, so register it on every mount,
   // including the first. Pasted images are resolved against the same base URIs the mount used to resolve the body.
   registerHtmlPasteRule(
@@ -545,6 +556,8 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   unsavedContentSender = nextUnsavedContentSender;
   editingSession = nextEditingSession;
 
+  // The held formats refer to positions of the old tree, so drop them and subscribe to the edits of the new session.
+  pendingFormat.handleMountCompleted(nextEditingSession);
   // Attach after recreating the editing session. In the reverse order, following stops while still
   // subscribed to the discarded tree. On the first mount there is no caret follow yet, and the first
   // mount that follows does the attaching.
@@ -802,6 +815,7 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
 
     const follow = new CaretFollow(view, {
       readEditorRoot,
+      readPendingFormats: () => pendingFormat.read(),
       reflect: (state) => reflectToolbarState(
         { toolbar: attached, blockTypeMenu: menu, localizer },
         state,
@@ -933,6 +947,11 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   attachCommentCaret(view, {
     readEditorRoot,
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  // The pending format is cancelled by a caret that leaves its anchor. Selection changes arrive at the view's document,
+  // which document replacement does not change, so subscribe only once here too.
+  view.document.addEventListener('selectionchange', () => {
+    pendingFormat.handleSelectionChange(readEditorRoot());
   });
   const popupElement = view.document.getElementById(COMMENT_POPUP_ELEMENT_ID);
   if (popupElement !== null) {
@@ -1570,6 +1589,15 @@ export const documentReplacementPorts: DocumentReplacementPorts = {
 };
 
 /**
+ * The pending format. There is one per view, and it is not recreated on document replacement.
+ *
+ * A change in what is held is a follow trigger of its own: no selection change and no edit comes with a toolbar press,
+ * so the pressed state would otherwise stay as it was until the next one.
+ */
+const pendingFormat = new PendingFormat();
+pendingFormat.addChangeListener(() => caretFollow?.evaluate());
+
+/**
  * The format command ports. There is one per view.
  *
  * The editor root, the editing session, and the shell are all replaced on a document replacement, so no
@@ -1581,6 +1609,12 @@ const formatCommandPorts: FormatCommandPorts = {
   isInputStopped: () => shell?.inputStop.isStopped() === true,
   runCommandEdit: (kind, command) => readEditingSession()?.runCommandEdit(kind, command) ?? false,
   ensureTargetBlock: () => readEditingSession()?.ensureTargetBlock(),
+  togglePendingFormat: (format) => {
+    const root = readEditorRoot();
+    if (root !== undefined) {
+      pendingFormat.toggle(format, root);
+    }
+  },
   reportDiagnostic: (detail) => {
     const channel = mountTarget?.channel;
     if (channel !== undefined) {

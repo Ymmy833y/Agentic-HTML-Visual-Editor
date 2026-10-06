@@ -12,6 +12,7 @@ import { CompositionGuard } from './composition-guard';
 import { DELETE_INPUT_TYPES, createDeleteRule } from './delete-rule';
 import { registerDiagramGuard } from './diagram-guard';
 import type {
+  CompositionEndHook,
   CompositionStartHook,
   EditingHooks,
   RangeDeleteGuard,
@@ -87,6 +88,17 @@ export class EditingSession {
    */
   registerCompositionStartHook(hook: CompositionStartHook): void {
     this.hooks.compositionStartHooks.push(hook);
+  }
+
+  /**
+   * Registers the hook a composition end calls.
+   *
+   * A later registration does not overwrite an earlier one but is appended to the list. A composition end calls every hook in registration order.
+   *
+   * @param hook The hook to register.
+   */
+  registerCompositionEndHook(hook: CompositionEndHook): void {
+    this.hooks.compositionEndHooks.push(hook);
   }
 
   /**
@@ -269,7 +281,12 @@ export function attachEditingCore(
   const tracker = new ChangeTracker(createBodyOutput);
   // One set of editing hooks per editing session; it is never shared with a different editor root.
   // The split preprocessor list is read when the built-in Enter and paste rules call it, so preprocessors registered later apply too.
-  const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [] };
+  const hooks: EditingHooks = {
+    rangeDeleteGuards: [],
+    compositionStartHooks: [],
+    compositionEndHooks: [],
+    splitPreprocessors: [],
+  };
   const composition = new CompositionGuard(root, tracker, transactions, hooks, reportDiagnostic);
 
   // Registered first, so that no rule writes into the invisible source of a diagram.

@@ -31,7 +31,7 @@ const insertBreak: SplitPreprocessor = (_block, caret) => {
 describe('Paste and split preprocessors', () => {
   it('pasting two lines, when a preprocessor inserts a line break and takes over, the paragraph is not split and the second line goes after that line break', () => {
     const root = mountRoot('<p>ab</p>');
-    const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [insertBreak] };
+    const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], compositionEndHooks: [], splitPreprocessors: [insertBreak] };
     const text = readChildText(readElement(root, 'p'), 0);
     const range = createRange(text, 1, text, 1);
     select(range);

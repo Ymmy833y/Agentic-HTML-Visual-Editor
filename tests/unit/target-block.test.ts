@@ -159,6 +159,7 @@ describe('target acquisition and range deletion', () => {
         },
       ],
       compositionStartHooks: [],
+      compositionEndHooks: [],
       splitPreprocessors: [],
     });
 
@@ -189,6 +190,7 @@ describe('target acquisition and range deletion', () => {
         },
       ],
       compositionStartHooks: [],
+      compositionEndHooks: [],
       splitPreprocessors: [],
     });
 
@@ -214,6 +216,7 @@ describe('target acquisition and range deletion', () => {
         () => ({ emptiedElements: [], keptNodes: [closedSection] }),
       ],
       compositionStartHooks: [],
+      compositionEndHooks: [],
       splitPreprocessors: [],
     });
 

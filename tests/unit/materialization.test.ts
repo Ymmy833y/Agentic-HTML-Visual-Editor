@@ -206,15 +206,35 @@ describe('materializing a between-blocks position', () => {
 });
 
 describe('input at a between-blocks position', () => {
-  it('character input at a collapsed caret right after a table puts the characters in a paragraph and returns edited', () => {
+  it('character input at a collapsed caret right after a table creates an empty paragraph there, moves the caret and the range into it, and passes the characters on', () => {
     const root = mountRoot(`${TABLE}\n<p>ab</p>`);
+    const range = caretAt(root, 1);
 
-    const result = runMaterializationRule(root, caretAt(root, 1), 'insertText', 'x');
+    const result = runMaterializationRule(root, range, 'insertText', 'x');
 
-    const text = readChildText(readElement(root, 'p'), 0);
+    const paragraph = readElement(root, 'p');
     const selection = window.getSelection();
-    expect([result, root.innerHTML, selection?.anchorNode, selection?.anchorOffset])
-      .toEqual(['edited', `${TABLE}\n<p>x</p>\n<p>ab</p>`, text, 1]);
+    expect([result, root.innerHTML, selection?.anchorNode, selection?.anchorOffset, range.startContainer, range.startOffset])
+      .toEqual(['pass', `${TABLE}\n<p><br></p>\n<p>ab</p>`, paragraph, 0, paragraph, 0]);
+  });
+
+  it('character input in an effectively empty editor root creates the paragraph and passes the characters on', () => {
+    const root = mountRoot('<br>');
+    const range = caretAt(root, 0);
+
+    const result = runMaterializationRule(root, range, 'insertText', 'x');
+
+    const paragraph = readElement(root, 'p');
+    expect([result, root.innerHTML, range.startContainer, range.startOffset])
+      .toEqual(['pass', '\n<p><br></p>', paragraph, 0]);
+  });
+
+  it('character input with no data in an effectively empty editor root creates the paragraph and returns edited', () => {
+    const root = mountRoot('');
+
+    const result = runMaterializationRule(root, caretAt(root, 0), 'insertText', '');
+
+    expect([result, root.innerHTML]).toEqual(['edited', '\n<p><br></p>']);
   });
 
   it('a line break insertion at the same position puts two br elements in the paragraph with the caret on the second line', () => {

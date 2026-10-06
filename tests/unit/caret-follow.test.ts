@@ -20,7 +20,7 @@ interface Harness {
   readonly setReflectFailing: (failing: boolean) => void;
 }
 
-/** Prepares the caret follow and a record of its 6 ports. */
+/** Prepares the caret follow and a record of its 7 ports. */
 function createHarness(): Harness {
   document.body.replaceChildren();
   const root = document.createElement('div');
@@ -35,6 +35,7 @@ function createHarness(): Harness {
 
   const follow = new CaretFollow(window, {
     readEditorRoot: () => root,
+    readPendingFormats: () => new Set(),
     reflect: () => {
       log.push('reflect');
       if (reflectFailing) {

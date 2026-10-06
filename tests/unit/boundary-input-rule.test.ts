@@ -40,7 +40,7 @@ function createHarness(html: string): Harness {
   const dispatcher = new InputDispatcher(root, (detail) => diagnostics.push(detail));
   const fallback = vi.spyOn(dispatcher, 'registerFallback');
   const main = vi.spyOn(dispatcher, 'register');
-  const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], splitPreprocessors: [] };
+  const hooks: EditingHooks = { rangeDeleteGuards: [], compositionStartHooks: [], compositionEndHooks: [], splitPreprocessors: [] };
   const ports: BlockCommandPorts = {
     readEditorRoot: () => root,
     isComposing: () => false,

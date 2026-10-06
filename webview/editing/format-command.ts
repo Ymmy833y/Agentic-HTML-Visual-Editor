@@ -6,7 +6,7 @@ import { collectFormatTarget } from './format-segment';
 import type { FormatTarget } from './format-segment';
 import { readFormatState } from './format-state';
 import { applyFormat, removeFormat } from './format-toggle';
-import { isBlockLevelElement } from './inline-format';
+import { isBlockLevelElement, isFormattingExcluded } from './inline-format';
 import type { ToggleFormat } from './inline-format';
 import { normalizeFormatElements } from './inline-normalize';
 
@@ -41,6 +41,13 @@ export interface FormatCommandPorts {
 
   /** Ensures a target block at the start of the current selection. */
   ensureTargetBlock(): Element | undefined;
+
+  /**
+   * Flips whether a format is held for the next typed character, at the current bare caret.
+   *
+   * @param format The format to toggle.
+   */
+  togglePendingFormat(format: ToggleFormat): void;
 
   /** Leaves one diagnostic line for maintainers. Not used to notify the user. */
   reportDiagnostic(detail: string): void;
@@ -80,7 +87,16 @@ export function runFormatOperation(
   if (root === undefined || ports.isComposing() || ports.isInputStopped()) {
     return false;
   }
-  if (readSelectionRange(root) === undefined) {
+  const range = readSelectionRange(root);
+  if (range === undefined) {
+    return false;
+  }
+  if (operation.kind === 'toggle' && range.collapsed) {
+    // A toggle without a range has no text to rewrite. The format is held for the next typed character
+    // instead, so no attempt is opened. Where no format is ever applied, there is nothing to hold either.
+    if (!isFormattingExcluded(range.startContainer, root)) {
+      ports.togglePendingFormat(operation.format);
+    }
     return false;
   }
 
@@ -194,8 +210,8 @@ function rewrite(ports: FormatCommandPorts, root: Element, operation: FormatOper
 function runOperation(operation: FormatOperation, target: FormatTarget, root: Element): Element[] {
   switch (operation.kind) {
     case 'toggle': {
-      // A toggle without a range does nothing. Carrying a format over to the next character typed would
-      // need state that survives until that input.
+      // A bare caret never reaches here; it is held as a pending format before the attempt is opened. A
+      // range with no target text has nothing to rewrite.
       if (target.kind !== 'segments' || target.segments.length === 0) {
         return [];
       }

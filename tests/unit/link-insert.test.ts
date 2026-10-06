@@ -45,6 +45,7 @@ function createPorts(root: HTMLElement, overrides: PortOverrides = {}): {
     }),
     ensureTargetBlock: overrides.ensureTargetBlock
       ?? (() => ensureTargetBlock(root, readSelectionRange(root))),
+    togglePendingFormat: () => undefined,
     reportDiagnostic: (detail) => diagnostics.push(detail),
   };
   return { ports, diagnostics, attempts };
