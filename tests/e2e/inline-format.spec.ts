@@ -17,6 +17,14 @@ import {
 import { IDLE_ICON_COLOR, getOutboundMessages, nameIconStroke } from './helpers/page';
 
 const BODY = '\n<p>abcd</p>\n';
+
+// A list item pasted from Google Docs. The text color is on the li as well as on the span, so removing the span alone
+// leaves the text colored.
+const PASTED_COLOR_STYLE = 'color: rgb(47, 54, 55);';
+const PASTED_SPAN_STYLE = `${PASTED_COLOR_STYLE} background-color: rgb(255, 255, 255);`;
+const PASTED_LIST_ITEM_BODY = `\n<ul>\n<li dir="ltr" style="${PASTED_COLOR_STYLE}" aria-level="1">\n`
+  + `<p dir="ltr" role="presentation"><span style="${PASTED_SPAN_STYLE}">Action</span></p>\n</li>\n</ul>\n`;
+
 const PROLOGUE = '<!DOCTYPE html>\n<html><body>';
 const EPILOGUE = '</body></html>';
 
@@ -465,6 +473,34 @@ test.describe('links and clearing', () => {
     await pressToolbarItem(page, TOOLBAR_SLOT.clearFormatting);
 
     expect(await readBodyHtml(page)).toBe('\n<p>ab<a href="x.html">c</a></p>\n');
+  });
+
+  test('removes the span and the style of the li when clear formatting is pressed on all the text of a pasted list item', async ({ page }) => {
+    await openEditor(page, PASTED_LIST_ITEM_BODY);
+    await selectRange(
+      page,
+      { selector: `${EDITOR_ROOT} span`, childIndex: 0, offset: 0 },
+      { selector: `${EDITOR_ROOT} span`, childIndex: 0, offset: 6 },
+    );
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.clearFormatting);
+
+    expect(await readBodyHtml(page))
+      .toBe('\n<ul>\n<li dir="ltr" aria-level="1">\n<p dir="ltr" role="presentation">Action</p>\n</li>\n</ul>\n');
+  });
+
+  test('removes only the selected part of the span and keeps the style of the li when clear formatting is pressed on part of a pasted list item', async ({ page }) => {
+    await openEditor(page, PASTED_LIST_ITEM_BODY);
+    await selectRange(
+      page,
+      { selector: `${EDITOR_ROOT} span`, childIndex: 0, offset: 0 },
+      { selector: `${EDITOR_ROOT} span`, childIndex: 0, offset: 3 },
+    );
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.clearFormatting);
+
+    expect(await readBodyHtml(page)).toBe(`\n<ul>\n<li dir="ltr" style="${PASTED_COLOR_STYLE}" aria-level="1">\n`
+      + `<p dir="ltr" role="presentation">Act<span style="${PASTED_SPAN_STYLE}">ion</span></p>\n</li>\n</ul>\n`);
   });
 });
 

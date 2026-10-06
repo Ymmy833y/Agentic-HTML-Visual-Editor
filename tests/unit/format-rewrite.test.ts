@@ -170,7 +170,7 @@ describe('clearing formats', () => {
     const paragraph = readElement(root, 'p');
     const range = createRange(paragraph, 0, paragraph, paragraph.childNodes.length);
 
-    clearFormats(collectFormatSegments(root, range));
+    clearFormats(collectFormatSegments(root, range), range, root);
 
     expect(root.innerHTML).toBe('<p>ab<a href="x.html">c</a><kbd>d</kbd></p>');
   });
@@ -180,7 +180,7 @@ describe('clearing formats', () => {
     const paragraph = readElement(root, 'p');
     const range = createRange(paragraph, 0, paragraph, paragraph.childNodes.length);
 
-    clearFormats(collectFormatSegments(root, range));
+    clearFormats(collectFormatSegments(root, range), range, root);
 
     expect(root.innerHTML).toBe('<p>ab</p>');
   });
@@ -188,8 +188,9 @@ describe('clearing formats', () => {
   it('returns no touched block and leaves the tree unchanged when there is nothing to remove', () => {
     const root = createRoot('<p>ab</p>');
     const text = readChildText(readElement(root, 'p'), 0);
+    const range = createRange(text, 0, text, 2);
 
-    const touched = clearFormats(collectFormatSegments(root, createRange(text, 0, text, 2)));
+    const touched = clearFormats(collectFormatSegments(root, range), range, root);
 
     expect([touched, root.innerHTML]).toEqual([[], '<p>ab</p>']);
   });
@@ -199,7 +200,7 @@ describe('clearing formats', () => {
     const em = readElement(root, 'em');
     const range = createRange(readChildText(em, 0), 0, readChildText(em, 2), 1);
 
-    clearFormats(collectFormatSegments(root, range));
+    clearFormats(collectFormatSegments(root, range), range, root);
 
     expect(root.innerHTML).toBe('<p>a<comment id="c1">bc</comment>d</p>');
   });
@@ -209,8 +210,85 @@ describe('clearing formats', () => {
     const paragraph = readElement(root, 'p');
     const range = createRange(paragraph, 0, paragraph, paragraph.childNodes.length);
 
-    clearFormats(collectFormatSegments(root, range));
+    clearFormats(collectFormatSegments(root, range), range, root);
 
     expect(root.innerHTML).toBe('<p>ab</p>');
+  });
+});
+
+describe('clearing the style of blocks', () => {
+  it('removes the style of the paragraph and of the li and ul around it when the selection covers all their text, returning the three as touched blocks', () => {
+    const root = createRoot('<ul style="color:red"><li style="color:blue"><p style="text-align:center">ab</p></li></ul>');
+    const text = readChildText(readElement(root, 'p'), 0);
+    const range = createRange(text, 0, text, 2);
+
+    const touched = clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect([touched.map((block) => block.localName), root.innerHTML])
+      .toEqual([['p', 'li', 'ul'], '<ul><li><p>ab</p></li></ul>']);
+  });
+
+  it('keeps the style of a paragraph the selection covers only in part and returns no touched block', () => {
+    const root = createRoot('<p style="color:red">abc</p>');
+    const text = readChildText(readElement(root, 'p'), 0);
+    const range = createRange(text, 1, text, 2);
+
+    const touched = clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect([touched, root.innerHTML]).toEqual([[], '<p style="color:red">abc</p>']);
+  });
+
+  it('removes the style of the first li and keeps that of the ul when only the first item is selected', () => {
+    const root = createRoot('<ul style="color:red"><li style="color:blue">a</li><li>b</li></ul>');
+    const text = readChildText(readElement(root, 'li'), 0);
+    const range = createRange(text, 0, text, 1);
+
+    clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect(root.innerHTML).toBe('<ul style="color:red"><li>a</li><li>b</li></ul>');
+  });
+
+  it('removes the style of a paragraph when the selection covers all its visible text but not the whitespace at its ends', () => {
+    const root = createRoot('<p style="color:red"> ab </p>');
+    const text = readChildText(readElement(root, 'p'), 0);
+    const range = createRange(text, 1, text, 3);
+
+    clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect(root.innerHTML).toBe('<p> ab </p>');
+  });
+
+  it('removes the style of a paragraph when the selection covers the text up to the annotated text but not the comment body', () => {
+    const root = createRoot('<p style="color:red">a<comment id="c1">b<comment-body>note</comment-body></comment></p>');
+    const range = createRange(
+      readChildText(readElement(root, 'p'), 0),
+      0,
+      readChildText(readElement(root, 'comment'), 0),
+      1,
+    );
+
+    clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect(root.innerHTML).toBe('<p>a<comment id="c1">b<comment-body>note</comment-body></comment></p>');
+  });
+
+  it('keeps the style of a u, which is phrasing content, and removes only that of the paragraph', () => {
+    const root = createRoot('<p style="color:blue"><u style="color:red">ab</u></p>');
+    const paragraph = readElement(root, 'p');
+    const range = createRange(paragraph, 0, paragraph, paragraph.childNodes.length);
+
+    clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect(root.innerHTML).toBe('<p><u style="color:red">ab</u></p>');
+  });
+
+  it('keeps the style of a text inside SVG and removes only that of the paragraph', () => {
+    const root = createRoot('<p style="color:blue"><svg><text style="fill:red">ab</text></svg></p>');
+    const paragraph = readElement(root, 'p');
+    const range = createRange(paragraph, 0, paragraph, paragraph.childNodes.length);
+
+    clearFormats(collectFormatSegments(root, range), range, root);
+
+    expect(root.innerHTML).toBe('<p><svg><text style="fill:red">ab</text></svg></p>');
   });
 });
