@@ -32,6 +32,7 @@ const EPILOGUE = '</body></html>';
 const TOOLBAR = `#${TOOLBAR_ELEMENT_ID}`;
 const FLOATING = `#${FLOATING_MENU_ELEMENT_ID}`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
+const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
 // An item with a popup puts its contents in the same container, so point only at the direct child button.
 const COMMENT_ITEM = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.comment}"] > button`;
 const BOLD_ITEM = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.bold}"] > button`;
@@ -1016,6 +1017,136 @@ test.describe('Opening and closing the popup by clicking', () => {
 
     await expect(page.locator(POPUP)).toHaveText('note');
     expect(await page.locator(`${EDITOR_ROOT} details`).getAttribute('open')).toBeNull();
+  });
+});
+
+test.describe('Opening a comment popup from the caret', () => {
+  test('Alt+Enter opens the thread at the caret and focuses the reply field without editing or forwarding Enter', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await installReceiver(page);
+    await installForwardRecord(page);
+    const before = await readBodyOutput(page);
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+    expect(await readBodyOutput(page)).toBe(before);
+    expect((await readRecord(page)).kinds).toEqual([]);
+    expect(await readForwardedKeys(page)).not.toContain('Enter');
+  });
+
+  test('Alt+Enter focuses the body field when the comment has no entries', async ({ page }) => {
+    await openCommentEditor(page, '<p>x<comment id="c-1">abcd</comment>y</p>');
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(BODY_FIELD)).toBeFocused();
+  });
+
+  test('Alt+Enter focuses the reply field when the comment has replies but no body', async ({ page }) => {
+    await openCommentEditor(page, '<p><comment id="c-1">abcd<comment-reply>reply</comment-reply></comment></p>');
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+  });
+
+  test('Alt+Enter opens the innermost thread containing the caret', async ({ page }) => {
+    await openCommentEditor(page, '<p><comment id="outer">ab<comment id="inner">cd'
+      + '<comment-body>inner note</comment-body></comment>ef<comment-body>outer note</comment-body></comment></p>');
+    await placeCaretAt(page, at('#inner', 0, 1));
+
+    await page.keyboard.press('Alt+Enter');
+
+    expect(await readPopupEntries(page)).toEqual(['inner note']);
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+  });
+
+  test('Alt+Enter enters the reply field of a thread already opened by clicking', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await page.locator(COMMENT).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+  });
+
+  test('Tab and Shift+Tab cycle through the popup after Alt+Enter opens it', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await page.keyboard.press('Alt+Enter');
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+
+    await page.keyboard.press('Tab');
+
+    await expect(page.locator(`${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`)).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+  });
+
+  test('Escape from the empty field after Alt+Enter restores the original caret', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    const before = await readSelectionEnds(page);
+    await page.keyboard.press('Alt+Enter');
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    await expect(page.locator(EDITOR_ROOT)).toBeFocused();
+    expect(await readSelectionEnds(page)).toEqual(before);
+  });
+
+  test('Alt+Enter does not open a thread for a caret outside annotations', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(`${EDITOR_ROOT} p:nth-of-type(2)`, 0, 2));
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(POPUP)).toBeHidden();
+  });
+
+  test('Alt+Enter does not open a thread for a range selection', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await selectRange(page, at(COMMENT, 0, 1), at(COMMENT, 0, 3));
+
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.locator(POPUP)).toBeHidden();
+  });
+
+  test('Alt+Enter does not open a thread during composition', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await page.locator(EDITOR_ROOT).dispatchEvent('compositionstart', { data: '' });
+
+    // Physical keys commit composition first, so send the keystroke while the editing session still holds it.
+    await page.locator(EDITOR_ROOT).dispatchEvent('keydown', {
+      key: 'Enter', code: 'Enter', altKey: true, bubbles: true, cancelable: true,
+    });
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    await page.locator(EDITOR_ROOT).dispatchEvent('compositionend', { data: '' });
+  });
+
+  test('Alt+Enter does not open a thread during an input stop', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await stopInput(page);
+
+    // The input stop moves focus out of the root; a queued root event must also leave the popup closed.
+    await page.locator(EDITOR_ROOT).dispatchEvent('keydown', {
+      key: 'Enter', code: 'Enter', altKey: true, bubbles: true, cancelable: true,
+    });
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    await resumeInput(page);
   });
 });
 

@@ -369,6 +369,16 @@ export class CommentThreadInputs {
   }
 
   /**
+   * Focuses the reply field, or the body field when there are no entries and the reply field is hidden.
+   *
+   * @param comment Opened comment.
+   */
+  focusReplyField(comment: Element): void {
+    const field = readCommentEntries(comment).length === 0 ? this.bodyField : this.replyField;
+    field.focus();
+  }
+
+  /**
    * Returns the input state to the thread view.
    *
    * @returns Input state.

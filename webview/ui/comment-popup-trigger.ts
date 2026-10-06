@@ -11,8 +11,17 @@ import type { CommentPopup, CommentPopupClosure } from './comment-popup';
  */
 export const COMMENT_ESCAPE_KEY: ShortcutKey = { code: 'Escape', primary: false, shift: false, alt: false };
 
+/** Opens the comment at the caret with Alt+Enter (Option+Enter on macOS). */
+export const COMMENT_OPEN_KEY: ShortcutKey = { code: 'Enter', primary: false, shift: false, alt: true };
+
 /** Ports of the trigger. They hold no values and are read on every call. */
 export interface CommentPopupTriggerPorts {
+  /** Returns whether an input stop reason remains. */
+  isInputStopped(): boolean;
+
+  /** Returns whether the current editing session is composing text. */
+  isComposing(): boolean;
+
   /**
    * Returns whether the same keystroke closed a toolbar popup.
    *
@@ -125,6 +134,29 @@ export class CommentPopupTrigger {
         this.popup.open(comment, false);
       }
     });
+  }
+
+  /**
+   * Opens the innermost comment at a collapsed caret and asks the content to focus its reply field.
+   *
+   * @param event The Alt+Enter keystroke.
+   * @returns "Prevent default" inside a comment, otherwise "pass".
+   */
+  handleOpen(event: KeyboardEvent): ShortcutOutcome {
+    let outcome: ShortcutOutcome = 'preventDefault';
+    this.guard(() => {
+      const range = readSelectionRange(this.root);
+      const comment = range?.collapsed === true ? findCommentAt(range.startContainer, this.root, 'innermost') : undefined;
+      if (comment === undefined) {
+        outcome = 'pass';
+        return;
+      }
+      if (event.isComposing || this.ports.isComposing() || this.ports.isInputStopped()) {
+        return;
+      }
+      this.popup.open(comment, true, true);
+    });
+    return outcome;
   }
 
   /**
@@ -246,7 +278,7 @@ export class CommentPopupTrigger {
 }
 
 /**
- * Attaches the trigger listeners and appends the Escape shortcut to the shortcut receiver's list.
+ * Attaches the trigger listeners and appends the Escape and Alt+Enter shortcuts to the shortcut receiver's list.
  *
  * Presses are received in the document's capture phase, so the popup can close even if another listener stops propagation.
  * Scrolling of inner elements does not bubble, so it is also received in the capture phase. The editor root and the
@@ -274,5 +306,6 @@ export function attachCommentPopupTrigger(
   view.addEventListener('scroll', () => trigger.handleViewportChange(), true);
   view.addEventListener('resize', () => trigger.handleViewportChange());
   receiver.register({ key: COMMENT_ESCAPE_KEY, run: (event) => trigger.handleEscape(event) });
+  receiver.register({ key: COMMENT_OPEN_KEY, run: (event) => trigger.handleOpen(event) });
   return trigger;
 }
