@@ -131,6 +131,8 @@ export {
   COMMENT_TAG_NAME,
 } from './html/comment-annotation';
 export type { CommentAuthor } from './html/comment-annotation';
+export { CHANGE_ATTRIBUTE, CHANGE_AUTHOR, CHANGE_KIND } from './html/change-mark';
+export type { ChangeKind } from './html/change-mark';
 export { isBlankDocument, joinDocument, splitDocument } from './html/document-boundary';
 export type { DocumentBoundary } from './html/document-boundary';
 export { rewriteCharsetDeclaration } from './html/charset-declaration';

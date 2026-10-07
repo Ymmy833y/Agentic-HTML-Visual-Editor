@@ -17,8 +17,8 @@ interface NavigationOverrides {
 interface NavigationHarness {
   readonly ports: SidebarNavigationPorts;
   /**
-   * Opened sections (open:ID start → end), returns (return), and opened threads (thread:ID, followed by "with focus"
-   * when focus moves into the popup), in call order.
+   * Opened sections (open:ID start → end), returns (return), opened threads (thread:ID) and opened changes
+   * (change:ID), each followed by "with focus" when focus moves into the popup, in call order.
    */
   readonly calls: string[];
   /** The selections passed to the return port. */
@@ -58,6 +58,9 @@ function createHarness(root: Element, overrides: NavigationOverrides = {}): Navi
     },
     openComment: (comment, moveFocus) => {
       calls.push(moveFocus ? `thread:${comment.id} with focus` : `thread:${comment.id}`);
+    },
+    openChange: (change, moveFocus) => {
+      calls.push(moveFocus ? `change:${change.id} with focus` : `change:${change.id}`);
     },
     reportDiagnostic: (detail) => {
       diagnostics.push(detail);
@@ -189,6 +192,23 @@ describe('Moving to a sidebar target', () => {
     expect([byPointer.calls, byKeyboard.calls, byKeyboard.selections]).toEqual([
       ['return', 'thread:c-a'],
       ['return', 'thread:c-a with focus'],
+      [{ start, end: start }],
+    ]);
+  });
+
+  it('opens the popup of a change mark after calling the return port with the selection at its start, moving focus into it only when chosen with the keyboard, and opens no thread', () => {
+    const root = mountRoot('<p>x <ins id="i-a">added</ins></p>');
+    const change = showElement(readElement(root, '#i-a'));
+    const byPointer = createHarness(root);
+    const byKeyboard = createHarness(root);
+
+    moveToSidebarTarget(byPointer.ports, { kind: 'change', element: change }, false);
+    moveToSidebarTarget(byKeyboard.ports, { kind: 'change', element: change }, true);
+
+    const start = { line: 0, column: '<p>x <ins id="i-a">'.length };
+    expect([byPointer.calls, byKeyboard.calls, byKeyboard.selections]).toEqual([
+      ['return', 'change:i-a'],
+      ['return', 'change:i-a with focus'],
       [{ start, end: start }],
     ]);
   });

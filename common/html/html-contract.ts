@@ -6,6 +6,8 @@ export const ALLOWED_TAG_NAMES: ReadonlySet<string> = new Set([
   's',
   'a',
   'span',
+  'ins',
+  'del',
   'h1',
   'h2',
   'h3',

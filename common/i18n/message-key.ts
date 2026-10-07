@@ -200,6 +200,16 @@ export const MESSAGE_KEYS = [
   'diagramZoom.zoomIn',
   'diagramZoom.zoomOut',
   'diagramZoom.reset',
+  'sidebar.changes',
+  'sidebar.noChanges',
+  'sidebar.acceptAll',
+  'sidebar.rejectAll',
+  'changePopup.name',
+  'changePopup.insertion',
+  'changePopup.deletion',
+  'changePopup.replacement',
+  'changePopup.accept',
+  'changePopup.reject',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

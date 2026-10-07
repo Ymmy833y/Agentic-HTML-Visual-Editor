@@ -37,6 +37,8 @@ import type { CellMergeState, CellRangeSelection } from '../editing/cell-range';
 import { attachClipboardCopy } from '../editing/clipboard-copy';
 import type { ClipboardCopyPorts } from '../editing/clipboard-copy';
 import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
+import { resolveAllChanges, resolveChange } from '../editing/change-resolve';
+import type { ChangeResolvePorts } from '../editing/change-resolve';
 import { runCommentItem } from '../editing/comment-create';
 import type { CommentItemPorts } from '../editing/comment-create';
 import { registerCommentCompositionHook } from '../editing/comment-guard-rule';
@@ -96,6 +98,10 @@ import { ACTION_DIALOG_BACKDROP_ELEMENT_ID, ACTION_DIALOG_ELEMENT_ID, ActionDial
 import { registerAlertItems } from '../ui/alert-items';
 import { registerBlockButtons } from '../ui/block-buttons';
 import type { BlockTypeMenu } from '../ui/block-type-menu';
+import { attachChangePopup } from '../ui/change-popup';
+import type { ChangePopup } from '../ui/change-popup';
+import { attachChangePopupTrigger } from '../ui/change-popup-trigger';
+import type { ChangePopupTrigger } from '../ui/change-popup-trigger';
 import { attachCodeBlockCopy, requestCodeBlockCopy } from '../ui/code-block-copy';
 import type { CodeBlockCopy } from '../ui/code-block-copy';
 import { attachColumnResize } from '../ui/column-resize';
@@ -256,6 +262,11 @@ let commentPopupTrigger: CommentPopupTrigger | undefined;
 // Created and held on the first mount. It is the content registered on the popup and holds the inputs being written
 // across document replacements, so it is not recreated.
 let commentThread: CommentThread | undefined;
+
+// One of each is created and held on the first mount, for the same reasons as the comment popup. A change mark carries
+// no id, so a replacement closes the open popup instead of reattaching it.
+let changePopup: ChangePopup | undefined;
+let changePopupTrigger: ChangePopupTrigger | undefined;
 
 // One of each is created and held on the first successful mount. Every element stays the same
 // across document replacements, so they are not recreated.
@@ -568,6 +579,9 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   // The open comment disappeared with the old tree, so reattach to the comment with the same ID in the new tree or close, and
   // subscribe to the new session's edit notifications. On the first mount there is no trigger yet; the first-time steps below pass it.
   commentPopupTrigger?.handleMountCompleted(nextEditingSession);
+  // The open change went away with the old tree and cannot be found again, so close the popup and subscribe to the new
+  // session's edit notifications. On the first mount there is no trigger yet; the first-time steps below pass it.
+  changePopupTrigger?.handleMountCompleted(nextEditingSession);
   // The reference cells of the menu and of the drag went away with the old tree, so close and cancel them. On the
   // first mount neither exists yet. The replacement steps that follow place the selection of the replacement again.
   tableMenu?.handleMountCompleted();
@@ -732,6 +746,15 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   const openDiagram = (block: Element): void => {
     void openDiagramDialog(diagramDialogPorts, block);
   };
+  // Accepting and rejecting change marks run from the popup and from the sidebar through the same ports, which are
+  // read on every call for the same reason as the image ports.
+  const changeResolvePorts: ChangeResolvePorts = {
+    readEditorRoot,
+    isInputStopped: () => viewShell.inputStop.isStopped(),
+    runCommandEdit: (kind, command) => readEditingSession()?.runCommandEdit(kind, command) ?? false,
+    requestReturn: (selection) => viewShell.editorReturn.requestReturn(selection),
+    reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  };
   const attached = attachToolbar(view, localizer, viewShell.activation, viewShell.tooltip);
   toolbar = attached;
   if (attached !== undefined) {
@@ -779,12 +802,19 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       openDetails: (section, endpoints) => toggleDetailsSection(blockCommandPorts, section, 'open', endpoints),
       requestReturn: (selection) => viewShell.editorReturn.requestReturn(selection),
       openComment: (comment, moveFocus) => commentPopup?.open(comment, moveFocus),
+      openChange: (change, moveFocus) => changePopup?.open(change, moveFocus),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
     };
     const attachedSidebar = attachSidebar(view, {
       localizer,
       readEditorRoot,
       move: (target, byKeyboard) => moveToSidebarTarget(sidebarNavigationPorts, target, byKeyboard),
+      acceptAllChanges: () => {
+        resolveAllChanges(changeResolvePorts, 'accept');
+      },
+      rejectAllChanges: () => {
+        resolveAllChanges(changeResolvePorts, 'reject');
+      },
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
       returnToEditor: () => viewShell.editorReturn.returnToEditor(),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
@@ -939,6 +969,41 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     openDetails: (section) => toggleDetailsSection(blockCommandPorts, section, 'open'),
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   });
+  // The change popup and its trigger are attached after the comment popup's, whether or not there is a toolbar, so that
+  // the comment's Escape and Alt+Enter come first in the shortcut list and the change's run only when they pass. The
+  // ports are read on every call for the same reasons as the comment popup's.
+  const attachedChangePopup = attachChangePopup(view, target.root, {
+    localizer,
+    formatDate: (date) => dateFormat.format(date),
+    isInputStopped: () => viewShell.inputStop.isStopped(),
+    hasViewFocus: () => view.document.hasFocus(),
+    isInItemBar: (node) => toolbarBar?.contains(node) === true || floatingBar?.contains(node) === true,
+    hasShortcut: (event) => receiver.hasShortcut(event),
+    requestReturn: (selection) => viewShell.editorReturn.requestReturn(selection),
+    deferReturn: (selection) => viewShell.editorReturn.deferReturn(selection),
+    resolve: (change, decision) => {
+      resolveChange(changeResolvePorts, change, decision);
+    },
+    reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  changePopup = attachedChangePopup;
+  const changeTrigger = attachChangePopupTrigger(view, target.root, receiver, attachedChangePopup, {
+    isInputStopped: () => viewShell.inputStop.isStopped(),
+    isComposing: () => readEditingSession()?.isComposing === true,
+    wasPopupClosedBy: (event) => viewShell.activation.wasClosedBy(event),
+    isInDialogOrOverlay: (node) => node !== null && [
+      ACTION_DIALOG_ELEMENT_ID,
+      ACTION_DIALOG_BACKDROP_ELEMENT_ID,
+      OVERLAY_ELEMENT_ID,
+    ].some((id) => view.document.getElementById(id)?.contains(node) === true),
+    isInSearchPanel: (node) => searchController?.isInPanel(node) === true,
+    reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  changePopupTrigger = changeTrigger;
+  // The editing session of the first mount is created before the trigger and cannot be passed through the replacement path, so pass it here.
+  if (firstSession !== undefined) {
+    changeTrigger.handleMountCompleted(firstSession);
+  }
   // Comment-edge ← and →, the caret color, and popup presses all attach to a receiver, document, or element that document replacement does not change, so attach them only once.
   // The ports are read on every call, because document replacement swaps the editing session and the thread content is drawn later.
   registerCommentSideKeys(receiver, {

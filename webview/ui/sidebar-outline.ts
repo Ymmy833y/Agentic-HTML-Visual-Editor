@@ -1,6 +1,14 @@
-import { COMMENT_AUTHOR, COMMENT_TAG_NAME } from '../../common/index';
+import { CHANGE_KIND, COMMENT_AUTHOR, COMMENT_TAG_NAME } from '../../common/index';
 import type { CommentAuthor } from '../../common/index';
 import { HEADING_TAG_NAMES } from '../editing/block';
+import {
+  REPLACEMENT_KIND,
+  readChangeAuthor,
+  readChangeKind,
+  readChanges,
+  readReplacementPartner,
+} from '../editing/change-read';
+import type { ChangeUnitKind } from '../editing/change-read';
 import { readCommentEntries } from '../editing/comment-read';
 import { isAiEntry, isCommentResolved } from '../editing/comment-thread-read';
 
@@ -26,6 +34,24 @@ export interface CommentOutlineItem {
   readonly author: CommentAuthor;
 }
 
+/** One entry of the change outline: a change mark, or a replacement pair listed as one. */
+export interface ChangeOutlineItem {
+  /**
+   * The change mark in the editor root: an inline mark, an element that carries the kind, or the deletion that leads
+   * a replacement pair.
+   */
+  readonly element: Element;
+  /** Whether the entry is an insertion, a deletion or a replacement pair. */
+  readonly kind: ChangeUnitKind;
+  /**
+   * The outline text of the content of the mark. For a pair, the text of the deletion, an arrow and the text of the
+   * insertion. Empty when there is none.
+   */
+  readonly text: string;
+  /** The side of the mark's author. */
+  readonly author: CommentAuthor;
+}
+
 // Entries are not shown in the document flow, so neither they nor anything written inside them names a heading or a
 // comment in the outline.
 const ENTRY_TAG_NAMES: ReadonlySet<string> = new Set([COMMENT_TAG_NAME.body, COMMENT_TAG_NAME.reply]);
@@ -36,6 +62,9 @@ const HEADING_SELECTOR = [...HEADING_TAG_NAMES].join(', ');
 
 // Runs of whitespace, including line breaks and no-break spaces, are shown as one space, as the document renders them.
 const WHITESPACE_RUN_PATTERN = /\s+/gu;
+
+// Joins the two texts of a replacement pair in one item: what goes, then what comes in its place.
+const REPLACEMENT_TEXT_SEPARATOR = ' → ';
 
 /**
  * Returns the headings of the editor root in document order, with how deep each nests. Does not change the tree.
@@ -86,12 +115,43 @@ export function readCommentOutline(root: Element): CommentOutlineItem[] {
 }
 
 /**
+ * Returns every change of the editor root in the document order of their start tags. Does not change the tree.
+ *
+ * Nested marks count one each, and marks inside entries are left out, as the marks are read everywhere else. A
+ * replacement pair is one entry, listed where its deletion is and decided as one from the popup it opens.
+ *
+ * @param root The editor root.
+ * @returns The entries with their kinds, the outline texts of their content and the sides of their authors.
+ */
+export function readChangeOutline(root: Element): ChangeOutlineItem[] {
+  const items: ChangeOutlineItem[] = [];
+  for (const element of readChanges(root)) {
+    // Reading marks returns only elements that have a kind.
+    const kind = readChangeKind(element) ?? CHANGE_KIND.insertion;
+    const partner = readReplacementPartner(element);
+    // The insertion of a pair is listed with its deletion, which comes before it in document order.
+    if (partner !== undefined && kind === CHANGE_KIND.insertion) {
+      continue;
+    }
+    items.push({
+      element,
+      kind: partner === undefined ? kind : REPLACEMENT_KIND,
+      text: partner === undefined
+        ? readOutlineText(element)
+        : `${readOutlineText(element)}${REPLACEMENT_TEXT_SEPARATOR}${readOutlineText(partner)}`,
+      author: readChangeAuthor(element),
+    });
+  }
+  return items;
+}
+
+/**
  * Returns the text an item of the sidebar shows for an element.
  *
  * Entries (including those of nested comments) are left out, a line break counts as a space, and runs of whitespace
  * are collapsed to one space with the ends trimmed, so that the one line of the item reads like the rendered text.
  *
- * @param element The heading or the comment.
+ * @param element The heading, the comment or the change mark.
  * @returns The outline text. Empty when the element shows no text.
  */
 export function readOutlineText(element: Element): string {

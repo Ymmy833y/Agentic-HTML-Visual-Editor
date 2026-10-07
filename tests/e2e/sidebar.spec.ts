@@ -11,10 +11,13 @@ import {
 } from '../../common/index';
 import type { SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import englishMessages from '../../messages/messages.en.json';
+import { CHANGE_KIND_ICON_PATH, CHANGE_POPUP_ELEMENT_ID } from '../../webview/ui/change-popup';
 import { COMMENT_POPUP_ELEMENT_ID } from '../../webview/ui/comment-popup';
 import { INPUT_STOP_REASON } from '../../webview/ui/input-stop';
 import { OVERLAY_ELEMENT_ID } from '../../webview/ui/overlay-presenter';
 import {
+  ACCEPT_ALL_CLASS,
+  REJECT_ALL_CLASS,
   RESOLVED_ICON_PATH,
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_RESIZER_CLASS,
@@ -37,6 +40,11 @@ const RESIZER = `${SIDEBAR} > .${SIDEBAR_RESIZER_CLASS}`;
 const ITEMS = `${SIDEBAR} [role="tabpanel"] button`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
 const RESOLVED_TOGGLE = `${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`;
+// The items of the changes tab alone, without the button above the list that accepts every change.
+const CHANGE_ITEMS = `${SIDEBAR} [role="tabpanel"] li > button`;
+const ACCEPT_ALL = `${SIDEBAR} .${ACCEPT_ALL_CLASS}`;
+const REJECT_ALL = `${SIDEBAR} .${REJECT_ALL_CLASS}`;
+const CHANGE_POPUP = `#${CHANGE_POPUP_ELEMENT_ID}`;
 
 /** Paragraphs that make the document taller than the view. They contain no heading and no comment. */
 const FILLER = '<p>lorem</p>'.repeat(60);
@@ -331,7 +339,8 @@ async function readTabLook(page: Page): Promise<{ colors: string[]; moved: numbe
   return page.evaluate((selectors) => {
     const tablist = document.querySelector(selectors.tablist);
     const tabs = [...document.querySelectorAll(selectors.tabs)];
-    if (tablist === null || tabs.length !== 2) {
+    // The look is read from the first two tabs, whichever tabs follow them.
+    if (tablist === null || tabs.length < 2) {
       throw new Error('the tabs are missing');
     }
     const piece = getComputedStyle(tablist, '::before');
@@ -1161,5 +1170,202 @@ test.describe('the look of the sidebar', () => {
     }
 
     expect(outlines).toEqual([['A', 'solid', 'rgb(0, 144, 241)'], ['Headings', 'solid', 'rgb(0, 144, 241)']]);
+  });
+});
+
+test.describe('the changes tab', () => {
+  /** An insertion and a deletion in a paragraph, and a list item that carries a deletion. */
+  const CHANGES = '<p>x<ins id="i-a" data-author="ai">added</ins> <del id="d-a" data-author="ai">removed</del></p>'
+    + '<ul><li id="l-a" data-change="del" data-author="ai">item</li></ul>';
+
+  test('pressing the changes tab lists every mark in document order with the icon of its kind, led by Accept All and Reject All', async ({ page }) => {
+    await openSidebarEditor(page, CHANGES);
+    await openSidebar(page);
+
+    await sidebarTab(page, 'Changes').click();
+
+    expect([
+      await sidebarTab(page, 'Changes').getAttribute('aria-selected'),
+      [await page.locator(ACCEPT_ALL).textContent(), await page.locator(REJECT_ALL).textContent()],
+      await page.locator(ACCEPT_ALL).evaluate((button) => button.parentElement?.nextElementSibling?.localName),
+      await page.locator(CHANGE_ITEMS).allTextContents(),
+      await page.locator(`${CHANGE_ITEMS} svg path`).evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))),
+    ]).toEqual([
+      'true',
+      ['Accept All', 'Reject All'],
+      'ul',
+      ['added', 'removed', 'item'],
+      [CHANGE_KIND_ICON_PATH.ins, CHANGE_KIND_ICON_PATH.del, CHANGE_KIND_ICON_PATH.del],
+    ]);
+  });
+
+  test('a deletion followed by an insertion from the same author is listed as one replacement with both texts and its own icon', async ({ page }) => {
+    await openSidebarEditor(
+      page,
+      '<p><del id="d-a" data-author="ai">hour</del><ins id="i-a" data-author="ai">30 minutes</ins> <ins id="i-b" data-author="ai">more</ins></p>',
+    );
+    await openSidebar(page);
+
+    await sidebarTab(page, 'Changes').click();
+
+    expect([
+      await page.locator(CHANGE_ITEMS).allTextContents(),
+      await page.locator(`${CHANGE_ITEMS} svg path`).evaluateAll((paths) => paths.map((path) => path.getAttribute('d'))),
+    ]).toEqual([['hour → 30 minutes', 'more'], [CHANGE_KIND_ICON_PATH.replacement, CHANGE_KIND_ICON_PATH.ins]]);
+  });
+
+  test('pressing a change item with a pointer puts the caret at the start of the mark, aligns its top with the bottom of the toolbar, and opens its popup without moving focus', async ({ page }) => {
+    await openSidebarEditor(page, `<p>top</p>${FILLER}<p>x<ins id="i-a" data-author="ai">far</ins>y</p>${FILLER}`);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+
+    await page.locator(CHANGE_ITEMS, { hasText: 'far' }).click();
+    await expect(page.locator(CHANGE_POPUP)).toBeVisible();
+    await settleFrames(page);
+
+    expect([
+      await readFocus(page),
+      await readCaretPrefix(page),
+      Math.abs(await readOffsetBelowToolbar(page, `${EDITOR_ROOT} #i-a`)) < 1,
+    ]).toEqual(['editor', `top${'lorem'.repeat(60)}x`, true]);
+  });
+
+  test('Enter on a change item opens its popup with focus inside, and Esc returns to the editor root with the caret at the start of the mark', async ({ page }) => {
+    await openSidebarEditor(page, '<p>x<ins id="i-a" data-author="ai">added</ins>y</p>');
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+    await page.locator(CHANGE_ITEMS).first().focus();
+
+    await page.keyboard.press('Enter');
+    await expect(page.locator(CHANGE_POPUP)).toBeVisible();
+    const focusInPopup = await page.evaluate(
+      (popupId) => document.getElementById(popupId)?.contains(document.activeElement),
+      CHANGE_POPUP_ELEMENT_ID,
+    );
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator(CHANGE_POPUP)).toBeHidden();
+    expect([focusInPopup, await readFocus(page), await readCaretPrefix(page)]).toEqual([true, 'editor', 'x']);
+  });
+
+  test('Accept All accepts every mark in one edit transaction, after which the list says No changes and the buttons are gone', async ({ page }) => {
+    await openSidebarEditor(page, CHANGES);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+
+    await page.locator(ACCEPT_ALL).click();
+    await settleFrames(page);
+
+    const types = await readEditMessageTypes(page);
+    expect([
+      await readBodyOutput(page),
+      types.filter((type) => type === VIEW_TO_HOST_MESSAGE_TYPE.editTransaction).length,
+      await page.locator(`${SIDEBAR} [role="tabpanel"]`).textContent(),
+      await page.locator(ACCEPT_ALL).count() + await page.locator(REJECT_ALL).count(),
+    ]).toEqual(['<p>xadded </p>', 1, 'No changes', 0]);
+  });
+
+  test('Reject All rejects every mark in one edit transaction, after which the list says No changes', async ({ page }) => {
+    await openSidebarEditor(page, CHANGES);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+
+    await page.locator(REJECT_ALL).click();
+    await settleFrames(page);
+
+    const types = await readEditMessageTypes(page);
+    expect([
+      await readBodyOutput(page),
+      types.filter((type) => type === VIEW_TO_HOST_MESSAGE_TYPE.editTransaction).length,
+      await page.locator(`${SIDEBAR} [role="tabpanel"]`).textContent(),
+    ]).toEqual(['<p>x removed</p><ul><li id="l-a">item</li></ul>', 1, 'No changes']);
+  });
+
+  test('on the changes tab, Shift+Tab after the reach key moves to the item, then to Reject All, then to Accept All, then to the tab', async ({ page }) => {
+    await openSidebarEditor(page, '<p>x<ins id="i-a" data-author="ai">added</ins></p>');
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+    await placeCaret(page, `${EDITOR_ROOT} p`, 1);
+    await page.keyboard.press('Alt+F10');
+
+    const visited = [await readFocus(page)];
+    for (const key of ['Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key);
+      visited.push(await readFocus(page));
+    }
+
+    expect(visited).toEqual([
+      `toolbar:${TOOLBAR_SLOT.sidebar}`,
+      'sidebar:added',
+      'sidebar:Reject All',
+      'sidebar:Accept All',
+      'sidebar:Changes',
+    ]);
+  });
+
+  test('in light, dark and high contrast alike, the icon of an insertion is drawn in green and that of a deletion in red', async ({ page }) => {
+    await openSidebarEditor(page, CHANGES);
+
+    const drawn: string[][] = [];
+    for (const theme of THEMES) {
+      await applyTheme(page, theme.variables);
+      await openSidebar(page);
+      await sidebarTab(page, 'Changes').click();
+      drawn.push(await page.locator(`${CHANGE_ITEMS} svg`).evaluateAll((icons) => icons.map((icon) => getComputedStyle(icon).stroke)));
+      await page.locator(SIDEBAR_BUTTON).click();
+    }
+
+    // The colors of the kinds are fixed values rather than theme variables, so they are the same in every theme.
+    expect(drawn).toEqual(THEMES.map(() => ['rgb(31, 138, 58)', 'rgb(209, 52, 61)', 'rgb(209, 52, 61)']));
+  });
+});
+
+test.describe('the tabs of a narrow sidebar', () => {
+  /**
+   * Reads each tab: its name, whether its content fits inside it, whether its label takes up room on screen, and its
+   * horizontal edges.
+   *
+   * @param page The page to operate on.
+   */
+  async function readTabs(page: Page): Promise<{ name: string; fits: boolean; labelShown: boolean; left: number; right: number }[]> {
+    return page.locator(TABS).evaluateAll((elements) => elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      const label = element.querySelector('span');
+      return {
+        name: element.textContent ?? '',
+        fits: element.scrollWidth <= element.clientWidth,
+        labelShown: label !== null && label.getBoundingClientRect().width > 1,
+        left: rect.left,
+        right: rect.right,
+      };
+    }));
+  }
+
+  test('at the narrowest width, the tabs show their icons alone, none overflows or overlaps the next, and each keeps its name', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: SIDEBAR_MIN_WIDTH });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    const tabs = await readTabs(page);
+
+    expect([
+      tabs.map((tab) => [tab.name, tab.fits, tab.labelShown]),
+      tabs.every((tab, index) => index === 0 || tabs[index - 1].right <= tab.left),
+    ]).toEqual([
+      [['Headings', true, false], ['Comments', true, false], ['Changes', true, false]],
+      true,
+    ]);
+  });
+
+  test('widened to 400px, the tabs show their labels and still fit', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: 400 });
+    await expect(page.locator(SIDEBAR)).toBeVisible();
+
+    const tabs = await readTabs(page);
+
+    expect(tabs.map((tab) => [tab.name, tab.fits, tab.labelShown])).toEqual([
+      ['Headings', true, true],
+      ['Comments', true, true],
+      ['Changes', true, true],
+    ]);
   });
 });

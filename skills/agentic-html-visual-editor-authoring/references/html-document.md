@@ -39,8 +39,11 @@ Write documents with the tags in this table. They are the tags that the editor d
 | Table | `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` |
 | Image | `img` |
 | Comment | `comment`, `comment-body`, `comment-reply` |
+| Change | `ins`, `del` |
 
 The table is not a filter. A tag outside it is not removed when a document is opened, and it stays in the file.
+
+The change marks `ins` and `del`, and the `data-change` attribute for elements they cannot wrap, are described in [change-marks.md](change-marks.md).
 
 These tags are forbidden inside `<body>`:
 

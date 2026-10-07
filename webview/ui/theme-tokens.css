@@ -38,6 +38,17 @@
   --ahve-comment-resolved: #9b7d5b;
   --ahve-comment-ai-resolved: #637e93;
 
+  /* Colors of change marks: green for an insertion and red for a deletion, as diffs are read everywhere. The solid color
+     draws the underline or the strikethrough of the marked content, the icon of the kind in the popup and the sidebar,
+     and the border of the open mark; the translucent one is the background of the marked content. They are fixed values
+     for the same reason as the author colors: a color that changed with the theme would weaken the cue, and the high
+     contrast themes define no green or red. Both solid colors keep a contrast of at least 3:1 against a white and a
+     black background. */
+  --ahve-change-ins: #1f8a3a;
+  --ahve-change-ins-highlight: rgba(46, 160, 67, 0.22);
+  --ahve-change-del: #d1343d;
+  --ahve-change-del-highlight: rgba(248, 81, 73, 0.2);
+
   /* Background colors of the search highlight for all matches and the current match. They borrow the editor's find
      colors so matches look the same as when searching in a text editor. The current match does not rely on color
      alone; the bundled stylesheet also underlines it. */

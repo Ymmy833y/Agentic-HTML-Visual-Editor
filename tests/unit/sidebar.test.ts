@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CHANGE_ATTRIBUTE,
+  COMMENT_ATTRIBUTE,
   EDITOR_ROOT_ELEMENT_ID,
   SIDEBAR_LAYOUT_META_NAME,
   SIDEBAR_MIN_WIDTH,
@@ -9,7 +11,10 @@ import {
 import type { SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import englishMessages from '../../messages/messages.en.json';
 import type { EditDetectedListener } from '../../webview/editing/change-tracker';
+import { CHANGE_KIND_ICON_PATH } from '../../webview/ui/change-popup';
 import {
+  ACCEPT_ALL_CLASS,
+  REJECT_ALL_CLASS,
   RESOLVED_ICON_PATH,
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_ICON_PATH,
@@ -34,7 +39,10 @@ interface Harness {
   readonly element: HTMLElement;
   readonly root: HTMLElement;
   readonly toolbar: Toolbar;
-  /** The targets passed to the move port, as kind:ID, followed by "by keyboard" when chosen with the keyboard. */
+  /**
+   * The targets passed to the move port, as kind:ID, followed by "by keyboard" when chosen with the keyboard, and
+   * "accept all" for each call of the port that accepts every change.
+   */
   readonly moves: string[];
   /** The layout changes passed to the port that keeps them for the views opened afterwards, in the order passed. */
   readonly layouts: SidebarLayoutChange[];
@@ -83,6 +91,8 @@ function attach(html: string, layout?: SidebarLayout, mount = true): Harness {
       return root;
     },
     move: (target, byKeyboard) => moves.push(`${target.kind}:${target.element.id}${byKeyboard ? ' by keyboard' : ''}`),
+    acceptAllChanges: () => moves.push('accept all'),
+    rejectAllChanges: () => moves.push('reject all'),
     hasShortcut: () => false,
     returnToEditor: () => undefined,
     reportDiagnostic: () => undefined,
@@ -178,7 +188,7 @@ describe('The sidebar', () => {
     vi.useRealTimers();
   });
 
-  it('is placed hidden right before the toolbar, outside the editor root, as a named region with two tabs', () => {
+  it('is placed hidden right before the toolbar, outside the editor root, as a named region with three tabs', () => {
     const { element, root } = attach('<h1>A</h1>');
 
     expect([
@@ -188,7 +198,14 @@ describe('The sidebar', () => {
       element.getAttribute('role'),
       element.getAttribute('aria-label'),
       [...element.querySelectorAll('[role="tab"]')].map((tab) => [tab.textContent, tab.getAttribute('aria-selected')]),
-    ]).toEqual([true, false, true, 'navigation', 'Sidebar', [['Headings', 'true'], ['Comments', 'false']]]);
+    ]).toEqual([
+      true,
+      false,
+      true,
+      'navigation',
+      'Sidebar',
+      [['Headings', 'true'], ['Comments', 'false'], ['Changes', 'false']],
+    ]);
   });
 
   it('is shown with the open attribute on the root element and the button pressed when opened, and goes back when closed', () => {
@@ -254,18 +271,107 @@ describe('The sidebar', () => {
     expect([headings, readPanelText()]).toEqual(['No headings', 'No comments']);
   });
 
-  it('leads each tab with its own icon and leaves the text of the tab as it was', () => {
+  it('leads each tab with its own icon, puts the text in an element of its own after it, and leaves the text of the tab as it was', () => {
     const { element } = attach('<h1>A</h1>');
 
     const tabs = [...element.querySelectorAll('[role="tab"]')];
 
     expect([
-      tabs.map((tab) => [tab.textContent, tab.firstElementChild?.localName, tab.querySelectorAll('svg').length]),
+      tabs.map((tab) => [
+        tab.textContent,
+        tab.firstElementChild?.localName,
+        tab.querySelectorAll('svg').length,
+        tab.lastElementChild?.localName,
+        tab.lastElementChild?.textContent,
+      ]),
       new Set(tabs.map((tab) => tab.querySelector('path')?.getAttribute('d'))).size,
     ]).toEqual([
-      [['Headings', 'svg', 1], ['Comments', 'svg', 1]],
-      2,
+      [
+        ['Headings', 'svg', 1, 'span', 'Headings'],
+        ['Comments', 'svg', 1, 'span', 'Comments'],
+        ['Changes', 'svg', 1, 'span', 'Changes'],
+      ],
+      3,
     ]);
+  });
+
+  it('lists a replacement pair as one item with the replacement icon and kind', () => {
+    const { sidebar, element } = attach('<p><del id="d" data-author="ai">a</del><ins id="i" data-author="ai">b</ins></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+
+    const items = readItems(element).filter((button) => button.closest('li') !== null);
+
+    expect(items.map((button) => [
+      button.textContent,
+      button.getAttribute(CHANGE_ATTRIBUTE.kind),
+      button.querySelector('svg path')?.getAttribute('d'),
+    ])).toEqual([['a → b', 'replacement', CHANGE_KIND_ICON_PATH.replacement]]);
+  });
+
+  it('lists the changes with the icon of their kind and leads the list with the buttons that accept or reject every change', () => {
+    const { sidebar, element } = attach(
+      '<p><ins id="i">added</ins> <del id="d">removed</del></p><ul><li id="l" data-change="del">item</li></ul>',
+    );
+    sidebar.open();
+
+    readTab(element, 'Changes').click();
+
+    const acceptAll = element.querySelector<HTMLButtonElement>(`.${ACCEPT_ALL_CLASS}`);
+    const rejectAll = element.querySelector<HTMLButtonElement>(`.${REJECT_ALL_CLASS}`);
+    expect([
+      [acceptAll?.textContent, rejectAll?.textContent],
+      [acceptAll?.tabIndex, rejectAll?.tabIndex],
+      acceptAll?.nextElementSibling === rejectAll,
+      acceptAll?.parentElement?.nextElementSibling?.localName,
+      readItems(element).filter((button) => button !== acceptAll && button !== rejectAll).map((button) => [
+        button.textContent,
+        button.getAttribute(CHANGE_ATTRIBUTE.kind),
+        button.querySelector('svg path')?.getAttribute('d') ?? null,
+        button.hasAttribute(COMMENT_ATTRIBUTE.author),
+      ]),
+    ]).toEqual([
+      ['Accept All', 'Reject All'],
+      [0, 0],
+      true,
+      'ul',
+      [
+        ['added', 'ins', CHANGE_KIND_ICON_PATH.ins, false],
+        ['removed', 'del', CHANGE_KIND_ICON_PATH.del, false],
+        ['item', 'del', CHANGE_KIND_ICON_PATH.del, false],
+      ],
+    ]);
+  });
+
+  it('passes a press of the accept all and reject all buttons to their ports, and a press of a change item to the move port', () => {
+    const { sidebar, element, moves } = attach('<p><ins id="i">added</ins></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+
+    element.querySelector<HTMLButtonElement>(`.${ACCEPT_ALL_CLASS}`)?.click();
+    element.querySelector<HTMLButtonElement>(`.${REJECT_ALL_CLASS}`)?.click();
+    readItems(element).filter((button) => button.closest('li') !== null)[0]
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+
+    expect(moves).toEqual(['accept all', 'reject all', 'change:i by keyboard']);
+  });
+
+  it('shows No changes without the two buttons when there is no change, and the buttons go when the list empties', () => {
+    const { sidebar, element, root, notifyEdit } = attach('<p><ins id="i">added</ins></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+    const withChange = [`.${ACCEPT_ALL_CLASS}`, `.${REJECT_ALL_CLASS}`].map((selector) => element.querySelector(selector) !== null);
+
+    root.querySelector('#i')?.remove();
+    notifyEdit();
+    vi.advanceTimersToNextFrame();
+
+    expect([
+      withChange,
+      element.querySelector('[role="tabpanel"]')?.textContent,
+      element.querySelector(`.${ACCEPT_ALL_CLASS}`),
+      element.querySelector(`.${REJECT_ALL_CLASS}`),
+    ]).toEqual([[true, true], 'No changes', null, null]);
   });
 
   it('names the chosen tab on the tab panel, so that the stylesheet can set the headings apart by depth', () => {

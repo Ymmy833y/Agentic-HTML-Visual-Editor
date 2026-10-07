@@ -497,6 +497,40 @@
   caret-color: var(--ahve-comment-ai);
 }
 
+/* Change marks
+   An insertion is underlined and a deletion struck through, each in the color of its kind on a translucent background
+   of the same color, so that an insertion is told apart from a link and a deletion from ordinary strikethrough. A
+   background color difference alone cannot be told apart in high contrast themes, so the line shows it too. The same
+   look goes on an element that carries the kind (a paragraph, a list item, a table or a row). A row has no line of its
+   own and would not pass it on to its cells, so the line is put on the cells. No priority override, so an inline style
+   wins. */
+#editor-root :is(ins, [data-change="ins"]),
+#editor-root tr[data-change="ins"] > :is(td, th) {
+  background-color: var(--ahve-change-ins-highlight);
+  text-decoration-line: underline;
+  text-decoration-color: var(--ahve-change-ins);
+}
+
+#editor-root :is(del, [data-change="del"]),
+#editor-root tr[data-change="del"] > :is(td, th) {
+  background-color: var(--ahve-change-del-highlight);
+  text-decoration-line: line-through;
+  text-decoration-color: var(--ahve-change-del);
+}
+
+/* While its popup is open, the mark gets a border in the color of its kind, so the change the popup belongs to can be
+   told apart from the others. The mark is in the internal namespace, matched with * as esbuild does not handle
+   @namespace. An outline does not change the line layout. */
+#editor-root :is(ins, [data-change="ins"])[*|data-ahve-change-open] {
+  outline: 2px solid var(--ahve-change-ins);
+  border-radius: 3px;
+}
+
+#editor-root :is(del, [data-change="del"])[*|data-ahve-change-open] {
+  outline: 2px solid var(--ahve-change-del);
+  border-radius: 3px;
+}
+
 /* Images */
 #editor-root img {
   max-width: 100%;

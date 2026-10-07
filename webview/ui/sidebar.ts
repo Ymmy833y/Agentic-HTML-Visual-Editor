@@ -1,16 +1,19 @@
 import {
+  CHANGE_ATTRIBUTE,
   COMMENT_ATTRIBUTE,
   DEFAULT_SIDEBAR_LAYOUT,
   SIDEBAR_LAYOUT_META_NAME,
   SIDEBAR_MIN_WIDTH,
   parseSidebarLayout,
 } from '../../common/index';
-import type { CommentAuthor, Localizer, SidebarLayout, SidebarLayoutChange } from '../../common/index';
+import type { CommentAuthor, Localizer, MessageKey, SidebarLayout, SidebarLayoutChange } from '../../common/index';
+import type { ChangeUnitKind } from '../editing/change-read';
 import type { EditingSession } from '../editing/editing-session';
+import { CHANGE_KIND_ICON_PATH } from './change-popup';
 import { readNextStopIndex } from './item-bar';
 import type { ItemBarMoveKey } from './item-bar';
-import { readCommentOutline, readHeadingOutline } from './sidebar-outline';
-import type { CommentOutlineItem, HeadingOutlineItem } from './sidebar-outline';
+import { readChangeOutline, readCommentOutline, readHeadingOutline } from './sidebar-outline';
+import type { ChangeOutlineItem, CommentOutlineItem, HeadingOutlineItem } from './sidebar-outline';
 import type { SidebarTarget } from './sidebar-navigation';
 import { TOOLBAR_ELEMENT_ID, createItemIcon } from './toolbar';
 import type { Toolbar } from './toolbar';
@@ -61,17 +64,39 @@ export const SIDEBAR_ICON_PATH = 'M4 5h16v14H4Z M9 5v14';
  */
 export const RESOLVED_ICON_PATH = 'M5 12.5l4.5 4.5L19 7.5';
 
+/** The class of the button above the list of changes that accepts every change. Spelled as in the stylesheet. */
+export const ACCEPT_ALL_CLASS = 'sidebar-accept-all';
+
+/** The class of the button above the list of changes that rejects every change. Spelled as in the stylesheet. */
+export const REJECT_ALL_CLASS = 'sidebar-reject-all';
+
+// The class of the row that holds the two buttons. Spelled as in the stylesheet.
+const CHANGE_ACTIONS_CLASS = 'sidebar-change-actions';
+
 /** A tab of the sidebar. */
-export type SidebarTab = 'headings' | 'comments';
+export type SidebarTab = 'headings' | 'comments' | 'changes';
 
 // The tabs in the order they are laid out, which is also the order ← and → move in.
-const SIDEBAR_TABS: readonly SidebarTab[] = ['headings', 'comments'];
+const SIDEBAR_TABS: readonly SidebarTab[] = ['headings', 'comments', 'changes'];
 
-// The icon of each tab, drawn in a 24×24 view box: an outline of one line and two indented ones, and a speech bubble.
-// The same icon leads the message shown when the tab has nothing to list.
+// The icon of each tab, drawn in a 24×24 view box: an outline of one line and two indented ones, a speech bubble, and a
+// plus over a minus. The same icon leads the message shown when the tab has nothing to list.
 const TAB_ICON_PATH: Readonly<Record<SidebarTab, string>> = {
   headings: 'M4 6h16 M9 12h11 M9 18h11',
   comments: 'M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-7.5L7.5 20v-3.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z',
+  changes: 'M5 8h7 M8.5 4.5v7 M12 16h7',
+};
+
+// The name of each tab, and the message shown when the tab has nothing to list.
+const TAB_MESSAGE_KEY: Readonly<Record<SidebarTab, MessageKey>> = {
+  headings: 'sidebar.headings',
+  comments: 'sidebar.comments',
+  changes: 'sidebar.changes',
+};
+const EMPTY_MESSAGE_KEY: Readonly<Record<SidebarTab, MessageKey>> = {
+  headings: 'sidebar.noHeadings',
+  comments: 'sidebar.noComments',
+  changes: 'sidebar.noChanges',
 };
 
 // The ID of the tab panel. Each tab points at it, and it takes its name from the chosen tab.
@@ -120,6 +145,12 @@ export interface SidebarPorts {
    */
   move(target: SidebarTarget, byKeyboard: boolean): void;
 
+  /** Accepts every change mark of the document as one edit. */
+  acceptAllChanges(): void;
+
+  /** Rejects every change mark of the document as one edit. */
+  rejectAllChanges(): void;
+
   /**
    * Returns only whether the pressed key matches a registered shortcut, without running its operation.
    *
@@ -162,8 +193,8 @@ interface ResizeDrag {
 }
 
 /**
- * The sidebar at the left edge of the view, which lists the headings or the comments of the document in one of two
- * tabs.
+ * The sidebar at the left edge of the view, which lists the headings, the comments or the change marks of the document
+ * in one of three tabs.
  *
  * It lives outside the editor root, so it never appears in the output. It starts on the headings tab, open or closed
  * and as wide as the layout it is attached with says, and it keeps whether it is open, its width and which tab is
@@ -184,6 +215,12 @@ export class Sidebar {
   private items: HTMLButtonElement[] = [];
 
   private readonly targets = new Map<HTMLButtonElement, SidebarTarget>();
+
+  // The buttons above the list of changes that accept or reject every change. Only while the changes tab lists
+  // something.
+  private acceptAll: HTMLButtonElement | undefined;
+
+  private rejectAll: HTMLButtonElement | undefined;
 
   // The wait that folds the edits of one frame into one rebuild. Rebuilding on every keystroke would clog typing.
   private pending: number | undefined;
@@ -271,6 +308,8 @@ export class Sidebar {
     this.cancelPending();
     this.items = [];
     this.targets.clear();
+    this.acceptAll = undefined;
+    this.rejectAll = undefined;
     this.panel.replaceChildren();
   }
 
@@ -289,8 +328,8 @@ export class Sidebar {
       button.tabIndex = selected ? 0 : -1;
     }
     this.panel.setAttribute('aria-labelledby', readTabElementId(tab));
-    // The stylesheet sets the headings apart by their depth, which the flat list of comments has none of, so it looks up
-    // the chosen tab with this attribute.
+    // The stylesheet sets the headings apart by their depth, which the flat lists of comments and changes have none of,
+    // so it looks up the chosen tab with this attribute.
     this.panel.dataset.tab = tab;
     if (changed && this.opened) {
       this.render(false);
@@ -354,6 +393,14 @@ export class Sidebar {
         this.selectTab(tab, false);
         return;
       }
+    }
+    if (target === this.acceptAll) {
+      this.ports.acceptAllChanges();
+      return;
+    }
+    if (target === this.rejectAll) {
+      this.ports.rejectAllChanges();
+      return;
     }
     const item = this.targets.get(target);
     if (item === undefined) {
@@ -573,9 +620,13 @@ export class Sidebar {
   private render(keepStop: boolean): void {
     const active = this.view.document.activeElement;
     const focused = active instanceof HTMLButtonElement ? this.items.indexOf(active) : -1;
+    const focusedAcceptAll = active !== null && active === this.acceptAll;
+    const focusedRejectAll = active !== null && active === this.rejectAll;
     const stop = keepStop ? Math.max(0, this.items.findIndex((button) => button.tabIndex === 0)) : 0;
     this.items = [];
     this.targets.clear();
+    this.acceptAll = undefined;
+    this.rejectAll = undefined;
     try {
       const root = this.ports.readEditorRoot();
       const list = root === undefined ? undefined : this.buildList(root);
@@ -583,6 +634,8 @@ export class Sidebar {
     } catch (error) {
       this.items = [];
       this.targets.clear();
+      this.acceptAll = undefined;
+      this.rejectAll = undefined;
       this.panel.replaceChildren();
       this.ports.reportDiagnostic(`Could not build the sidebar list: ${String(error)}`);
     }
@@ -592,6 +645,9 @@ export class Sidebar {
     }
     if (focused !== -1) {
       (this.items[Math.min(focused, this.items.length - 1)] ?? this.tabs.get(this.tab))?.focus();
+    } else if (focusedAcceptAll || focusedRejectAll) {
+      // Deciding every change empties the list and takes the buttons with it, so focus goes to the tab then.
+      ((focusedAcceptAll ? this.acceptAll : this.rejectAll) ?? this.tabs.get(this.tab))?.focus();
     }
   }
 
@@ -606,8 +662,12 @@ export class Sidebar {
       const headings = readHeadingOutline(root);
       return headings.length === 0 ? undefined : this.buildHeadingList(headings);
     }
-    const comments = readCommentOutline(root);
-    return comments.length === 0 ? undefined : this.buildCommentList(comments);
+    if (this.tab === 'comments') {
+      const comments = readCommentOutline(root);
+      return comments.length === 0 ? undefined : this.buildCommentList(comments);
+    }
+    const changes = readChangeOutline(root);
+    return changes.length === 0 ? undefined : this.buildChangeList(changes);
   }
 
   /**
@@ -656,13 +716,51 @@ export class Sidebar {
   }
 
   /**
+   * Builds the change marks as one flat list in document order, led by the buttons that accept or reject every change.
+   *
+   * The buttons are ordinary Tab stops before the list, so that a keyboard user reaches them on the way to the items.
+   *
+   * @param changes The change outline.
+   * @returns The buttons and the list in one container.
+   */
+  private buildChangeList(changes: readonly ChangeOutlineItem[]): HTMLElement {
+    const document = this.view.document;
+    const createAction = (className: string, key: MessageKey): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = className;
+      button.textContent = this.ports.localizer.getMessage(key);
+      return button;
+    };
+    const acceptAll = createAction(ACCEPT_ALL_CLASS, 'sidebar.acceptAll');
+    const rejectAll = createAction(REJECT_ALL_CLASS, 'sidebar.rejectAll');
+    this.acceptAll = acceptAll;
+    this.rejectAll = rejectAll;
+    const actions = document.createElement('div');
+    actions.className = CHANGE_ACTIONS_CLASS;
+    actions.append(acceptAll, rejectAll);
+
+    const list = document.createElement('ul');
+    for (const change of changes) {
+      const item = document.createElement('li');
+      item.append(this.createItemButton(change.text, { kind: 'change', element: change.element }, false, undefined, change.kind));
+      list.append(item);
+    }
+    const container = document.createElement('div');
+    container.append(actions, list);
+    return container;
+  }
+
+  /**
    * Creates the button of one item and records what it points at.
    *
    * @param text The outline text. An empty text is shown as the empty text message.
    * @param target What the item points at.
    * @param resolved Whether to mark the item as a resolved thread.
    * @param author The side of the thread's author, which the stylesheet turns into the color of the item's marker.
-   *   Omitted for a heading.
+   *   Omitted for a heading and a change.
+   * @param kind The kind of the change (an insertion, a deletion or a replacement pair), which leads the item with its
+   *   icon and colors it through the stylesheet. Omitted for a heading and a comment.
    * @returns The button.
    */
   private createItemButton(
@@ -670,6 +768,7 @@ export class Sidebar {
     target: SidebarTarget,
     resolved: boolean,
     author?: CommentAuthor,
+    kind?: ChangeUnitKind,
   ): HTMLButtonElement {
     const document = this.view.document;
     const button = document.createElement('button');
@@ -677,6 +776,10 @@ export class Sidebar {
     button.tabIndex = -1;
     if (author !== undefined) {
       button.setAttribute(COMMENT_ATTRIBUTE.author, author);
+    }
+    if (kind !== undefined) {
+      button.setAttribute(CHANGE_ATTRIBUTE.kind, kind);
+      button.append(createItemIcon(document, CHANGE_KIND_ICON_PATH[kind]));
     }
     if (resolved) {
       button.className = RESOLVED_CLASS;
@@ -700,9 +803,7 @@ export class Sidebar {
   private createEmptyMessage(): HTMLElement {
     const message = this.view.document.createElement('p');
     message.className = EMPTY_CLASS;
-    message.textContent = this.ports.localizer.getMessage(
-      this.tab === 'headings' ? 'sidebar.noHeadings' : 'sidebar.noComments',
-    );
+    message.textContent = this.ports.localizer.getMessage(EMPTY_MESSAGE_KEY[this.tab]);
     message.prepend(createItemIcon(this.view.document, TAB_ICON_PATH[this.tab]));
     return message;
   }
@@ -748,8 +849,11 @@ export function attachSidebar(
     button.id = readTabElementId(tab);
     button.setAttribute('role', 'tab');
     button.setAttribute('aria-controls', PANEL_ELEMENT_ID);
-    button.textContent = localizer.getMessage(tab === 'headings' ? 'sidebar.headings' : 'sidebar.comments');
-    button.prepend(createItemIcon(document, TAB_ICON_PATH[tab]));
+    // The label has an element of its own, so that the stylesheet can take it off screen in a sidebar too narrow for
+    // three labelled tabs while the tab keeps its name for assistive technology.
+    const label = document.createElement('span');
+    label.textContent = localizer.getMessage(TAB_MESSAGE_KEY[tab]);
+    button.append(createItemIcon(document, TAB_ICON_PATH[tab]), label);
     tabs.set(tab, button);
     tabList.append(button);
   }
