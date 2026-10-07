@@ -199,5 +199,15 @@
   "codeBlockCopy.failed.message": "コードをコピーできなかったため、クリップボードは変更されていません。",
   "diagramZoom.zoomIn": "拡大",
   "diagramZoom.zoomOut": "縮小",
-  "diagramZoom.reset": "元の大きさ"
+  "diagramZoom.reset": "元の大きさ",
+  "sidebar.changes": "変更",
+  "sidebar.noChanges": "変更はありません",
+  "sidebar.acceptAll": "すべて承認",
+  "sidebar.rejectAll": "すべて却下",
+  "changePopup.name": "変更",
+  "changePopup.insertion": "追加",
+  "changePopup.deletion": "削除",
+  "changePopup.replacement": "置換",
+  "changePopup.accept": "承認",
+  "changePopup.reject": "却下"
 }

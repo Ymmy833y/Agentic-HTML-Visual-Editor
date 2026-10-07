@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readCommentOutline, readHeadingOutline } from '../../webview/ui/sidebar-outline';
+import { readChangeOutline, readCommentOutline, readHeadingOutline } from '../../webview/ui/sidebar-outline';
 import { createRoot } from './helpers/format-dom';
 
 /**
@@ -112,6 +112,46 @@ describe('Reading the comment outline', () => {
       ['c-d', 'human'],
       ['c-e', 'human'],
       ['c-f', 'ai'],
+    ]);
+  });
+});
+
+describe('Reading the change outline', () => {
+  it('returns the marks in document order with their kinds and author sides, and the text of their content without entries', () => {
+    const root = createRoot(
+      '<p><ins id="i-a" data-author="ai">one <comment id="c">two<comment-body>note</comment-body></comment></ins>'
+      + ' <del id="d-a" data-author="human">three</del></p>'
+      + '<p><comment id="c-b">x<comment-body><ins id="hidden">in entry</ins></comment-body></comment></p>',
+    );
+
+    expect(readChangeOutline(root).map((item) => [item.element.id, item.kind, item.author, item.text])).toEqual([
+      ['i-a', 'ins', 'ai', 'one two'],
+      ['d-a', 'del', 'human', 'three'],
+    ]);
+  });
+
+  it('reads the text of an element that carries the kind from the element itself', () => {
+    const root = createRoot(
+      '<table><tbody><tr id="r" data-change="del"><td>cell\n  one</td><td>two</td></tr></tbody></table>'
+      + '<ul><li id="l" data-change="ins"><strong>bold</strong> item</li></ul>',
+    );
+
+    expect(readChangeOutline(root).map((item) => [item.element.id, item.kind, item.text])).toEqual([
+      ['r', 'del', 'cell onetwo'],
+      ['l', 'ins', 'bold item'],
+    ]);
+  });
+
+  it('lists a deletion followed by an insertion from the same author side as one replacement with both texts, and keeps other neighbours apart', () => {
+    const root = createRoot(
+      '<p><del id="d" data-author="ai">hour</del><ins id="i" data-author="ai">30 minutes</ins> '
+      + '<del id="x" data-author="ai">a</del><ins id="y" data-author="human">b</ins></p>',
+    );
+
+    expect(readChangeOutline(root).map((item) => [item.element.id, item.kind, item.author, item.text])).toEqual([
+      ['d', 'replacement', 'ai', 'hour → 30 minutes'],
+      ['x', 'del', 'ai', 'a'],
+      ['y', 'ins', 'human', 'b'],
     ]);
   });
 });

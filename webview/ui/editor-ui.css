@@ -616,6 +616,130 @@
   background: var(--ahve-border);
 }
 
+/* The change popup. The ID must match the constant in change-popup.ts. It is placed, stacked and colored like the
+   comment popup, and the kind of the open change (the data-change attribute set from change-popup.ts) picks its
+   accent: green for an insertion, red for a deletion. display is not set, for the same reason as the comment popup. */
+#editor-change-popup {
+  --change-popup-accent: var(--ahve-change-ins);
+  --change-popup-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --change-popup-hover: color-mix(in srgb, var(--ahve-fg) 11%, transparent);
+  position: fixed;
+  z-index: 0;
+  box-sizing: border-box;
+  width: min(22em, calc(100% - 1em));
+  padding: 0 0 0.6em;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--change-popup-accent) 8%, var(--ahve-bg)), var(--ahve-bg) 5em);
+  border: 1px solid var(--change-popup-hairline);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  animation: comment-popup-in 140ms ease-out;
+}
+
+#editor-change-popup[data-change="del"] {
+  --change-popup-accent: var(--ahve-change-del);
+}
+
+/* A replacement pair joins a deletion and an insertion, so its popup takes the theme's accent rather than the color
+   of either half. */
+#editor-change-popup[data-change="replacement"] {
+  --change-popup-accent: var(--ahve-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #editor-change-popup {
+    animation: none;
+  }
+}
+
+/* The kind on the first line: its icon in the accent color, then its name. The inset line is the cap in the accent
+   color, as the comment popup's header has. */
+#editor-change-popup .change-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.6em 0.9em 0.3em;
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--change-popup-accent);
+}
+
+#editor-change-popup .change-popup-header > svg {
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--change-popup-accent);
+  stroke-width: 2.5;
+}
+
+/* The author and the time on the second line, in the same shape as the name and time of an entry. */
+#editor-change-popup .change-popup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.4em;
+  padding: 0 0.9em 0.6em;
+  color: var(--ahve-muted);
+  font-size: 0.82em;
+  line-height: 1.3;
+}
+
+#editor-change-popup .change-popup-meta > span:first-child:not(:only-child) {
+  color: var(--ahve-fg);
+  font-weight: 600;
+}
+
+#editor-change-popup .change-popup-meta > span + span::before {
+  content: "·";
+  margin-right: 0.4em;
+}
+
+/* The two decisions side by side. Accept takes the accent as a filled chip and reject stays outlined, so the decision
+   that keeps the document moving reads first; both carry their icon and their name, so neither rests on color. */
+#editor-change-popup .change-popup-actions {
+  display: flex;
+  gap: 0.4em;
+  padding: 0 0.9em;
+}
+
+#editor-change-popup .change-popup-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  box-sizing: border-box;
+  height: 2em;
+  padding: 0 0.8em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--change-popup-hairline);
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+#editor-change-popup .change-popup-actions > button > svg {
+  width: 1em;
+  height: 1em;
+  stroke-width: 2.25;
+}
+
+#editor-change-popup .change-popup-accept {
+  color: var(--ahve-bg);
+  background: var(--change-popup-accent);
+  border-color: var(--change-popup-accent);
+}
+
+#editor-change-popup .change-popup-accept:hover {
+  background: color-mix(in srgb, var(--change-popup-accent) 85%, var(--ahve-fg));
+}
+
+#editor-change-popup .change-popup-reject:hover {
+  background: var(--change-popup-hover);
+}
+
 /* The comment popup. The ID must match the constant in comment-popup.ts.
    Placed in view coordinates; on scroll the trigger places it again. Stacked above the body and below the strip, overlays and
    dialogs. Background, text and border colors come from theme tokens so it stays readable where it overlaps the body in all
@@ -1135,6 +1259,9 @@
   z-index: 0;
   box-sizing: border-box;
   width: clamp(160px, var(--ahve-sidebar-width, 16em), 50vw);
+  /* The query container of the tabs: the labels go off screen when the sidebar is too narrow for three of them (the rule
+     at the tab label). The width is set from the outside, so containing the inline size changes nothing in the layout. */
+  container: sidebar / inline-size;
   flex-direction: column;
   color: var(--ahve-fg);
   /* A faint wash of the accent runs down from the top edge, like the popups' cards. */
@@ -1214,9 +1341,10 @@
 }
 
 /* The lifted piece is one element that slides between the tabs, rather than a fill on each tab, so that changing the tab
-   reads as a movement. The tabs are equal in width: half of the track less its padding (3px twice) and the gap (2px).
-   It sits behind the tabs, so their text and icons stay on top of it. It is tinted, outlined and lightly shadowed; in a
-   high contrast theme the tint can vanish, so the outline carries it there (the rules at the end of this file). */
+   reads as a movement. The three tabs are equal in width: a third of the track less its padding (3px twice) and the two
+   gaps (2px each). It sits behind the tabs, so their text and icons stay on top of it. It is tinted, outlined and lightly
+   shadowed; in a high contrast theme the tint can vanish, so the outline carries it there (the rules at the end of this
+   file). */
 #editor-sidebar [role="tablist"]::before {
   content: "";
   position: absolute;
@@ -1225,7 +1353,7 @@
   bottom: 3px;
   left: 3px;
   box-sizing: border-box;
-  width: calc((100% - 8px) / 2);
+  width: calc((100% - 10px) / 3);
   background: color-mix(in srgb, var(--ahve-accent) 14%, var(--ahve-bg));
   border: 1px solid color-mix(in srgb, var(--ahve-accent) 38%, transparent);
   border-radius: 8px;
@@ -1233,8 +1361,13 @@
   transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-#editor-sidebar [role="tablist"]:has(> [role="tab"]:last-child[aria-selected="true"])::before {
+/* The piece moves by its own width plus one gap for each tab after the first. */
+#editor-sidebar [role="tablist"]:has(> [role="tab"]:nth-child(2)[aria-selected="true"])::before {
   transform: translateX(calc(100% + 2px));
+}
+
+#editor-sidebar [role="tablist"]:has(> [role="tab"]:nth-child(3)[aria-selected="true"])::before {
+  transform: translateX(calc(200% + 4px));
 }
 
 #editor-sidebar [role="tab"] {
@@ -1262,6 +1395,20 @@
   flex: none;
   width: 1.15em;
   height: 1.15em;
+}
+
+/* The label of a tab. Three labelled tabs need about 24em of sidebar; in a narrower one, the labels are taken off
+   screen but kept in the tree, so that each tab keeps its name for assistive technology and only its icon shows. The
+   default width (16em) is below that, so the sidebar starts with icons alone until it is dragged wider. */
+@container sidebar (width < 24em) {
+  #editor-sidebar [role="tab"] > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 #editor-sidebar [role="tab"]:not([aria-selected="true"]):hover {
@@ -1385,6 +1532,60 @@
 
 #editor-sidebar li > button[data-author="ai"] {
   --sidebar-dot: var(--ahve-comment-ai);
+}
+
+/* The icon of a change's kind: a plus in green for an insertion and a minus in red for a deletion, in a soft disc of
+   the same color, the same colors as the marked content in the body. The attribute is spelled as in change-mark.ts. */
+#editor-sidebar li > button[data-change="ins"] > svg {
+  color: var(--ahve-change-ins);
+  background: color-mix(in srgb, var(--ahve-change-ins) 18%, transparent);
+}
+
+#editor-sidebar li > button[data-change="del"] > svg {
+  color: var(--ahve-change-del);
+  background: color-mix(in srgb, var(--ahve-change-del) 18%, transparent);
+}
+
+/* A replacement pair is one item with two arrows passing each other. It belongs to neither color of its halves, so it
+   takes the theme's accent, as the popup of the pair does. */
+#editor-sidebar li > button[data-change="replacement"] > svg {
+  color: var(--ahve-accent);
+  background: color-mix(in srgb, var(--ahve-accent) 18%, transparent);
+}
+
+/* The two buttons above the list of changes that accept or reject every change: outlined chips side by side, green
+   for accepting (it keeps the insertions) and red for rejecting (it takes them out), so that they read as actions rather
+   than as items of the list. The classes are spelled as in sidebar.ts. */
+#editor-sidebar .sidebar-change-actions {
+  display: flex;
+  gap: 0.4em;
+  margin: 0.6em 0.6em 0.4em;
+}
+
+#editor-sidebar .sidebar-accept-all,
+#editor-sidebar .sidebar-reject-all {
+  --sidebar-action-color: var(--ahve-change-ins);
+  flex: 1 1 0;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.35em 0.6em;
+  color: var(--sidebar-action-color);
+  background: color-mix(in srgb, var(--sidebar-action-color) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sidebar-action-color) 45%, transparent);
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+#editor-sidebar .sidebar-reject-all {
+  --sidebar-action-color: var(--ahve-change-del);
+}
+
+#editor-sidebar .sidebar-accept-all:hover,
+#editor-sidebar .sidebar-reject-all:hover {
+  background: color-mix(in srgb, var(--sidebar-action-color) 18%, transparent);
 }
 
 /* The check mark of a resolved thread sits in a soft green disc, like the resolved chip of the popup. It is drawn a
@@ -1921,6 +2122,8 @@
 #editor-table-menu button:focus-visible,
 #editor-comment-popup:focus-visible,
 #editor-comment-popup :focus-visible,
+#editor-change-popup:focus-visible,
+#editor-change-popup :focus-visible,
 #editor-search-panel :focus-visible,
 #action-dialog :focus-visible,
 #editor-overlay button:focus-visible {
@@ -1928,9 +2131,11 @@
   outline-offset: 2px;
 }
 
-/* The comment popup itself. Around a panel this large, a gap between the ring and the border reads as a second frame,
-   so the ring sits right on the border. It still stays outside it and covers none of the contents. */
-#editor-comment-popup:focus-visible {
+/* The comment popup and the change popup themselves. Around a panel this large, a gap between the ring and the border
+   reads as a second frame, so the ring sits right on the border. It still stays outside it and covers none of the
+   contents. */
+#editor-comment-popup:focus-visible,
+#editor-change-popup:focus-visible {
   outline-offset: 0;
 }
 
@@ -2125,6 +2330,20 @@
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:disabled {
   border-style: dashed;
+}
+
+/* The change popup and the accept all and reject all buttons follow the same rule: the translucent tints go, the
+   theme's border color draws the edges, and the filled accept chip keeps its fill, which these themes can show. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-change-popup {
+  --change-popup-hairline: var(--ahve-border);
+  --change-popup-hover: var(--ahve-code-bg);
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar .sidebar-accept-all,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar .sidebar-reject-all {
+  background: transparent;
+  border-color: var(--ahve-border);
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker {

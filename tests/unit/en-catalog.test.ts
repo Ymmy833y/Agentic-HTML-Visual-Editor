@@ -258,6 +258,26 @@ describe('English message resource', () => {
     ]).toEqual([3, true]);
   });
 
+  it('has English messages for the 10 change mark keys', () => {
+    const keys = [
+      'sidebar.changes',
+      'sidebar.noChanges',
+      'sidebar.acceptAll',
+      'sidebar.rejectAll',
+      'changePopup.name',
+      'changePopup.insertion',
+      'changePopup.deletion',
+      'changePopup.replacement',
+      'changePopup.accept',
+      'changePopup.reject',
+    ];
+
+    expect([
+      MESSAGE_KEYS.filter((key) => keys.includes(key)).length,
+      keys.every((key) => typeof Reflect.get(englishMessages, key) === 'string'),
+    ]).toEqual([10, true]);
+  });
+
   it('contains no keys that are not defined', () => {
     const definedKeys = new Set<string>(MESSAGE_KEYS);
     const extraKeys = Object.keys(englishMessages).filter((key) => !definedKeys.has(key));

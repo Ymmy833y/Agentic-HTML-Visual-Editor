@@ -199,5 +199,15 @@
   "codeBlockCopy.failed.message": "The code could not be copied, so the clipboard was left unchanged.",
   "diagramZoom.zoomIn": "Zoom In",
   "diagramZoom.zoomOut": "Zoom Out",
-  "diagramZoom.reset": "Reset Zoom"
+  "diagramZoom.reset": "Reset Zoom",
+  "sidebar.changes": "Changes",
+  "sidebar.noChanges": "No changes",
+  "sidebar.acceptAll": "Accept All",
+  "sidebar.rejectAll": "Reject All",
+  "changePopup.name": "Change",
+  "changePopup.insertion": "Insertion",
+  "changePopup.deletion": "Deletion",
+  "changePopup.replacement": "Replacement",
+  "changePopup.accept": "Accept",
+  "changePopup.reject": "Reject"
 }

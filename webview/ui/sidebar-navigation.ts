@@ -8,9 +8,9 @@ import { TOOLBAR_ELEMENT_ID } from './toolbar';
 
 /** What an item of the sidebar points at. */
 export interface SidebarTarget {
-  /** Whether the item lists a heading or a comment. */
-  readonly kind: 'heading' | 'comment';
-  /** The heading or the comment in the editor root. */
+  /** Whether the item lists a heading, a comment or a change mark. */
+  readonly kind: 'heading' | 'comment' | 'change';
+  /** The heading, the comment or the change mark in the editor root. */
   readonly element: Element;
 }
 
@@ -55,6 +55,14 @@ export interface SidebarNavigationPorts {
   openComment(comment: Element, moveFocus: boolean): void;
 
   /**
+   * Opens the popup of a change mark.
+   *
+   * @param change The change mark.
+   * @param moveFocus Whether to move focus into the popup.
+   */
+  openChange(change: Element, moveFocus: boolean): void;
+
+  /**
    * Records one diagnostic line for maintainers. Not used to notify the user.
    *
    * @param detail The line to record.
@@ -69,10 +77,11 @@ export interface SidebarNavigationPorts {
  * edit that records the end of its title before opening and the next title (or the target) after, so that undo and
  * redo bring the caret back to the place that changed. Then the caret goes to the start of the target with focus back
  * in the editor root, and the document scrolls so that the top of the target sits right below the toolbar, where the
- * section or the thread starts in view. For a comment, its thread is then opened in the popup. Focus moves into the
- * popup only when the item was chosen with the keyboard, as with the comment button: keyboard users cannot read the
- * entries otherwise, while after a pointer press focus stays in the editor root, as after a click on annotated text,
- * and no focus ring appears in the popup.
+ * section or the thread starts in view. For a comment, its thread is then opened in the popup, and for a change mark
+ * its popup is opened the same way. Focus moves into the popup only when the item was chosen with the keyboard, as
+ * with the comment button: keyboard users cannot read the entries or reach the decisions otherwise, while after a
+ * pointer press focus stays in the editor root, as after a click on annotated text, and no focus ring appears in the
+ * popup.
  *
  * Nothing moves during an input stop or a composition, because placing the caret would then take the typing position or
  * rewrite the text being composed. Moving stops where a section cannot be opened, and when the target is still not shown
@@ -119,6 +128,8 @@ export function moveToSidebarTarget(ports: SidebarNavigationPorts, target: Sideb
     alignToTop(element);
     if (target.kind === 'comment') {
       ports.openComment(element, byKeyboard);
+    } else if (target.kind === 'change') {
+      ports.openChange(element, byKeyboard);
     }
   } catch (error) {
     ports.reportDiagnostic(`Could not move to the sidebar item: ${String(error)}`);

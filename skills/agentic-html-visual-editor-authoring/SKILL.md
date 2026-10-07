@@ -12,7 +12,7 @@ The plain HTML file on disk is the only source of truth. The editor keeps no sid
 
 ## When to use
 
-Use this skill when you create, edit, or review an HTML deliverable that will be opened in Agentic HTML Visual Editor: design notes, research reports, task lists, review results.
+Use this skill when you create, edit, or review an HTML deliverable that will be opened in Agentic HTML Visual Editor: design notes, research reports, task lists, review results. It also covers how to mark what you added and removed when you revise such a document.
 
 Do not use it for general web pages. It describes what this editor accepts, not how to build a site.
 
@@ -37,6 +37,7 @@ Paths are relative to the directory of this skill.
 - Read [references/formatting.md](references/formatting.md) when you write tables, images, collapsible sections, or alerts, or when the content will be pasted into the editor. It covers text and block markup, `details`, alert blockquotes, and the styles that survive a paste.
 - Read [references/mermaid.md](references/mermaid.md) when you create or change a Mermaid diagram.
 - Read [references/comments.md](references/comments.md) when you create a comment, reply to one, or need to know what the comments in a document say.
+- Read [references/change-marks.md](references/change-marks.md) when you revise a document that a person reviews, to mark what you added and removed so that the editor shows each change and lets it be accepted or rejected.
 
 ## Listing comments
 
