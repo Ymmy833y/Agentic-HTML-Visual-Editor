@@ -20,19 +20,36 @@ const SCRATCH_FILE_NAME = 'save-sync-scratch.html';
 const GLOB_SCRATCH_FILE_NAME = 'save-sync[1].html';
 const LEGACY_GLOB_MATCH_FILE_NAME = 'save-sync1.html';
 
-// Place a line between the two paragraphs. Adjacent lines often form one structure, so changes on both sides are
-// treated as a single conflict when they are merely adjacent.
+// Place a line between the two paragraphs so that these cases stay about changes that are apart. The adjacent case
+// has a fixture of its own below.
 const INITIAL_TEXT = [
   '<!DOCTYPE html>', '<html>', '<body>', '<p>first</p>', '<hr>', '<p>second</p>', '</body>', '</html>', '',
 ].join('\n');
 const SOURCE_EDITED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>FIRST</p>');
 const VIEW_EDITED_TEXT = INITIAL_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
 const MERGED_TEXT = SOURCE_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+
+// Both sides change the same line. The candidate keeps both lines as written, the source line first.
+const CONFLICT_SOURCE_EDITED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from source</p>');
+const CONFLICT_VIEW_EDITED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from view</p>');
+const CONFLICT_MERGED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from source</p>\n<p>from view</p>');
+
 const CRLF_TEXT = INITIAL_TEXT.replace(/\n/g, '\r\n');
 const CRLF_SOURCE_EDITED_TEXT = SOURCE_EDITED_TEXT.replace(/\n/g, '\r\n');
 
 // Document missing its closing tags. Applying this content fails because the view cannot determine its boundaries.
 const UNBOUNDED_TEXT = INITIAL_TEXT.replace('</body>\n', '');
+
+// The two paragraphs sit on adjacent lines, so the source edit and the view edit touch at their boundary.
+const ADJACENT_INITIAL_TEXT = [
+  '<!DOCTYPE html>', '<html>', '<body>', '<p>first</p>', '<p>second</p>', '</body>', '</html>', '',
+].join('\n');
+const ADJACENT_SOURCE_EDITED_TEXT = ADJACENT_INITIAL_TEXT.replace('<p>first</p>', '<p>FIRST</p>');
+const ADJACENT_VIEW_EDITED_TEXT = ADJACENT_INITIAL_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+const ADJACENT_MERGED_TEXT = ADJACENT_SOURCE_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+
+// A fragment of the notification shown when the text tab holds unsaved edits.
+const DIRTY_TEXT_TAB_NOTICE_FRAGMENT = 'unsaved edits';
 
 interface RecordedMessage {
   readonly direction: 'fromView' | 'toView';
@@ -49,6 +66,9 @@ interface ExtensionApi {
     readonly logLines: readonly string[];
   };
   clearDiagnosticInspection(): void;
+  readSaveEntryInspection(): { readonly calls: readonly { readonly kind: string }[] };
+  clearSaveEntryInspection(): void;
+  saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
   injectViewMessage(documentUri: string, message: unknown): Promise<boolean>;
   replaceViewContentForTest(documentUri: string, text: string): Promise<boolean>;
   prepareInitialReconcileForTest(documentUri: string): {
@@ -389,6 +409,32 @@ describe('save-time merge', () => {
     assert.strictEqual(await readFileText(uri), MERGED_TEXT);
   });
 
+  it('keeps both changes in place after saving when the source changes the line next to the view edit', async () => {
+    const uri = await resetScratch(ADJACENT_INITIAL_TEXT);
+    await openWysiwyg(uri);
+    await replaceViewContent(uri, ADJACENT_VIEW_EDITED_TEXT);
+    await makeViewDirty(uri);
+    await writeExternally(uri, ADJACENT_SOURCE_EDITED_TEXT);
+
+    await vscode.commands.executeCommand('workbench.action.files.save');
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(await readFileText(uri), ADJACENT_MERGED_TEXT);
+  });
+
+  it('writes the source line and then the view line, each as written, after saving when both sides change the same line', async () => {
+    const uri = await resetScratch();
+    await openWysiwyg(uri);
+    await replaceViewContent(uri, CONFLICT_VIEW_EDITED_TEXT);
+    await makeViewDirty(uri);
+    await writeExternally(uri, CONFLICT_SOURCE_EDITED_TEXT);
+
+    await vscode.commands.executeCommand('workbench.action.files.save');
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(await readFileText(uri), CONFLICT_MERGED_TEXT);
+  });
+
   it('keeps a CRLF file in CRLF when saving with incorporated external changes', async () => {
     const uri = await resetScratch(CRLF_TEXT);
     await openWysiwyg(uri);
@@ -404,11 +450,14 @@ describe('save-time merge', () => {
   it('fails to save without changing the file when its text tab is dirty', async () => {
     const uri = fixtureUri(SCRATCH_FILE_NAME);
     await vscode.commands.executeCommand('vscode.open', uri);
-    await openWysiwyg(uri);
+    // The text buffer is made dirty before the view opens. The first edit of a clean buffer reaches an open view as a
+    // change event whose document does not read as dirty yet, so the view would take the unsaved text as an external
+    // change, and the save would then fail on the view output instead of on the dirty text buffer.
     const edit = new vscode.WorkspaceEdit();
     edit.insert(uri, new vscode.Position(3, 0), 'Z');
     assert.ok(await vscode.workspace.applyEdit(edit), 'the edit to the text buffer was not applied');
     await waitUntil(() => findTextTab(uri)?.isDirty === true, 'the text tab became dirty');
+    await openWysiwyg(uri);
     await makeViewDirty(uri);
 
     await vscode.commands
@@ -417,6 +466,36 @@ describe('save-time merge', () => {
     await delay(SETTLE_MS);
 
     assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+    const { notifications, logLines } = (await api()).readDiagnosticInspection();
+    assert.ok(
+      notifications.some((message) => message.includes(DIRTY_TEXT_TAB_NOTICE_FRAGMENT)),
+      `no notification names the unsaved edits of the text tab: ${notifications.join(' | ')}; log: ${logLines.join(' | ')}`,
+    );
+  });
+
+  it('saves the text editor and then the view when the dirty text buffer notice action is taken', async () => {
+    const uri = fixtureUri(SCRATCH_FILE_NAME);
+    await vscode.commands.executeCommand('vscode.open', uri);
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(uri, new vscode.Position(3, 0), 'Z');
+    assert.ok(await vscode.workspace.applyEdit(edit), 'the edit to the text buffer was not applied');
+    await waitUntil(() => findTextTab(uri)?.isDirty === true, 'the text tab became dirty');
+    await openWysiwyg(uri);
+    await makeViewDirty(uri);
+    (await api()).clearSaveEntryInspection();
+
+    // The action of a notification cannot be selected from a test, so its handler is run through the test hook.
+    assert.ok(await (await api()).saveTextEditorThenViewForTest(uri.toString()), 'the action found no open document');
+    await waitUntil(
+      () => findTextTab(uri)?.isDirty === false && findCustomTab(uri)?.isDirty === false,
+      'both tabs stopped being dirty',
+    );
+
+    assert.strictEqual(await readFileText(uri), INITIAL_TEXT.replace('<p>first</p>', 'Z<p>first</p>'));
+    assert.deepStrictEqual(
+      (await api()).readSaveEntryInspection().calls.map((call) => call.kind),
+      ['save'],
+    );
   });
 
   it('fails to save without changing the file or clearing the dirty mark when the view cannot apply the candidate', async () => {

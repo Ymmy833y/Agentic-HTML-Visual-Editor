@@ -17,6 +17,8 @@ const SCRATCH_FILE_NAME = 'ui-shell-scratch.html';
 // Entering the protection leaves a protection backup behind, and reopening the same source starts a
 // restore, so a separate file is used.
 const PROTECTION_SCRATCH_FILE_NAME = 'ui-shell-protection-scratch.html';
+// 0xFF never occurs in UTF-8, so a strict decoder rejects this content.
+const NOT_UTF8_BYTES = new Uint8Array([0xff, 0xfe, 0x00]);
 // A separate file, for confirming that nothing but the sender is saved.
 const OTHER_FILE_NAME = 'ui-shell-other-scratch.html';
 
@@ -302,11 +304,13 @@ describe('a save request while protected', () => {
     const uri = await resetScratch(PROTECTION_SCRATCH_FILE_NAME);
     await vscode.commands.executeCommand('vscode.open', uri);
     await openWysiwyg(uri);
-    // Running a revert while the text tab is still dirty fails and enters the protection.
+    // A revert while the text tab is dirty reads the file on disk, and a file that is not UTF-8 makes it fail
+    // and enter the protection.
     const edit = new vscode.WorkspaceEdit();
     edit.insert(uri, new vscode.Position(3, 0), 'Z');
     assert.ok(await vscode.workspace.applyEdit(edit), 'the edit to the text buffer was not applied');
     await waitUntil(() => findTextTab(uri)?.isDirty === true, 'the text tab becomes dirty');
+    await vscode.workspace.fs.writeFile(uri, NOT_UTF8_BYTES);
     await makeViewDirty(uri);
     await vscode.commands
       .executeCommand('workbench.action.files.revert')
@@ -324,7 +328,9 @@ describe('a save request while protected', () => {
       async () => (await api()).readDiagnosticInspection().notifications.length >= 1,
       'the protection notice appears',
     );
-    assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+    assert.deepStrictEqual(Array.from(await vscode.workspace.fs.readFile(uri)), Array.from(NOT_UTF8_BYTES));
+    // Put a readable file back so that the text side can be reverted in the cleanup.
+    await writeFileText(uri, INITIAL_TEXT);
   });
 });
 

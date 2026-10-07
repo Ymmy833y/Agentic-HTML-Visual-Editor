@@ -61,6 +61,7 @@ import type {
 import { DirtyStateNotifier } from './dirty-state-notifier';
 import { buildDocumentSkeleton } from './document-skeleton';
 import type { EditorSwitcher } from './editor-switch';
+import { findTargetTab } from './editor-switch-host';
 import { HtmlCustomDocument } from './html-custom-document';
 import { createInitializeMessage } from './initialize-message';
 import { handleViewMessage } from './view-message-handler';
@@ -105,7 +106,9 @@ const RECOVERY_REOPEN_POLL_MS = 50;
 // TextEncoder is global in both extension hosts, but this layer has no DOM types. Declare only the
 // part used here because node:util cannot be resolved in the web extension host.
 declare const TextEncoder: { new (): { encode(input: string): Uint8Array } };
-declare const TextDecoder: { new (label: string): { decode(input: Uint8Array): string } };
+declare const TextDecoder: {
+  new (label: string, options: { fatal: boolean }): { decode(input: Uint8Array): string };
+};
 declare const setTimeout: (handler: () => void, timeoutMs: number) => unknown;
 
 // By default, VS Code discards a hidden webview's iframe and recreates it when shown again. The
@@ -303,6 +306,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
         provider.controlBackupViewForTest(documentUri, operation, text),
       prepareInitialReconcileForTest: (documentUri) =>
         provider.prepareInitialReconcileForTest(documentUri),
+      saveTextEditorThenViewForTest: (documentUri) => provider.saveTextEditorThenViewForTest(documentUri),
     });
 
     // Do not hold up activation. As long as the discard record remains, deletion can be retried on the next
@@ -794,6 +798,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       // The reference is not checked, because this releases a reference that could not be read.
       releaseLatestProtection: () => this.releaseLatestProtection(document, undefined),
       clearDirtyState: () => this.clearBackupDirtyState(document),
+      isTextEditorOpen: () => findTargetTab(document.sourceUri, 'text') !== undefined,
       reloadView: () => {
         const webview = findWebview();
         if (webview === undefined) {
@@ -816,8 +821,13 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
         }
         return selected === 'restore.retry' ? RESTORE_ACTION.retry : RESTORE_ACTION.discard;
       },
-      notifyDirtyStateKept: (cause) => {
-        void this.errorReporter.reportUserAction('restore.dirtyStateKept.message', [], cause);
+      notifyDirtyStateKept: (reason, cause) => {
+        // With no candidate, no backup was discarded, so the message must not say that one was.
+        void this.errorReporter.reportUserAction(
+          reason === 'noCandidate' ? 'restore.dirtyStateKeptWithoutBackup.message' : 'restore.dirtyStateKept.message',
+          [],
+          cause,
+        );
       },
       reportInternalError: (detail) => this.errorReporter.reportInternalError(detail),
     };
@@ -1238,7 +1248,10 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
         // The text is encoded to UTF-8 bytes here, so no BOM is added.
         await vscode.workspace.fs.writeFile(vscode.Uri.parse(uri), new TextEncoder().encode(text));
       },
-      readFile: async (uri) => new TextDecoder('utf-8').decode(await vscode.workspace.fs.readFile(vscode.Uri.parse(uri))),
+      // Decoded strictly: a file whose bytes are not UTF-8 is reported instead of being read with replacement
+      // characters, which a revert would otherwise show in the view in place of the original characters.
+      readFile: async (uri) => new TextDecoder('utf-8', { fatal: true })
+        .decode(await vscode.workspace.fs.readFile(vscode.Uri.parse(uri))),
       readTextBuffer: async () => {
         const textDocument = await vscode.workspace.openTextDocument(document.sourceUri);
         return { text: textDocument.getText(), isDirty: textDocument.isDirty };
@@ -1252,7 +1265,68 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       reportUserInformation: async (key) => {
         await this.errorReporter.reportUserInformation(key, []);
       },
+      reportDirtyTextBuffer: async (cause) => {
+        const selected = await this.errorReporter.reportUserAction(
+          'textBufferDirty.message',
+          ['textBufferDirty.saveTextEditor'],
+          cause,
+        );
+        if (selected !== undefined) {
+          await this.saveTextEditorThenView(document);
+        }
+      },
     };
+  }
+
+  /**
+   * Saves the text editor of the document's file, then saves the view.
+   *
+   * The text editor is saved by URI, so focus moving while the notification was open cannot make it save another
+   * document. The view cannot be saved that way: a save named by URI goes to the text editor whenever one is open for
+   * the file, so the view's tab is brought to the front in its own group and the save command runs on it. The view
+   * save is the ordinary save entry point, so it merges the freshly saved source with the view's edits. Failures are
+   * not reported again here: the text editor save shows VS Code's own failure, and the view save raises its own
+   * notifications.
+   *
+   * @param document The document whose view could not be saved.
+   */
+  private async saveTextEditorThenView(document: HtmlCustomDocument): Promise<void> {
+    const key = document.sourceUri.toString();
+    try {
+      if ((await vscode.workspace.save(document.sourceUri)) === undefined) {
+        this.errorReporter.reportInternalError(`The text editor was not saved, so the view save was not retried: ${key}`);
+        return;
+      }
+      // The text editor is saved even when the view has gone, because that is what the action offered. Only the view
+      // save needs the view.
+      const tab = document.isDisposed ? undefined : findTargetTab(document.sourceUri, 'wysiwyg');
+      if (tab === undefined) {
+        this.errorReporter.reportInternalError(`Did not retry the view save because the view is closed: ${key}`);
+        return;
+      }
+      await vscode.commands.executeCommand('vscode.openWith', document.uri, HTML_EDITOR_VIEW_TYPE, {
+        viewColumn: tab.group.viewColumn,
+        preview: false,
+      });
+      await vscode.commands.executeCommand('workbench.action.files.save');
+    } catch (error) {
+      this.errorReporter.reportInternalError(`Could not save the text editor and retry the view save ${key}: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Runs the dirty text buffer notice's action for integration tests, which cannot select a notification action.
+   *
+   * @param documentUri The canonical form of the document's URI.
+   * @returns Whether an open document was found to run it for.
+   */
+  private async saveTextEditorThenViewForTest(documentUri: string): Promise<boolean> {
+    const document = this.liveDocuments.get(documentUri);
+    if (!this.testMode || document === undefined) {
+      return false;
+    }
+    await this.saveTextEditorThenView(document);
+    return true;
   }
 
   /**
@@ -1533,8 +1607,9 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       return;
     }
     if (this.clearingDirtyDocuments.has(document)) {
-      // This save clears the dirty mark that came from the backup in a restore with no difference. What would be
-      // written is the source, not the backup, and the file already has that content, so succeed without writing.
+      // This save clears the dirty mark that came from the backup in a restore with no difference or no candidate.
+      // What would be written is the source, not the backup, and the file already has that content, so succeed
+      // without writing.
       return;
     }
 

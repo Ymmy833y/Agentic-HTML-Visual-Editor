@@ -54,6 +54,13 @@ export interface RestoreBasis {
   readonly lineEnding: LineEnding;
 }
 
+/**
+ * What became of the backup whose id made the document dirty, told to the user when the mark could not be cleared.
+ *
+ * With no candidate nothing was discarded, so the notification must not say that a backup was.
+ */
+export type KeptDirtyStateReason = 'backupDiscarded' | 'noCandidate';
+
 /** The VS Code-independent port the restore coordinator uses. */
 export interface RestoreHost {
   /**
@@ -129,6 +136,14 @@ export interface RestoreHost {
    */
   clearDirtyState(): Promise<boolean>;
 
+  /**
+   * Reports whether a text editor of this file is open in any group.
+   *
+   * A save named by URI goes to the text editor whenever one is open, so the save that clears the dirty state would
+   * not reach the view, and a text editor with unsaved edits would be written to the file.
+   */
+  isTextEditorOpen(): boolean;
+
   /** Makes the view reload. */
   reloadView(): void;
 
@@ -142,11 +157,13 @@ export interface RestoreHost {
   notifyFailure(location: string | undefined, cause: string): Promise<RestoreAction | undefined>;
 
   /**
-   * Notifies that the backup was discarded but the dirty mark could not be cleared.
+   * Notifies that the dirty mark that came from the backup could not be cleared.
    *
+   * @param reason Whether the backup was discarded or there was none, so that the notification does not claim a
+   *   discard that did not happen.
    * @param cause The cause to leave in the diagnostic log.
    */
-  notifyDirtyStateKept(cause: string): void;
+  notifyDirtyStateKept(reason: KeptDirtyStateReason, cause: string): void;
 
   /** Leaves a fact the user cannot act on in the diagnostic log. */
   reportInternalError(detail: string): void;
@@ -431,7 +448,7 @@ export class RestoreCoordinator {
     this.restoreProgress = 'normal';
     this.basis = undefined;
     this.failure = undefined;
-    await this.clearDirtyStateIfAdopted();
+    await this.clearDirtyStateIfAdopted('backupDiscarded');
     this.host.reloadView();
   }
 
@@ -477,6 +494,9 @@ export class RestoreCoordinator {
 
     if (candidate.kind === 'none') {
       this.restoreProgress = 'normal';
+      // VS Code opens a document it passed a backup id for as dirty. With nothing to restore, the view shows the
+      // source as is, so the mark would claim edits that do not exist.
+      await this.clearDirtyStateIfAdopted('noCandidate');
       return this.host.createNormalInitialization();
     }
     if (candidate.kind === 'failed') {
@@ -523,7 +543,7 @@ export class RestoreCoordinator {
     }
     this.restoreProgress = 'normal';
     this.basis = undefined;
-    await this.clearDirtyStateIfAdopted();
+    await this.clearDirtyStateIfAdopted('backupDiscarded');
     return this.host.createNormalInitialization();
   }
 
@@ -575,14 +595,28 @@ export class RestoreCoordinator {
    *
    * The dirty mark of a document that received no id did not come from a backup, so clearing it would make the
    * user's edits look saved.
+   *
+   * @param reason What became of the backup, told to the user when the mark stays.
    */
-  private async clearDirtyStateIfAdopted(): Promise<void> {
+  private async clearDirtyStateIfAdopted(reason: KeptDirtyStateReason): Promise<void> {
     if (this.backupId === undefined) {
+      return;
+    }
+    if (this.host.isTextEditorOpen()) {
+      // The save that clears the mark is named by URI and would go to the text editor instead of the view. It would
+      // leave the mark and, with unsaved edits in the text editor, write them to the file without the user asking.
+      this.host.notifyDirtyStateKept(
+        reason,
+        'The text editor of this file is open, so the save that clears the dirty state from the backup was not run',
+      );
       return;
     }
     if (!(await this.host.clearDirtyState())) {
       // The discard is not undone. The dirty mark remains, but having started normally with the source is correct.
-      this.host.notifyDirtyStateKept('The save to clear the dirty state that came from the backup did not succeed');
+      this.host.notifyDirtyStateKept(
+        reason,
+        'The save to clear the dirty state that came from the backup did not succeed',
+      );
     }
   }
 }

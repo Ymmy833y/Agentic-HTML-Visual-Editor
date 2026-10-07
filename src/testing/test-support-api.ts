@@ -48,6 +48,7 @@ export interface BackupTestAccess {
   requestBackupForTest(documentUri: string, destinationUri: string): Promise<TestHotExitBackup>;
   controlBackupViewForTest(documentUri: string, operation: BackupTestOperation, text?: string): Promise<boolean>;
   prepareInitialReconcileForTest(documentUri: string): InitialReconcileTestGate | undefined;
+  saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
 }
 
 /** The inspection, clearing, and drive hooks exposed to the integration tests. */
@@ -70,6 +71,7 @@ export interface TestSupportApi {
   readRestoreInspection(documentUri: string): RestoreInspection | undefined;
   requestBackupForTest(documentUri: string, destinationUri: string): Promise<TestHotExitBackup | undefined>;
   controlBackupViewForTest(documentUri: string, operation: BackupTestOperation, text?: string): Promise<boolean>;
+  saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
 }
 
 /** The minimal shape of a session that the test drive hooks may touch. */
@@ -215,6 +217,14 @@ export function createTestSupportApi(dependencies: TestSupportDependencies): Tes
         dependencies.normalizeDocumentUri(documentUri),
         operation,
         text,
+      ) ?? false;
+    },
+    saveTextEditorThenViewForTest: async (documentUri) => {
+      if (!enabled) {
+        return false;
+      }
+      return await dependencies.backupAccess()?.saveTextEditorThenViewForTest(
+        dependencies.normalizeDocumentUri(documentUri),
       ) ?? false;
     },
   };

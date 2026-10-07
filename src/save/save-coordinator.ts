@@ -69,6 +69,9 @@ export interface SaveHost {
    * The result of a recovery write is verified against the file, not the text buffer. The buffer can lag behind the
    * disk.
    *
+   * The returned promise rejects for a file whose bytes are not UTF-8. Reading such a file with replacement
+   * characters would put them into the view in place of the original characters.
+   *
    * @param uri The string form of the URI to read.
    * @returns The file's full text, with line endings as spelled in the file.
    */
@@ -105,6 +108,18 @@ export interface SaveHost {
    * @param key The message key of the notification body.
    */
   reportUserInformation(key: MessageKey): Promise<void>;
+
+  /**
+   * Tells the user that the text editor of this file holds unsaved edits, so the view was not saved, and offers to
+   * save the text editor first.
+   *
+   * The returned promise settles when the notification closes and, if the offer was taken, when the saves it started
+   * have ended. While it is pending the coordinator raises no second notification: auto save repeats the failed save
+   * on every change event, and every retry fails for the same reason until the text editor is saved.
+   *
+   * @param cause One line describing the cause, recorded in the diagnostic log.
+   */
+  reportDirtyTextBuffer(cause: string): Promise<void>;
 }
 
 /** The per-document state the save coordinator reads and writes. */
@@ -366,6 +381,10 @@ export class SaveCoordinator {
   // Whether a notice arrived after the ack and was deferred until the outcome had been returned.
   private deferredChangeNotice = false;
 
+  // The dirty text buffer notification still open for this document, or `undefined` when none is. Auto save repeats
+  // the failed save on every change event, so without this one notification would pile up per retry.
+  private dirtyTextBufferNotice: Promise<void> | undefined;
+
   private disposed = false;
 
   /**
@@ -605,7 +624,8 @@ export class SaveCoordinator {
   }
 
   /**
-   * Re-reads the text buffer and replaces the view's tree with its content.
+   * Re-reads the text buffer and replaces the view's tree with its content. When the text buffer holds unsaved edits,
+   * reads the file on disk instead and does not wait for the buffer to follow.
    *
    * While a write reconcile exists, waits for the buffer to follow the written full text before rereading. The write
    * reconcile represents the latest write; reading without waiting could restore the preceding content.
@@ -1490,7 +1510,12 @@ export class SaveCoordinator {
    * @returns Whether it completed or failed.
    */
   private async runRevert(isCancelled: () => boolean): Promise<RevertOutcome> {
-    const resolution = await this.resolveCurrentSource('revert');
+    let resolution = await this.resolveCurrentSource('revert');
+    if (resolution.kind === 'dirty') {
+      // A revert returns the view to the file, and the file is on the disk whether or not the text buffer holds
+      // unsaved edits. Those edits stay in the text editor and reach the view as an external change once saved.
+      resolution = await this.readSourceFromDisk();
+    }
     if (resolution.kind !== 'resolved') {
       if (resolution.kind === 'followTimeout') {
         // Keep the write reconcile. Clearing it here would reread the previous content instead of a buffer that catches
@@ -1502,11 +1527,7 @@ export class SaveCoordinator {
         this.historyPort?.notifyRevertResult(false, this.state.lastKnownContent);
         return 'failed';
       }
-      return this.failRevert(
-        resolution.kind === 'dirty'
-          ? 'Skipped reverting because the text buffer has unsaved edits'
-          : resolution.cause,
-      );
+      return this.failRevert(resolution.cause);
     }
 
     if (isCancelled()) {
@@ -1537,6 +1558,23 @@ export class SaveCoordinator {
     this.historyPort?.notifyRevertResult(true, resolution.text);
     await this.endRoundTrip(false, false);
     return 'completed';
+  }
+
+  /**
+   * Reads the file on disk as the current source, for a revert while the text buffer holds unsaved edits.
+   *
+   * The disk already holds the last write, so no wait for the buffer to follow it is needed.
+   *
+   * @returns The resolved disk content, or an unreadable failure when the file cannot be read as UTF-8.
+   */
+  private async readSourceFromDisk(): Promise<Extract<SourceResolution, { kind: 'resolved' | 'unreadable' }>> {
+    let raw: string;
+    try {
+      raw = await this.host.readFile(this.documentUri);
+    } catch (error) {
+      return { kind: 'unreadable', cause: `Could not read the file on disk for the revert: ${String(error)}` };
+    }
+    return { kind: 'resolved', text: normalizeLineEndings(raw), lineEnding: this.updateLineEnding(raw) };
   }
 
   /**
@@ -1623,10 +1661,9 @@ export class SaveCoordinator {
     during: string,
   ): Promise<void> {
     if (resolution.kind === 'dirty') {
-      // Only Save reaches this branch with dirty state. The user sees only VS Code's generic save failure, making this
-      // line the sole record of the reason. Adding a notification would repeat it on every automatic save while the
-      // text is being edited.
-      this.host.reportInternalError(`Skipped ${during} because the text buffer has unsaved edits`);
+      // Only Save reaches this branch with dirty state. VS Code shows just its generic save failure, so the reason
+      // and the way out are told here.
+      this.notifyDirtyTextBuffer(`Skipped ${during} because the text buffer has unsaved edits`);
       return;
     }
     if (resolution.kind === 'unreadable') {
@@ -1639,6 +1676,30 @@ export class SaveCoordinator {
         `The text buffer did not catch up with the last write in time while ${during}`,
       );
     }
+  }
+
+  /**
+   * Raises the dirty text buffer notification unless one is still open for this document.
+   *
+   * The notification is not awaited: it settles only when the user closes it, and the save has already failed.
+   *
+   * @param cause One line describing the cause. It reaches the diagnostic log whether or not a notification is raised.
+   */
+  private notifyDirtyTextBuffer(cause: string): void {
+    if (this.dirtyTextBufferNotice !== undefined) {
+      // The open notification already tells the user what to do, but each failed retry still leaves its trace.
+      this.host.reportInternalError(cause);
+      return;
+    }
+
+    this.dirtyTextBufferNotice = this.host.reportDirtyTextBuffer(cause)
+      .catch((error: unknown) => {
+        this.host.reportInternalError(`Could not report the dirty text buffer: ${String(error)}`);
+      })
+      .finally(() => {
+        // No second notification is raised while one is open, so the one that closed is the one recorded here.
+        this.dirtyTextBufferNotice = undefined;
+      });
   }
 
   /**

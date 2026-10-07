@@ -124,7 +124,7 @@ function resolveSourceTab(
  * @param target The target editor.
  * @returns The target tab found, or `undefined` if there is none.
  */
-function findTargetTab(sourceUri: vscode.Uri, target: TargetEditor): vscode.Tab | undefined {
+export function findTargetTab(sourceUri: vscode.Uri, target: TargetEditor): vscode.Tab | undefined {
   const key = sourceUri.toString();
   return vscode.window.tabGroups.all
     .flatMap((group) => group.tabs)

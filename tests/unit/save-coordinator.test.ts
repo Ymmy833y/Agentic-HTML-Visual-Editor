@@ -34,8 +34,7 @@ const VIEW_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>\n</body>\n</html>\
 // Source modified outside the extension. It differs from both the written full text and the previous source.
 const EXTERNAL_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>external</p>\n</body>\n</html>\n';
 
-// Three merge inputs. Place a line between the two paragraphs so source and view changes are not adjacent. Adjacent
-// lines often form one structure and therefore cannot be mechanically combined as separate changes.
+// Three merge inputs. Place a line between the two paragraphs so that these cases stay about changes that are apart.
 const BASE_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>first</p>\n<hr>\n<p>second</p>\n</body>\n</html>\n';
 const SOURCE_EDITED_TEXT = BASE_TEXT.replace('<p>first</p>', '<p>FIRST</p>');
 const VIEW_EDITED_TEXT = BASE_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
@@ -87,6 +86,10 @@ interface Harness {
   readonly notifications: MessageKey[];
   /** Message keys used for success notices. */
   readonly informations: MessageKey[];
+  /** The causes handed to the dirty text buffer notice, in order. */
+  readonly dirtyNotices: string[];
+  /** Closes every dirty text buffer notice that is still open. */
+  closeDirtyNotices(): void;
   /** How many times a change event was fired. */
   readChangeCount(): number;
   /** How many times the text buffer was read. */
@@ -133,6 +136,9 @@ function createHarness(): Harness {
   const logLines: string[] = [];
   const notifications: MessageKey[] = [];
   const informations: MessageKey[] = [];
+  const dirtyNotices: string[] = [];
+  // A real notification settles only when the user closes it, so each notice stays open until the test closes it.
+  const dirtyNoticeClosers: (() => void)[] = [];
 
   let changeCount = 0;
   let bufferReadCount = 0;
@@ -263,6 +269,12 @@ function createHarness(): Harness {
       informations.push(key);
       return Promise.resolve();
     },
+    reportDirtyTextBuffer: (cause) => {
+      dirtyNotices.push(cause);
+      return new Promise<void>((resolve) => {
+        dirtyNoticeClosers.push(resolve);
+      });
+    },
   };
 
   coordinator = new SaveCoordinator(DOCUMENT_URI, state, host);
@@ -277,6 +289,12 @@ function createHarness(): Harness {
     logLines,
     notifications,
     informations,
+    dirtyNotices,
+    closeDirtyNotices: () => {
+      for (const close of dirtyNoticeClosers.splice(0)) {
+        close();
+      }
+    },
     readChangeCount: () => changeCount,
     readBufferReadCount: () => bufferReadCount,
     state,
@@ -632,9 +650,37 @@ describe('Revert', () => {
     expect(harness.history.reverts).toEqual([{ succeeded: false, text: VIEW_TEXT }]);
   });
 
-  it('does not read the body when the text buffer is dirty, notifying once and reporting to the history side', async () => {
+  it('reads the file on disk instead of the dirty text buffer and completes the revert with its content', async () => {
+    const harness = createHarness();
+    harness.setBuffer(VIEW_TEXT, true);
+    harness.setFileText(EXTERNAL_TEXT);
+
+    const outcome = await harness.coordinator.revert(notCancelled);
+
+    expect([
+      outcome,
+      messagesOfType(harness.sent, HOST_TO_VIEW_MESSAGE_TYPE.replaceDocument).map((message) =>
+        'text' in message ? message.text : undefined,
+      ),
+      harness.notifications,
+      harness.history.reverts,
+    ]).toEqual(['completed', [EXTERNAL_TEXT], [], [{ succeeded: true, text: EXTERNAL_TEXT }]]);
+  });
+
+  it('normalizes a CRLF file on disk and re-detects the line ending when the text buffer is dirty', async () => {
+    const harness = createHarness();
+    harness.setBuffer(VIEW_TEXT, true);
+    harness.setFileText(DISK_TEXT.replace(/\n/g, '\r\n'));
+
+    await harness.coordinator.revert(notCancelled);
+
+    expect([harness.appliedOfKind('revert'), harness.state.lineEnding]).toEqual([[DISK_TEXT], 'crlf']);
+  });
+
+  it('fails without sending the replacement when the text buffer is dirty and the file on disk cannot be read', async () => {
     const harness = createHarness();
     harness.setBuffer(DISK_TEXT, true);
+    harness.setFileReadable(false);
 
     const outcome = await harness.coordinator.revert(notCancelled);
 
@@ -890,10 +936,11 @@ describe('text buffer while waiting for buffer follow', () => {
     vi.useRealTimers();
   });
 
-  it('fails Revert without accepting later full text when the buffer becomes dirty while waiting', async () => {
+  it('reverts to the just-written full text from disk without accepting later buffer text when the buffer becomes dirty while waiting', async () => {
     const harness = createHarness();
     harness.syncState.initialize(DISK_TEXT);
     await harness.coordinator.save(notCancelled);
+    const written = harness.written[harness.written.length - 1].text;
 
     const reverting = harness.coordinator.revert(notCancelled);
     await vi.advanceTimersByTimeAsync(0);
@@ -904,10 +951,10 @@ describe('text buffer while waiting for buffer follow', () => {
       await reverting,
       harness.appliedOfKind('revert'),
       harness.notifications,
-    ]).toEqual(['failed', [], ['revertFailed.message']]);
+    ]).toEqual(['completed', [written], []]);
   });
 
-  it('retains the write reconcile on dirty state so the next path also waits for the written full text', async () => {
+  it('clears the write reconcile once a revert that found the buffer dirty while waiting has applied the disk content', async () => {
     const harness = createHarness();
     harness.syncState.initialize(DISK_TEXT);
     await harness.coordinator.save(notCancelled);
@@ -918,7 +965,7 @@ describe('text buffer while waiting for buffer follow', () => {
     await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
     await reverting;
 
-    expect(harness.syncState.writeReconcile !== undefined).toBe(true);
+    expect(harness.syncState.writeReconcile).toBeUndefined();
   });
 });
 
@@ -1180,8 +1227,36 @@ describe('save candidate merge', () => {
     const outcome = await harness.coordinator.save(notCancelled);
 
     expect([outcome, harness.written, harness.applied]).toEqual(['failed', [], []]);
-    // The user sees only VS Code's generic save failure. This line is the sole record of the reason.
-    expect(harness.logLines).toEqual(['Skipped saving because the text buffer has unsaved edits']);
+    // VS Code shows only its generic save failure, so the reason is told through the dirty text buffer notice.
+    expect(harness.dirtyNotices).toEqual(['Skipped saving because the text buffer has unsaved edits']);
+  });
+
+  it('does not raise a second dirty text buffer notice while one is open, but still records the cause', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    harness.setBuffer(DISK_TEXT, true);
+
+    await harness.coordinator.save(notCancelled);
+    await harness.coordinator.save(notCancelled);
+
+    expect([harness.dirtyNotices.length, harness.logLines]).toEqual([
+      1,
+      ['Skipped saving because the text buffer has unsaved edits'],
+    ]);
+  });
+
+  it('raises the dirty text buffer notice again once the previous one has closed', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    harness.setBuffer(DISK_TEXT, true);
+
+    await harness.coordinator.save(notCancelled);
+    harness.closeDirtyNotices();
+    // The closed notice is forgotten in a continuation of its promise, which runs after this turn.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await harness.coordinator.save(notCancelled);
+
+    expect(harness.dirtyNotices).toHaveLength(2);
   });
 });
 
@@ -1481,7 +1556,9 @@ describe('connection to history', () => {
     const harness = createHarness();
     harness.syncState.initialize(DISK_TEXT);
     harness.history.setHistoryEventDriven(false);
+    // A dirty text buffer sends the revert to the disk, and an unreadable file there is what makes it fail.
     harness.setBuffer(DISK_TEXT, true);
+    harness.setFileReadable(false);
 
     await expect(harness.coordinator.revert(notCancelled)).resolves.toBe('failed');
 
@@ -1719,6 +1796,15 @@ describe('save fallback when unresponsive', () => {
     expect(harness.written).toEqual([]);
   });
 
+  it('raises the dirty text buffer notice when the original URI\'s source is dirty', async () => {
+    const { harness } = createUnresponsiveHarness();
+    harness.setBuffer(DISK_TEXT, true);
+
+    await runWhileViewSilent(() => harness.coordinator.save(notCancelled));
+
+    expect(harness.dirtyNotices).toEqual(['Skipped saving the retained copy because the text buffer has unsaved edits']);
+  });
+
   it('does not write the retained copy when the original URI\'s source cannot be read', async () => {
     const { harness } = createUnresponsiveHarness();
     harness.setBufferReadable(false);
@@ -1857,9 +1943,10 @@ describe('source resolution for restore and abandoned Revert', () => {
     expect([harness.notifications, harness.history.reverts]).toEqual([[], []]);
   });
 
-  it('returns failed for a failure caused by a dirty text side', async () => {
+  it('returns failed when the text side is dirty and the file on disk cannot be read', async () => {
     const harness = createHarness();
     harness.setBuffer(DISK_TEXT, true);
+    harness.setFileReadable(false);
 
     const outcome = await harness.coordinator.revert(notCancelled);
 

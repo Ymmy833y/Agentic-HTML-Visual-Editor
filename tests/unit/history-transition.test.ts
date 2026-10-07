@@ -10,8 +10,7 @@ import {
 } from '../../common/index';
 import type { HistoryTransitionInput } from '../../common/index';
 
-// Put a line between the two paragraphs. Adjacent lines often form one structure and cannot be mechanically
-// merged as separate changes, so the source-side and view-side changes are kept apart.
+// Put a line between the two paragraphs so that these cases stay about changes that are apart.
 const BASE = '<!DOCTYPE html>\n<html>\n<body>\n<p>one</p>\n<hr>\n<p>two</p>\n</body>\n</html>\n';
 const VIEW_EDITED = BASE.replace('<p>one</p>', '<p>ONE</p>');
 const SOURCE_EDITED = BASE.replace('<p>two</p>', '<p>TWO</p>');

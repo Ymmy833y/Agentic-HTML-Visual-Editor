@@ -120,14 +120,66 @@ describe('three-way merge', () => {
     expect(concatenate(result, 'view')).toEqual(view);
   });
 
-  it('groups changes that only touch at their base boundaries into one conflict region', () => {
+  it('keeps changes that only touch at their base boundaries apart as one stable region', () => {
     const base = ['<p>a</p>', '<p>b</p>'];
     const source = ['<p>A</p>', '<p>b</p>'];
     const view = ['<p>a</p>', '<p>B</p>'];
 
     const result = mergeThreeWay(base, source, view);
 
-    expect(result.regions).toEqual([{ kind: 'conflict', base, source, view }]);
+    expect(result).toEqual({
+      regions: [{ kind: 'stable', lines: ['<p>A</p>', '<p>B</p>'] }],
+      hasConflict: false,
+    });
+  });
+
+  it('returns a conflict region when one side changes a line and the other inserts right after it', () => {
+    const base = ['<p>a</p>', '<p>b</p>'];
+    const source = ['<p>A</p>', '<p>b</p>'];
+    const view = ['<p>a</p>', '<p>v</p>', '<p>b</p>'];
+
+    const result = mergeThreeWay(base, source, view);
+
+    expect(result.regions[0]).toEqual({
+      kind: 'conflict',
+      base: ['<p>a</p>'],
+      source: ['<p>A</p>'],
+      view: ['<p>a</p>', '<p>v</p>'],
+    });
+    expect(concatenate(result, 'source')).toEqual(source);
+    expect(concatenate(result, 'view')).toEqual(view);
+  });
+
+  it('returns a conflict region when one side changes a line and the other inserts right before it', () => {
+    // The source side inserts: its hunks join a group first, so the changed line has to join a group that holds
+    // only the insertion point.
+    const base = ['<p>a</p>', '<p>b</p>'];
+    const source = ['<p>a</p>', '<p>s</p>', '<p>b</p>'];
+    const view = ['<p>a</p>', '<p>B</p>'];
+
+    const result = mergeThreeWay(base, source, view);
+
+    expect(result.regions[1]).toEqual({
+      kind: 'conflict',
+      base: ['<p>b</p>'],
+      source: ['<p>s</p>', '<p>b</p>'],
+      view: ['<p>B</p>'],
+    });
+    expect(concatenate(result, 'source')).toEqual(source);
+    expect(concatenate(result, 'view')).toEqual(view);
+  });
+
+  it('keeps both changes when one side deletes a line and the other changes the line next to it', () => {
+    const base = ['<p>a</p>', '<p>b</p>', '<p>c</p>'];
+    const source = ['<p>b</p>', '<p>c</p>'];
+    const view = ['<p>a</p>', '<p>B</p>', '<p>c</p>'];
+
+    const result = mergeThreeWay(base, source, view);
+
+    expect(result).toEqual({
+      regions: [{ kind: 'stable', lines: ['<p>B</p>', '<p>c</p>'] }],
+      hasConflict: false,
+    });
   });
 
   it('leaves the deleting side empty when one side deletes a line that the other changes', () => {
@@ -146,9 +198,11 @@ describe('three-way merge', () => {
   });
 
   it('groups multiple hunks with chained overlaps into one conflict region', () => {
+    // The source changes a,b and d; the view changes b,c,d into one line. Each view hunk overlaps a source hunk, so
+    // the chain closes over the first four lines.
     const base = ['<p>a</p>', '<p>b</p>', '<p>c</p>', '<p>d</p>', '<p>e</p>'];
-    const source = ['<p>b</p>', '<p>C</p>', '<p>d</p>', '<p>e</p>'];
-    const view = ['<p>a</p>', '<p>B1</p>', '<p>B2</p>', '<p>c</p>', '<p>D</p>', '<p>e</p>'];
+    const source = ['<p>A</p>', '<p>B</p>', '<p>c</p>', '<p>D</p>', '<p>e</p>'];
+    const view = ['<p>a</p>', '<p>X</p>', '<p>e</p>'];
 
     const result = mergeThreeWay(base, source, view);
 
@@ -156,8 +210,8 @@ describe('three-way merge', () => {
       {
         kind: 'conflict',
         base: ['<p>a</p>', '<p>b</p>', '<p>c</p>', '<p>d</p>'],
-        source: ['<p>b</p>', '<p>C</p>', '<p>d</p>'],
-        view: ['<p>a</p>', '<p>B1</p>', '<p>B2</p>', '<p>c</p>', '<p>D</p>'],
+        source: ['<p>A</p>', '<p>B</p>', '<p>c</p>', '<p>D</p>'],
+        view: ['<p>a</p>', '<p>X</p>'],
       },
       { kind: 'stable', lines: ['<p>e</p>'] },
     ]);
