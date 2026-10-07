@@ -7,6 +7,7 @@ import {
 } from '../document/image-source-resolver';
 import type { BlockRewriteProgress } from './block-format';
 import { findVisibleContent, removeCommentAnnotations } from './copy-html';
+import { toStyleSize } from './image-insert';
 import type { ImageInsertPorts, ImageValues } from './image-insert';
 import { isFormattingExcluded } from './inline-format';
 import { cloneRangeFragment } from './range-fragment';
@@ -31,7 +32,7 @@ const SIZE_PROPERTIES = ['width', 'height'] as const;
 
 type SizeProperty = (typeof SIZE_PROPERTIES)[number];
 
-// A whole number of px, the only size the dialog takes. The digits are captured.
+// A whole number of px. The digits are captured.
 const PIXEL_SIZE_PATTERN = /^([0-9]+)px$/u;
 
 /**
@@ -39,8 +40,9 @@ const PIXEL_SIZE_PATTERN = /^([0-9]+)px$/u;
  *
  * The source is the value the author wrote, which is the rendering source attribute when the image was resolved
  * for rendering. A quarantined `src` is not shown. A size is read from `style` first and from the attribute of the
- * same name otherwise, the same precedence as the rendering. A whole number of px is shown as its digits and any
- * other size as written, so that the validation asks for it to be fixed instead of it being lost.
+ * same name otherwise, the same precedence as the rendering. A whole number of px is shown as its digits, since a
+ * size without a unit is px. Any other size is shown as written, so that a size the dialog cannot write is not lost:
+ * the validation asks for it to be fixed instead.
  *
  * @param image The image.
  * @returns The current values with surrounding whitespace removed, trimmed the same way as the image values.
@@ -211,14 +213,14 @@ function writeAlt(image: Element, alt: string): void {
  *
  * @param image The image.
  * @param property The size to write.
- * @param value A whole number of px as digits. An empty value removes the size.
+ * @param value A size value that passed validation. An empty value removes the size.
  */
 function writeSize(image: Element, property: SizeProperty, value: string): void {
   if (image instanceof HTMLElement) {
     if (value === '') {
       image.style.removeProperty(property);
     } else {
-      image.style.setProperty(property, `${value}px`);
+      image.style.setProperty(property, toStyleSize(value));
     }
     // A style left without declarations is removed, the same as an insertion without a size.
     if (image.style.length === 0) {

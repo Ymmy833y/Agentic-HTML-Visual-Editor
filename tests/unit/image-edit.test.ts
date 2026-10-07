@@ -213,6 +213,15 @@ describe('updating an image', () => {
       .toEqual(['40px', false, '12']);
   });
 
+  it('writes 50% to the style width and removes the width attribute when the width is changed to 50%', () => {
+    const root = mountRoot('<p><img src="a.png" width="16" height="12"></p>');
+
+    update(root, { width: '50%' });
+
+    const image = root.querySelector('img');
+    expect([image?.style.getPropertyValue('width'), image?.hasAttribute('width')]).toEqual(['50%', false]);
+  });
+
   it('removes both style declarations, the width and height attributes and the emptied style attribute when the width and height are emptied', () => {
     const root = mountRoot('<p><img src="a.png" width="16" style="width: 40px; height: 30px;"></p>');
 

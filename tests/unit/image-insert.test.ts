@@ -4,7 +4,7 @@ import {
   RENDERING_SOURCE_ATTRIBUTE_NAME,
   RENDERING_SOURCE_ATTRIBUTE_NAMESPACE,
 } from '../../webview/document/image-source-resolver';
-import { IMAGE_INSERT_EDIT_KIND, buildImage, insertImage } from '../../webview/editing/image-insert';
+import { IMAGE_INSERT_EDIT_KIND, buildImage, insertImage, toStyleSize } from '../../webview/editing/image-insert';
 import type { ImageInsertPorts, ImageValues } from '../../webview/editing/image-insert';
 import { prepareTargetBlock } from '../../webview/editing/target-block';
 import { createRange, mountRoot, readChildText, readElement, select } from './helpers/format-dom';
@@ -160,6 +160,12 @@ describe('building an image', () => {
     expect(image.getAttribute('style')).toBe('width: 40px; height: 30px;');
   });
 
+  it('sets style to width: 50%; height: 30px; for a width of 50% and a height of 30px, keeping the units as entered', () => {
+    const image = build(createValues({ width: '50%', height: '30px' }));
+
+    expect(image.getAttribute('style')).toBe('width: 50%; height: 30px;');
+  });
+
   it('sets style to width: 40px; alone for a width alone', () => {
     const image = build(createValues({ width: '40' }));
 
@@ -182,6 +188,12 @@ describe('building an image', () => {
     const image = build(createValues({}));
 
     expect(image.ownerDocument).not.toBe(document);
+  });
+});
+
+describe('turning a size into the value written to style', () => {
+  it('adds px to a value that ends in neither px nor %, whatever the spelling of its number', () => {
+    expect([toStyleSize('40'), toStyleSize('12.5')]).toEqual(['40px', '12.5px']);
   });
 });
 
