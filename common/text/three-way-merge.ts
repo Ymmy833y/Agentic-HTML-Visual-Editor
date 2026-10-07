@@ -8,7 +8,10 @@ export interface StableRegion {
   readonly lines: readonly string[];
 }
 
-/** A region where changes from both sides overlap or are adjacent in the base, leaving no single result. */
+/**
+ * A region where changes from both sides overlap in the base, or touch where one of them is an insertion
+ * point, leaving no single result.
+ */
 export interface ConflictRegion {
   readonly kind: 'conflict';
   readonly base: readonly string[];
@@ -51,7 +54,10 @@ interface SideHunks {
   readonly last: Hunk;
 }
 
-/** A group of overlapping or boundary-touching hunks and the positions of the next hunks to inspect. */
+/**
+ * A group of hunks that overlap, or that touch where one of them is an insertion point, and the positions of
+ * the next hunks to inspect.
+ */
 interface HunkGroup {
   readonly base: LineRange;
   readonly source: SideHunks | undefined;
@@ -201,11 +207,12 @@ function buildRegions(
 }
 
 /**
- * Extracts one group of overlapping or boundary-touching hunks starting at the scan positions.
+ * Extracts one group of overlapping hunks starting at the scan positions.
  *
- * Hunks that only touch at their boundaries are included in the same group. Adjacent lines often form one
- * structure, such as an opening tag and its contents, so mechanically combining changes from both sides
- * could produce a body that neither side wrote.
+ * Hunks that merely touch at their boundaries stay apart when both have lines: each side's lines then fall
+ * into place in base order, and neither side's change is duplicated. An insertion point (a hunk with no base
+ * lines) that touches another hunk joins the group instead, because the diff cannot say whether the inserted
+ * lines belong before or after the touching change.
  *
  * @param sourceHunks The source-side hunks.
  * @param viewHunks The view-side hunks.
@@ -241,7 +248,7 @@ function groupConflictingHunks(
 
     while (
       nextSourceIndex < sourceHunks.length
-      && sourceHunks[nextSourceIndex].base.start <= end
+      && joinsGroup(sourceHunks[nextSourceIndex], start, end)
     ) {
       const hunk = sourceHunks[nextSourceIndex];
       end = Math.max(end, hunk.base.start + hunk.base.count);
@@ -250,7 +257,7 @@ function groupConflictingHunks(
       extended = true;
     }
 
-    while (nextViewIndex < viewHunks.length && viewHunks[nextViewIndex].base.start <= end) {
+    while (nextViewIndex < viewHunks.length && joinsGroup(viewHunks[nextViewIndex], start, end)) {
       const hunk = viewHunks[nextViewIndex];
       end = Math.max(end, hunk.base.start + hunk.base.count);
       view = { first: view?.first ?? hunk, last: hunk };
@@ -266,6 +273,22 @@ function groupConflictingHunks(
     nextSourceIndex,
     nextViewIndex,
   };
+}
+
+/**
+ * Reports whether a hunk belongs to the group that spans the given base range.
+ *
+ * @param hunk The next hunk of one side, in base order.
+ * @param start The group's first base line.
+ * @param end The base line after the group's last one.
+ * @returns `true` when the hunk overlaps the group, or touches it with an insertion point on either side.
+ */
+function joinsGroup(hunk: Hunk, start: number, end: number): boolean {
+  if (hunk.base.start < end) {
+    return true;
+  }
+  // A group that holds no base lines yet is itself an insertion point, which also admits the first hunk.
+  return hunk.base.start === end && (hunk.base.count === 0 || end === start);
 }
 
 /**

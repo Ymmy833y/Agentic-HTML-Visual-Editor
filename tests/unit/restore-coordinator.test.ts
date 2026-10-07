@@ -5,7 +5,7 @@ import { HOST_TO_VIEW_MESSAGE_TYPE, RESTORE_ACTION } from '../../common/index';
 import type { HostToViewMessage, InitializeMessage, RestoreAction } from '../../common/index';
 import { BACKUP_CONTENT_VERSION } from '../../src/backup/backup-content';
 import { RestoreCoordinator } from '../../src/backup/restore-coordinator';
-import type { RestoreBasis } from '../../src/backup/restore-coordinator';
+import type { KeptDirtyStateReason, RestoreBasis } from '../../src/backup/restore-coordinator';
 import type { RestoreCandidate } from '../../src/backup/restore-candidate';
 import type { SourceResolution } from '../../src/save/save-coordinator';
 
@@ -36,7 +36,8 @@ interface Harness {
   /** The backup locations that started being tracked. */
   readonly tracked: string[];
   readonly notifications: FailureNotification[];
-  readonly dirtyStateKept: string[];
+  /** The notifications that the dirty mark stays, with what became of the backup. */
+  readonly dirtyStateKept: { reason: KeptDirtyStateReason; cause: string }[];
   readonly logLines: string[];
   /** The call order of clearing the dirty state and the normal initialization. */
   readonly operations: string[];
@@ -44,6 +45,8 @@ interface Harness {
   discardCalls: number;
   releaseCalls: number;
   candidate: RestoreCandidate;
+  /** Whether a text editor of the file is open. */
+  textEditorOpen: boolean;
   source: SourceResolution | undefined;
   retainedCopy: string | undefined;
   connectResult: boolean;
@@ -75,7 +78,7 @@ function createHarness(backupId?: string): Harness {
   const connected: RestoreBasis[] = [];
   const tracked: string[] = [];
   const notifications: FailureNotification[] = [];
-  const dirtyStateKept: string[] = [];
+  const dirtyStateKept: { reason: KeptDirtyStateReason; cause: string }[] = [];
   const logLines: string[] = [];
   const operations: string[] = [];
 
@@ -91,6 +94,7 @@ function createHarness(backupId?: string): Harness {
     discardCalls: 0,
     releaseCalls: 0,
     candidate: selectedCandidate(BACKUP_TEXT),
+    textEditorOpen: false,
     source: { kind: 'resolved', text: SOURCE_TEXT, lineEnding: 'lf' },
     retainedCopy: undefined,
     connectResult: true,
@@ -139,6 +143,7 @@ function createHarness(backupId?: string): Harness {
           operations.push('clearDirty');
           return Promise.resolve(harness.clearDirtyResult);
         },
+        isTextEditorOpen: () => harness.textEditorOpen,
         reloadView: () => {
           harness.reloadCalls += 1;
         },
@@ -146,7 +151,7 @@ function createHarness(backupId?: string): Harness {
           notifications.push({ location, cause });
           return Promise.resolve(harness.selection);
         },
-        notifyDirtyStateKept: (cause) => dirtyStateKept.push(cause),
+        notifyDirtyStateKept: (reason, cause) => dirtyStateKept.push({ reason, cause }),
         reportInternalError: (detail) => logLines.push(detail),
       },
       backupId,
@@ -202,6 +207,66 @@ describe('loading and merging the candidate', () => {
 
     expect(message?.text).toBe(NORMAL_TEXT);
     expect(harness.coordinator.progress).toBe('normal');
+  });
+
+  it('clears the dirty state before returning the normal initialization when a document that received a backup id has no candidate', async () => {
+    const harness = createHarness('memory:/hot-exit/hotExit-1');
+    harness.candidate = { kind: 'none' };
+
+    const message = await harness.coordinator.runRestore();
+
+    expect(message?.text).toBe(NORMAL_TEXT);
+    expect(harness.operations).toEqual(['clearDirty', 'normalInitialization']);
+  });
+
+  it('does not clear the dirty state when a document that received no backup id has no candidate', async () => {
+    const harness = createHarness();
+    harness.candidate = { kind: 'none' };
+
+    await harness.coordinator.runRestore();
+
+    expect(harness.operations).toEqual(['normalInitialization']);
+  });
+
+  it('keeps the dirty state and notifies instead of saving when a text editor of the file is open and there is no candidate', async () => {
+    const harness = createHarness('memory:/hot-exit/hotExit-1');
+    harness.candidate = { kind: 'none' };
+    harness.textEditorOpen = true;
+
+    const message = await harness.coordinator.runRestore();
+
+    expect(message?.text).toBe(NORMAL_TEXT);
+    expect([harness.operations, harness.dirtyStateKept.map((kept) => kept.reason)]).toEqual([
+      ['normalInitialization'],
+      ['noCandidate'],
+    ]);
+  });
+
+  it('keeps the dirty state and notifies instead of saving when a text editor of the file is open and the backup has no difference', async () => {
+    const harness = createHarness('memory:/hot-exit/hotExit-1');
+    harness.candidate = selectedCandidate(SOURCE_TEXT, 'hotExit');
+    harness.textEditorOpen = true;
+
+    await harness.coordinator.runRestore();
+
+    expect([harness.operations, harness.dirtyStateKept.map((kept) => kept.reason)]).toEqual([
+      ['discard', 'normalInitialization'],
+      ['backupDiscarded'],
+    ]);
+  });
+
+  it('tells that there was no backup, not that one was discarded, when the dirty state cannot be cleared and there is no candidate', async () => {
+    const harness = createHarness('memory:/hot-exit/hotExit-1');
+    harness.candidate = { kind: 'none' };
+    harness.clearDirtyResult = false;
+
+    const message = await harness.coordinator.runRestore();
+
+    expect(message?.text).toBe(NORMAL_TEXT);
+    expect([harness.operations, harness.dirtyStateKept.map((kept) => kept.reason)]).toEqual([
+      ['clearDirty', 'normalInitialization'],
+      ['noCandidate'],
+    ]);
   });
 
   it('places the backup side after the source side in a conflict region without the merge base or markers', async () => {

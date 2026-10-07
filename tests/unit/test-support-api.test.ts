@@ -288,6 +288,7 @@ describe('test support API', () => {
         return Promise.resolve(true);
       },
       prepareInitialReconcileForTest: () => undefined,
+      saveTextEditorThenViewForTest: () => Promise.resolve(true),
     };
     const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
     const api = createTestSupportApi(createDependencies(overrides));
@@ -329,6 +330,7 @@ describe('test support API', () => {
         prepared.push(documentUri);
         return gate;
       },
+      saveTextEditorThenViewForTest: () => Promise.resolve(true),
     } satisfies BackupTestAccess;
     const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
     const api = createTestSupportApi(createDependencies(overrides));
@@ -339,6 +341,30 @@ describe('test support API', () => {
 
     expect([enabledResult, disabledResult]).toEqual([gate, undefined]);
     expect(prepared).toEqual(['file:///normalized.html']);
+  });
+
+  it('runs the dirty text buffer notice action through the restricted backup access in canonical form only when enabled', async () => {
+    const retried: string[] = [];
+    const access = {
+      readBackupInspection: () => undefined,
+      readRestoreInspection: () => undefined,
+      requestBackupForTest: () => Promise.resolve({ id: 'memory:/backup', delete: () => undefined }),
+      controlBackupViewForTest: () => Promise.resolve(true),
+      prepareInitialReconcileForTest: () => undefined,
+      saveTextEditorThenViewForTest: (documentUri: string) => {
+        retried.push(documentUri);
+        return Promise.resolve(true);
+      },
+    } satisfies BackupTestAccess;
+    const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
+    const api = createTestSupportApi(createDependencies(overrides));
+    const disabled = createTestSupportApi(createDependencies({ ...overrides, enabled: false }));
+
+    const enabledResult = await api.saveTextEditorThenViewForTest('FILE:///normalized.html');
+    const disabledResult = await disabled.saveTextEditorThenViewForTest(RECORDED_URI);
+
+    expect([enabledResult, disabledResult]).toEqual([true, false]);
+    expect(retried).toEqual(['file:///normalized.html']);
   });
 });
 

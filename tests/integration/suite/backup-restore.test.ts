@@ -11,8 +11,10 @@ const POLLING_INTERVAL_MS = 100;
 const CLOSE_REVERT_SETTLE_MS = 3000;
 const CLOSE_ATTEMPTS = 3;
 
-// The cause logged when the Revert on close did not run because the text side has unsaved edits.
-const REVERT_SKIPPED_CAUSE = 'Skipped reverting because the text buffer has unsaved edits';
+// The cause logged when the Revert on close read the disk, because the text side has unsaved edits, and failed there.
+const REVERT_READ_FAILURE_CAUSE = 'Could not read the file on disk for the revert';
+// 0xFF never occurs in UTF-8, so a strict decoder rejects this content.
+const NOT_UTF8_BYTES = new Uint8Array([0xff, 0xfe, 0x00]);
 
 const INITIAL_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>\n</body>\n</html>\n';
 const EDITED_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>abXY</p>\n</body>\n</html>\n';
@@ -178,8 +180,9 @@ async function readRestoreInspection(uri: vscode.Uri): Promise<RestoreInspection
  * Closes a source file while leaving a protection backup behind.
  *
  * Actually enters protection through a missing endpoint. Don't Save when closing a tab requests a Revert, so
- * closing as is would discard the adopted backups. The text side is made dirty so that the Revert fails at source
- * resolution, and the tab is closed along the path that keeps the backup.
+ * closing as is would discard the adopted backups. The text side is made dirty, which sends the Revert to the file
+ * on disk, and that file is given bytes that are not UTF-8 so that the Revert fails at source resolution. The tab
+ * is then closed along the path that keeps the backup.
  *
  * @param uri The source URI.
  * @returns The location of the protection backup left behind.
@@ -194,11 +197,15 @@ async function closeWithProtectionBackup(uri: vscode.Uri): Promise<vscode.Uri> {
     'the protection backup was verified',
   );
   const backupUri = vscode.Uri.parse((await readBackupInspection(uri))?.protectionBackupUri ?? '');
-  const skipped = await countSkippedReverts();
+  const failed = await countFailedReverts();
   await makeTextBufferDirty(uri);
+  const original = await vscode.workspace.fs.readFile(uri);
+  await vscode.workspace.fs.writeFile(uri, NOT_UTF8_BYTES);
   await closeAllEditors(uri);
-  await settleSkippedRevert(skipped);
-  // Return the text side to clean so the reopen can read the source, then clean up the tabs too.
+  await settleFailedRevert(failed);
+  // Put the original bytes back and return the text side to clean so the reopen can read the source, then clean
+  // up the tabs too.
+  await vscode.workspace.fs.writeFile(uri, original);
   await revertDirtyTextEditors();
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   return backupUri;
@@ -243,10 +250,12 @@ async function waitForRestoreProgress(uri: vscode.Uri, progress: string): Promis
   }
 }
 
-/** The number of Reverts that did not run because unsaved edits on the text side prevented source resolution. */
-async function countSkippedReverts(): Promise<number> {
+/**
+ * The number of Reverts that failed because the file on disk could not be read while the text side had unsaved edits.
+ */
+async function countFailedReverts(): Promise<number> {
   return (await api()).readDiagnosticInspection()
-    .logLines.filter((line) => line.includes(REVERT_SKIPPED_CAUSE)).length;
+    .logLines.filter((line) => line.includes(REVERT_READ_FAILURE_CAUSE)).length;
 }
 
 /**
@@ -258,10 +267,10 @@ async function countSkippedReverts(): Promise<number> {
  *
  * @param before The count before starting to wait.
  */
-async function settleSkippedRevert(before: number): Promise<void> {
+async function settleFailedRevert(before: number): Promise<void> {
   const deadline = Date.now() + CLOSE_REVERT_SETTLE_MS;
   while (Date.now() < deadline) {
-    if (await countSkippedReverts() > before) {
+    if (await countFailedReverts() > before) {
       return;
     }
     await delay(POLLING_INTERVAL_MS);
@@ -385,12 +394,14 @@ describe('restore from backup', () => {
     assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
   });
 
-  it('keeps the backup when closing a tab whose Revert failed because the text side is dirty', async () => {
+  it('keeps the backup when closing a tab whose Revert failed because the file is not UTF-8 while the text side is dirty', async () => {
     const uri = await resetScratch('revert-failed');
     await leaveProtectionBackup(uri);
     await openWysiwyg(uri);
     await waitForRestoreProgress(uri, 'restored');
+    // With the text side dirty the Revert reads the disk, and a file that is not UTF-8 is what makes it fail.
     await makeTextBufferDirty(uri);
+    await vscode.workspace.fs.writeFile(uri, NOT_UTF8_BYTES);
 
     await vscode.commands.executeCommand('workbench.action.files.revert')
       .then(undefined, () => undefined);
@@ -401,13 +412,14 @@ describe('restore from backup', () => {
       'the content was preserved in a protection backup',
     );
     const remaining = vscode.Uri.parse((await readBackupInspection(uri))?.protectionBackupUri ?? '');
-    // Don't Save on close also fails because of the unsaved edits on the text side, so the backup remains. The
-    // file is not rewritten either.
-    const skipped = await countSkippedReverts();
+    // Don't Save on close also fails on the same file, so the backup remains. The file is not rewritten either.
+    const failed = await countFailedReverts();
     await closeAllEditors(uri);
-    await settleSkippedRevert(skipped);
+    await settleFailedRevert(failed);
     assert.ok(await exists(remaining), 'no backup remains for the failed revert');
-    assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+    assert.deepStrictEqual(Array.from(await vscode.workspace.fs.readFile(uri)), Array.from(NOT_UTF8_BYTES));
+    // Put a readable file back so that the text side can be reverted and the scratch reused.
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(INITIAL_TEXT));
   });
 
   it('clears the dirty state and deletes the protection backup when undoing the restore entry returns to the save point', async () => {

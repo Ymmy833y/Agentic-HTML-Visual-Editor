@@ -15,12 +15,13 @@ const SCRATCH_FILE_NAME = 'undo-redo-scratch.html';
 // Each case uses its own source file.
 const PROTECTION_APPLY_SCRATCH_FILE_NAME = 'undo-redo-protection-apply-scratch.html';
 const PROTECTION_REVERT_SCRATCH_FILE_NAME = 'undo-redo-protection-revert-scratch.html';
+// 0xFF never occurs in UTF-8, so a strict decoder rejects this content.
+const NOT_UTF8_BYTES = new Uint8Array([0xff, 0xfe, 0x00]);
 
 const INITIAL_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>\n</body>\n</html>\n';
 const EDITED_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>abXY</p>\n</body>\n</html>\n';
 
-// Keep the source-side and view-side changes apart. Adjacent lines often form one structure and cannot be
-// mechanically merged as separate changes.
+// Place a line between the two paragraphs so that these cases stay about changes that are apart.
 const MERGE_BASE_TEXT = [
   '<!DOCTYPE html>', '<html>', '<body>', '<p>first</p>', '<hr>', '<p>second</p>', '</body>', '</html>', '',
 ].join('\n');
@@ -670,9 +671,11 @@ describe('undo/redo application and the save boundary', () => {
     const uri = await resetNamedScratch(PROTECTION_REVERT_SCRATCH_FILE_NAME);
     await openWysiwyg(uri);
     await injectEditUnit(uri);
-    // Make the text tab dirty. Revert cannot proceed while the source is not following the disk.
+    // Make the text tab dirty, which sends the Revert to the file on disk, and give that file bytes that are not
+    // UTF-8, which is what makes the Revert fail.
     const editor = await vscode.window.showTextDocument(uri);
     await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- dirty -->'));
+    await vscode.workspace.fs.writeFile(uri, NOT_UTF8_BYTES);
     (await api()).clearDiagnosticInspection();
 
     await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);

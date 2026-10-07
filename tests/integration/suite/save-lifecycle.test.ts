@@ -17,12 +17,14 @@ const SETTLE_MS = 3000;
 
 // A save rewrites the disk, so no fixture file committed to the repository is used.
 const SCRATCH_FILE_NAME = 'save-lifecycle-scratch.html';
-// A case that enters protection leaves a protection backup, and reopening that source file starts a restore.
-// It uses a source file separate from the later cases.
-const PROTECTION_SCRATCH_FILE_NAME = 'save-lifecycle-protection-scratch.html';
+// The dirty text tab cases leave their text side dirty or rewritten until the suite's cleanup, so they use a source
+// file separate from the later cases.
+const DIRTY_TEXT_TAB_SCRATCH_FILE_NAME = 'save-lifecycle-dirty-text-tab-scratch.html';
 
 const INITIAL_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>\n</body>\n</html>\n';
 const EXTERNAL_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>external</p>\n</body>\n</html>\n';
+// INITIAL_TEXT after the one-character edit that the dirty text tab cases insert at the start of line 3.
+const TEXT_TAB_EDITED_TEXT = '<!DOCTYPE html>\n<html>\n<body>\nZ<p>ab</p>\n</body>\n</html>\n';
 const MERGE_BASE_TEXT = [
   '<!DOCTYPE html>', '<html>', '<body>', '<p>first</p>', '<hr>', '<p>second</p>', '</body>', '</html>', '',
 ].join('\n');
@@ -171,16 +173,16 @@ function readMessageKind(message: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-// Return the full document text of replacements sent as Revert, in send order. Save candidate application uses the
-// same message type, so filtering by application kind prevents confusing the two.
-async function readRevertReplacements(uri: vscode.Uri): Promise<string[]> {
+// Return the full document text of replacements sent with the given application kind, in send order. Revert, external
+// change, and save candidate application use the same message type, so filtering by application kind keeps them apart.
+async function readReplacements(uri: vscode.Uri, kind: string): Promise<string[]> {
   const messages = await readRecordedMessages(uri);
   return messages
     .filter(
       (recorded) =>
         recorded.direction === 'toView'
         && readMessageType(recorded.message) === 'replaceDocument'
-        && readMessageKind(recorded.message) === 'revert',
+        && readMessageKind(recorded.message) === kind,
     )
     .flatMap((recorded) => {
       const text = readMessageText(recorded.message);
@@ -437,7 +439,7 @@ describe('signalling the end of a round trip', () => {
     await makeViewDirty(uri);
     await vscode.commands.executeCommand('workbench.action.files.revert');
     await waitUntil(
-      async () => (await readRevertReplacements(uri)).length > 0,
+      async () => (await readReplacements(uri, 'revert')).length > 0,
       'the revert replacement was sent to the view',
     );
 
@@ -469,7 +471,7 @@ describe('re-reading the view on revert', () => {
     await revertDirtyTextEditors();
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await deleteIfPresent(fixtureUri(SCRATCH_FILE_NAME));
-    await deleteIfPresent(fixtureUri(PROTECTION_SCRATCH_FILE_NAME));
+    await deleteIfPresent(fixtureUri(DIRTY_TEXT_TAB_SCRATCH_FILE_NAME));
   });
 
   it('delivers a replacement carrying the external content when reverting after something outside rewrote the disk', async () => {
@@ -491,11 +493,11 @@ describe('re-reading the view on revert', () => {
 
     await vscode.commands.executeCommand('workbench.action.files.revert');
     await waitUntil(
-      async () => (await readRevertReplacements(uri)).length > 0,
+      async () => (await readReplacements(uri, 'revert')).length > 0,
       'a replacement carrying the external content was sent to the view',
     );
 
-    assert.deepStrictEqual(await readRevertReplacements(uri), [EXTERNAL_TEXT]);
+    assert.deepStrictEqual(await readReplacements(uri, 'revert'), [EXTERNAL_TEXT]);
   });
 
   it('Revert immediately after Save waits for buffer follow before restoring the just-written full text', async () => {
@@ -513,16 +515,16 @@ describe('re-reading the view on revert', () => {
     await makeViewDirty(uri);
     await vscode.commands.executeCommand('workbench.action.files.revert');
     await waitUntil(
-      async () => (await readRevertReplacements(uri)).length > 0,
+      async () => (await readReplacements(uri, 'revert')).length > 0,
       'a replacement carrying the saved content was sent to the view',
     );
 
     // Rereading without waiting for buffer follow would return the pre-write buffer content.
-    assert.deepStrictEqual(await readRevertReplacements(uri), [MERGED_TEXT]);
+    assert.deepStrictEqual(await readReplacements(uri, 'revert'), [MERGED_TEXT]);
   });
 
-  it('reports a Revert failure and enters protection without firing a history-less event when the text tab is dirty', async () => {
-    const uri = fixtureUri(PROTECTION_SCRATCH_FILE_NAME);
+  it('reverts the view to the file on disk and keeps the text tab dirty when the text tab holds unsaved edits', async () => {
+    const uri = fixtureUri(DIRTY_TEXT_TAB_SCRATCH_FILE_NAME);
     await writeFileText(uri, INITIAL_TEXT);
     const buffer = await vscode.workspace.openTextDocument(uri);
     await waitUntil(() => buffer.getText() === INITIAL_TEXT, 'the buffer followed the initial content');
@@ -535,18 +537,46 @@ describe('re-reading the view on revert', () => {
     await makeViewDirty(uri);
     (await api()).clearDiagnosticInspection();
 
-    await vscode.commands
-      .executeCommand('workbench.action.files.revert')
-      .then(undefined, () => undefined);
+    await vscode.commands.executeCommand('workbench.action.files.revert');
 
     await waitUntil(
-      async () => (await api()).readDiagnosticInspection().notifications.length >= 2,
-      'the revert failure and protection notifications were shown',
+      async () => (await readReplacements(uri, 'revert')).length > 0,
+      'the revert replacement reached the view',
     );
+    assert.deepStrictEqual(await readReplacements(uri, 'revert'), [INITIAL_TEXT]);
     assert.strictEqual(findCustomTab(uri)?.isDirty, false);
-    // Besides the notification for the Revert failure itself, a notification that editing, saving, and history
-    // were stopped on the old DOM is shown.
-    assert.ok((await api()).readDiagnosticInspection().notifications.length >= 2);
+    // The unsaved edits of the text tab are not the revert's business: they stay where they are.
+    assert.strictEqual(findTextTab(uri)?.isDirty, true);
+    assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+    assert.deepStrictEqual((await api()).readDiagnosticInspection().notifications, []);
+  });
+
+  it('delivers the text tab edits to the view as an external change when the text tab is saved after the revert', async () => {
+    const uri = fixtureUri(DIRTY_TEXT_TAB_SCRATCH_FILE_NAME);
+    await writeFileText(uri, INITIAL_TEXT);
+    const buffer = await vscode.workspace.openTextDocument(uri);
+    await waitUntil(() => buffer.getText() === INITIAL_TEXT, 'the buffer followed the initial content');
+    await vscode.commands.executeCommand('vscode.open', uri);
+    await openWysiwyg(uri);
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(uri, new vscode.Position(3, 0), 'Z');
+    assert.ok(await vscode.workspace.applyEdit(edit), 'the edit to the text buffer was not applied');
+    await waitUntil(() => findTextTab(uri)?.isDirty === true, 'the text tab became dirty');
+    await makeViewDirty(uri);
+    await vscode.commands.executeCommand('workbench.action.files.revert');
+    await waitUntil(
+      async () => (await readReplacements(uri, 'revert')).length > 0,
+      'the revert replacement reached the view',
+    );
+
+    // The text document saves itself. The save command would go to whichever tab is active instead.
+    assert.ok(await buffer.save(), 'the text buffer was not saved');
+
+    await waitUntil(
+      async () => (await readReplacements(uri, 'externalChange')).length > 0,
+      'the external change replacement reached the view',
+    );
+    assert.deepStrictEqual(await readReplacements(uri, 'externalChange'), [TEXT_TAB_EDITED_TEXT]);
   });
 });
 

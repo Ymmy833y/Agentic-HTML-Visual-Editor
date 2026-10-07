@@ -5,8 +5,8 @@ import { mergeSaveCandidate } from '../../src/save/save-merge';
 
 const BASE = ['<body>', '<p>first</p>', '<p>second</p>', '</body>', ''].join('\n');
 
-// Place a line between non-overlapping changes. Adjacent lines often form one structure, so changes on both sides are
-// treated as a single conflict when they are merely adjacent.
+// Place a line between the two changes so that this case stays about changes that are apart. Adjacent changes have
+// cases of their own below.
 const SPACED_BASE = ['<body>', '<p>first</p>', '<hr>', '<p>second</p>', '</body>', ''].join('\n');
 
 describe('non-overlapping changes', () => {
@@ -18,6 +18,21 @@ describe('non-overlapping changes', () => {
 
     expect(candidate).toEqual({
       text: ['<body>', '<p>FIRST</p>', '<hr>', '<p>SECOND</p>', '</body>', ''].join('\n'),
+      hasConflict: false,
+    });
+  });
+});
+
+describe('changes to adjacent lines', () => {
+  it('replaces each paragraph in place without duplicating or breaking a line', () => {
+    // The source edits the first paragraph and the view edits the paragraph right after it.
+    const source = ['<body>', '<p>FIRST</p>', '<p>second</p>', '</body>', ''].join('\n');
+    const view = ['<body>', '<p>first</p>', '<p>SECOND</p>', '</body>', ''].join('\n');
+
+    const candidate = mergeSaveCandidate(BASE, source, view);
+
+    expect(candidate).toEqual({
+      text: ['<body>', '<p>FIRST</p>', '<p>SECOND</p>', '</body>', ''].join('\n'),
       hasConflict: false,
     });
   });
@@ -41,6 +56,17 @@ describe('changes to the same location', () => {
       ].join('\n'),
       hasConflict: true,
     });
+  });
+
+  it('keeps every line of both sides intact when the same line conflicts', () => {
+    const source = ['<body>', '<p>from source</p>', '<p>second</p>', '</body>', ''].join('\n');
+    const view = ['<body>', '<p>from view</p>', '<p>second</p>', '</body>', ''].join('\n');
+
+    const candidate = mergeSaveCandidate(BASE, source, view);
+
+    // Every candidate line is a line of one of the two sides as written: nothing is split, joined or prefixed.
+    const sideLines = new Set([...source.split('\n'), ...view.split('\n')]);
+    expect(candidate.text.split('\n').filter((line) => !sideLines.has(line))).toEqual([]);
   });
 
   it('includes identical changes from both sides once without reporting a conflict', () => {
