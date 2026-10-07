@@ -327,15 +327,22 @@ describe('reading the image values', () => {
 });
 
 describe('validating the width and height', () => {
-  it('rejects a width of 320px, 50%, 0, 1.5, -1 or full-width ３２０ with the reason asking for a whole number of 1 or more', () => {
-    const widths = ['320px', '50%', '0', '1.5', '-1', '３２０'];
+  it('passes a width and height of 40, 40px, 50% or 150%', () => {
+    const sizes = ['40', '40px', '50%', '150%'];
+
+    expect(sizes.map((size) => validate({ source: 'a.png', width: size, height: size })))
+      .toEqual(sizes.map(() => undefined));
+  });
+
+  it('rejects a width of 0, 0%, 1.5, -1, full-width ３２０, 50 % with a space, uppercase 40PX, 3em or auto with the width reason', () => {
+    const widths = ['0', '0%', '1.5', '-1', '３２０', '50 %', '40PX', '3em', 'auto'];
 
     expect(widths.map((width) => validate({ source: 'a.png', width })))
       .toEqual(widths.map(() => 'imageDialog.widthInvalid'));
   });
 
-  it('rejects a height of 320px with the reason asking for a whole number of 1 or more', () => {
-    expect(validate({ source: 'a.png', height: '320px' })).toBe('imageDialog.heightInvalid');
+  it('rejects a height of auto with the height reason', () => {
+    expect(validate({ source: 'a.png', height: 'auto' })).toBe('imageDialog.heightInvalid');
   });
 
   it('passes an empty or whitespace-only width and height', () => {
@@ -384,7 +391,7 @@ describe('the requirement of the image dialog fields', () => {
 
 describe('order of rejections', () => {
   it('returns the path or URL reason when both the path or URL and the width are invalid', () => {
-    expect(validate({ source: 'javascript:alert(1)', width: '320px' })).toBe('imageDialog.sourceInvalid');
+    expect(validate({ source: 'javascript:alert(1)', width: '3em' })).toBe('imageDialog.sourceInvalid');
   });
 
   it('returns the width reason when both the width and the height are invalid', () => {

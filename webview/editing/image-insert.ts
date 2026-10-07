@@ -14,6 +14,9 @@ import { isFormattingExcluded } from './inline-format';
  */
 export const IMAGE_INSERT_EDIT_KIND = 'image:insert';
 
+// A size that ends in one of the units the image dialog takes.
+const SIZE_UNIT_PATTERN = /(?:px|%)$/u;
+
 /**
  * The input values of the image dialog. Each has surrounding whitespace removed, and an empty string means
  * nothing was entered in that field.
@@ -23,9 +26,9 @@ export interface ImageValues {
   readonly source: string;
   /** The alt text. */
   readonly alt: string;
-  /** The width (px). */
+  /** The width: a whole number, alone for px or followed by px or %. */
   readonly width: string;
-  /** The height (px). */
+  /** The height: a whole number, alone for px or followed by px or %. */
   readonly height: string;
 }
 
@@ -107,10 +110,10 @@ export function buildImage(
   // attribute. A style declaration overrides the default styles.
   const declarations: string[] = [];
   if (values.width !== '') {
-    declarations.push(`width: ${values.width}px;`);
+    declarations.push(`width: ${toStyleSize(values.width)};`);
   }
   if (values.height !== '') {
-    declarations.push(`height: ${values.height}px;`);
+    declarations.push(`height: ${toStyleSize(values.height)};`);
   }
   if (declarations.length > 0) {
     image.setAttribute('style', declarations.join(' '));
@@ -118,6 +121,20 @@ export function buildImage(
   fragment.append(image);
   resolveImageSources(fragment, documentUri, resourceRootUri);
   return image;
+}
+
+/**
+ * Turns a width or height that passed validation into the value written to `style`.
+ *
+ * A value with px or % is written with the unit as it was entered, and any other value has no unit and is in px, so
+ * px is added to it. Only the unit is looked at, not how the number is spelled, so the rule for numbers stays in the
+ * validation alone and widening it cannot leave a size without a unit.
+ *
+ * @param value A non-empty width or height that passed validation.
+ * @returns The value with its unit.
+ */
+export function toStyleSize(value: string): string {
+  return SIZE_UNIT_PATTERN.test(value) ? value : `${value}px`;
 }
 
 /**

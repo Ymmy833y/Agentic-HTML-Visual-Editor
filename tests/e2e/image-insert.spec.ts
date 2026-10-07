@@ -452,12 +452,12 @@ test.describe('validating the image values', () => {
     ]).toEqual([1, englishMessages['imageDialog.sourceInvalid'], BODY]);
   });
 
-  test('keeps the dialog open, shows the reason and leaves the tree unchanged when confirming with a width of 320px', async ({ page }) => {
+  test('keeps the dialog open, shows the reason and leaves the tree unchanged when confirming with a width of 3em', async ({ page }) => {
     await openImageEditor(page, BODY);
     await placeCaretAt(page, { selector: PARAGRAPH, childIndex: 0, offset: 2 });
     await page.locator(IMAGE_ITEM).click();
 
-    await fillImageFields(page, { source: IMAGE_PATH, width: '320px' });
+    await fillImageFields(page, { source: IMAGE_PATH, width: '3em' });
     await page.keyboard.press('Enter');
 
     expect([
@@ -526,6 +526,15 @@ test.describe('building an image', () => {
     // height is also 40.
     await expect.poll(() => readNaturalWidth(page)).toBeGreaterThan(0);
     expect(await readRenderedSize(page)).toEqual([40, 40]);
+  });
+
+  test('writes style="width: 50%; height: 30px;" on the image in the body output when confirming with a width of 50% and a height of 30px', async ({ page }) => {
+    await openImageEditor(page, BODY);
+    await placeCaretAt(page, { selector: PARAGRAPH, childIndex: 0, offset: 2 });
+
+    await insertFromItem(page, { source: IMAGE_PATH, width: '50%', height: '30px' });
+
+    expect(await readBodyOutput(page)).toBe('\n<p>ab<img src="sample.png" style="width: 50%; height: 30px;">cd</p>\n');
   });
 });
 
@@ -759,8 +768,8 @@ test.describe('editing an image', () => {
     expect(await readBodyOutput(page)).toBe('\n<p>x<img src="sample.png" alt="s">y</p>\n');
   });
 
-  test('shows 50% in the width field of an image with a width of 50%, and keeps the dialog open with the reason and the tree unchanged when confirmed as it is', async ({ page }) => {
-    const body = `\n<p>x<img src="${IMAGE_PATH}" alt="s" style="width: 50%;">y</p>\n`;
+  test('shows 3em in the width field of an image with a width of 3em, and keeps the dialog open with the reason and the tree unchanged when confirmed as it is', async ({ page }) => {
+    const body = `\n<p>x<img src="${IMAGE_PATH}" alt="s" style="width: 3em;">y</p>\n`;
     await openImageEditor(page, body);
     await page.locator(IMAGE).click();
 
@@ -770,7 +779,17 @@ test.describe('editing an image', () => {
       await page.getByLabel(englishMessages['imageDialog.width'], { exact: true }).inputValue(),
       await page.locator(DIALOG_ALERT).textContent(),
       await readBodyHtml(page),
-    ]).toEqual(['50%', englishMessages['imageDialog.widthInvalid'], body]);
+    ]).toEqual(['3em', englishMessages['imageDialog.widthInvalid'], body]);
+  });
+
+  test('changes only alt and keeps width: 50% as written in the body output when an image with a width of 50% is clicked and only its alt is changed and confirmed', async ({ page }) => {
+    await openImageEditor(page, `\n<p>x<img src="${IMAGE_PATH}" alt="s" style="width: 50%;">y</p>\n`);
+    await page.locator(IMAGE).click();
+
+    await fillImageField(page, 'imageDialog.alt', 'new');
+    await confirmDialog(page);
+
+    expect(await readBodyOutput(page)).toBe('\n<p>x<img src="sample.png" alt="new" style="width: 50%;">y</p>\n');
   });
 
   test('loads the new image without waiting for a replacement and keeps src as entered in the body output when the path is changed to another relative path and confirmed', async ({ page }) => {

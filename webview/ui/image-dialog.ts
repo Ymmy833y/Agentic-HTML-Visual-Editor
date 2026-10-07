@@ -22,8 +22,9 @@ const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/u;
 // The start of an http or https URL. The case of the scheme does not matter.
 const HTTP_URL_PREFIX_PATTERN = /^https?:\/\//iu;
 
-// A run of ASCII digits only. Values containing full-width digits, signs, decimal points or units do not match.
-const DIGITS_PATTERN = /^[0-9]+$/u;
+// A run of ASCII digits, alone or followed by the unit px or %. Values containing full-width characters, signs,
+// decimal points, other units, an uppercase unit or a space before the unit do not match. The digits are captured.
+const SIZE_VALUE_PATTERN = /^([0-9]+)(?:px|%)?$/u;
 
 /**
  * The ports of the image dialog.
@@ -247,10 +248,10 @@ export function validateImageValues(values: ImageValues, localizer: Localizer): 
   if (!isRelativeFileHref(source) && !isHttpUrl(source)) {
     return localizer.getMessage('imageDialog.sourceInvalid');
   }
-  if (values.width !== '' && !isPixelSize(values.width)) {
+  if (values.width !== '' && !isSizeValue(values.width)) {
     return localizer.getMessage('imageDialog.widthInvalid');
   }
-  if (values.height !== '' && !isPixelSize(values.height)) {
+  if (values.height !== '' && !isSizeValue(values.height)) {
     return localizer.getMessage('imageDialog.heightInvalid');
   }
   return undefined;
@@ -279,12 +280,13 @@ function isHttpUrl(value: string): boolean {
 /**
  * Determines whether a value can be written as a width or height.
  *
- * The value is written as is as a px value in `style`. Limiting it to digits keeps both units and other
- * declarations from being slipped in.
+ * The value is written to `style` with the unit as entered, or with px when it has none. Accepting only these
+ * spellings keeps other units and other declarations from being slipped in.
  *
  * @param value A non-empty value with surrounding whitespace removed.
- * @returns `true` for a whole number of 1 or more made only of ASCII digits.
+ * @returns `true` for a whole number of 1 or more made only of ASCII digits, alone or followed by px or %.
  */
-function isPixelSize(value: string): boolean {
-  return DIGITS_PATTERN.test(value) && Number(value) >= 1;
+function isSizeValue(value: string): boolean {
+  const digits = SIZE_VALUE_PATTERN.exec(value)?.[1];
+  return digits !== undefined && Number(digits) >= 1;
 }
