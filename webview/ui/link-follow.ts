@@ -1,4 +1,4 @@
-import { isRelativeFileHref } from '../../common/index';
+import { isRelativeFileHref, isRootRelativeFileHref } from '../../common/index';
 import type { Localizer } from '../../common/index';
 import type { ShortcutPlatform } from '../editing/shortcut-receiver';
 import type { TooltipResolver } from './tooltip';
@@ -59,12 +59,13 @@ export function hasPrimaryModifier(event: MouseEvent, platform: ShortcutPlatform
 
 /**
  * Dispatches a click in the editor root by whether it is on a link, whether the primary modifier is held, and
- * whether the href is a relative file href.
+ * whether the href is a relative or root-relative file href.
  *
  * The click handling that VS Code injects into the view passes links to the host without checking whether the
  * default action was prevented. A plain click therefore stops propagation as well as the default action, so the
  * link is not opened. The caret placed by the press remains, so the link text can be edited as is. A link that is
- * not a relative file href is not stopped even with the primary modifier; it is left to VS Code's handling.
+ * neither a relative nor a root-relative file href is not stopped even with the primary modifier; it is left to
+ * VS Code's handling. VS Code would resolve a root-relative href against the view's own address, where no file is.
  *
  * @param event The click.
  * @param root The editor root.
@@ -92,7 +93,7 @@ export function dispatchLinkClick(
   }
 
   const href = link.getAttribute('href') ?? '';
-  if (!isRelativeFileHref(href)) {
+  if (!isRelativeFileHref(href) && !isRootRelativeFileHref(href)) {
     return;
   }
   event.preventDefault();

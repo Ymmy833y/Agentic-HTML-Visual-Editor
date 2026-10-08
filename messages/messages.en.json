@@ -133,6 +133,7 @@
   "relativeLink.notFound.message": "The link could not be opened because its target does not exist.",
   "relativeLink.notFile.message": "The link could not be opened because its target is not a file.",
   "relativeLink.openFailed.message": "The link could not be opened.",
+  "relativeLink.noWorkspaceFolder.message": "The link could not be opened because links starting with \"/\" open from the workspace folder, and this file is not in one.",
   "actionDialog.required": "Required",
   "actionDialog.optional": "Optional",
   "toolbar.link": "Link",

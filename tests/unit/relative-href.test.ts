@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { isRelativeFileHref, trimHref } from '../../common/index';
+import { isRelativeFileHref, isRootRelativeFileHref, trimHref } from '../../common/index';
 
 describe('relative file href detection', () => {
   it('recognizes values that point to files through paths relative to the document', () => {
@@ -45,6 +45,20 @@ describe('relative file href detection', () => {
 
     expect(hrefs.map((href) => isRelativeFileHref(`\n  ${href}\t `)))
       .toEqual(hrefs.map((href) => isRelativeFileHref(href)));
+  });
+});
+
+describe('root-relative file href detection', () => {
+  it('recognizes values that start with a single slash, including surrounding whitespace', () => {
+    const hrefs = ['/abs.html', '/', ' /a/b.html \n'];
+
+    expect(hrefs.map((href) => isRootRelativeFileHref(href))).toEqual([true, true, true]);
+  });
+
+  it('does not recognize double-slash, slash-backslash, backslash, relative, scheme, or fragment values', () => {
+    const hrefs = ['//host/a', '/\\host\\a', '\\abs.html', 'docs/a.html', 'https://x/', '#top'];
+
+    expect(hrefs.map((href) => isRootRelativeFileHref(href))).toEqual([false, false, false, false, false, false]);
   });
 });
 

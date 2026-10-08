@@ -358,6 +358,31 @@ describe('relative link resolution', () => {
       await waitUntil(() => countTextTabsOf(target) === 1, 'the target read from the workspace folder opened');
     });
 
+    it('opens the file directly in the workspace folder for a root-relative href requested from a document in a subdirectory', async () => {
+      const uri = fixtureUri(SUB_DIRECTORY, SUB_DOCUMENT);
+      const target = sameDirectoryTarget();
+      await openWysiwyg(uri);
+
+      await requestLink(uri, '/crlf.html');
+
+      await waitUntil(() => countTextTabsOf(target) === 1, 'the target in the workspace folder opened');
+    });
+
+    it('adds no tab and shows one no-workspace-folder notification for a root-relative href requested from a document outside the workspace folder', async () => {
+      const uri = outsideWorkspaceUri('sample.html');
+      await openWysiwyg(uri);
+      const tabCount = openTabs().length;
+      await clearInspection();
+
+      await requestLink(uri, '/sample.html');
+      const inspection = await waitForNotification();
+
+      assert.deepStrictEqual(
+        { tabs: openTabs().length, notifications: inspection.notifications },
+        { tabs: tabCount, notifications: [await message('relativeLink.noWorkspaceFolder.message')] },
+      );
+    });
+
     it('adds no tab and shows one not-found notification for a request to a nonexistent file within scope', async () => {
       const uri = workspaceDocument();
       await openWysiwyg(uri);
