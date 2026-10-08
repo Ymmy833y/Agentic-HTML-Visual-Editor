@@ -28,6 +28,12 @@ Rebuilt from the ground up for long-term maintenance. Every feature of 0.1.12 ca
 - Open files in encodings other than UTF-8 and, when saving from the WYSIWYG view, convert them to UTF-8 with their characters intact
 - Reach and operate the toolbar, menus, dialogs, and the comment popup with the keyboard alone (`Alt+F10` moves focus from the document to the toolbar), with a visible focus ring and roles and labels for screen readers
 
+## [0.1.13] - 2026-10-01
+
+### Security
+
+- Update the transitive dependency `dompurify` to 3.4.16, and bump the overridden transitive dependencies `brace-expansion` (2.1.7 / 5.0.12) and `undici` (7.29.1) to patched versions
+
 ## [0.1.12] - 2026-09-23
 
 ### Added
