@@ -1162,7 +1162,7 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   });
   // The zoom buttons of diagrams follow the copy button in every respect: once, after the search, with or without a
   // toolbar.
-  diagramZoom = attachDiagramZoom(view, target.root, {
+  diagramZoom = attachDiagramZoom(view, target.root, platform, {
     localizer,
     registerTooltip: (element, label) => viewShell.tooltip.registerTarget(element, label),
     readAreaTop: () => search.readOverlayBottom(),
