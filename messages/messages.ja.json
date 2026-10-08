@@ -209,5 +209,22 @@
   "changePopup.deletion": "削除",
   "changePopup.replacement": "置換",
   "changePopup.accept": "承認",
-  "changePopup.reject": "却下"
+  "changePopup.reject": "却下",
+  "conflictResolution.heading": "編集内容が、ファイルへの変更と競合しています。",
+  "conflictResolution.description": "競合ごとに残す内容を選んでください。選び終えるとファイルを保存します。",
+  "conflictResolution.changedAgain": "選んでいる間にファイルがまた変更されました。これらの競合について選び直してください。",
+  "conflictResolution.conflict": "競合 {index}/{count}",
+  "conflictResolution.fileSide": "ファイルの内容",
+  "conflictResolution.editorSide": "ビジュアルエディターの内容",
+  "conflictResolution.keepFile": "ファイルの内容を残す",
+  "conflictResolution.keepEditor": "ビジュアルエディターの内容を残す",
+  "conflictResolution.keepBoth": "両方を残す",
+  "conflictResolution.showHtml": "HTML を表示",
+  "conflictResolution.empty": "(空)",
+  "conflictResolution.save": "保存",
+  "conflictResolution.cancel": "キャンセル",
+  "conflictResolution.waiting.message": "ビジュアルエディターで競合ごとに残す内容を選ぶまで、{name} の保存は待っています。",
+  "conflictResolution.showConflicts": "競合を表示",
+  "conflictResolution.canceled.message": "{name} は保存されていないため、ビジュアルエディターには未保存の編集が残っています。編集を続けるか、保存せずに閉じることができます。",
+  "conflictResolution.closeWithoutSaving": "保存せずに閉じる"
 }

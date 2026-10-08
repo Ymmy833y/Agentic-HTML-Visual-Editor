@@ -369,7 +369,16 @@ test.describe('creating and responding with HTML', () => {
     await placeCaretAt(page, at(PARAGRAPH, 2, 0));
     await page.evaluate((argument) => {
       window.__uiShellProbe?.()?.overlay.present(argument.reason, argument.content);
-    }, { reason: INPUT_STOP_REASON.saveRoundTrip, content: BLANK_OVERLAY_CONTENT });
+    }, {
+      reason: INPUT_STOP_REASON.saveRoundTrip,
+      // Only the serializable fields are passed. The content's own parts are an element, which cannot cross into the
+      // page, and its type is too deep for the argument check.
+      content: {
+        heading: BLANK_OVERLAY_CONTENT.heading,
+        descriptions: BLANK_OVERLAY_CONTENT.descriptions,
+        actions: BLANK_OVERLAY_CONTENT.actions,
+      },
+    });
 
     await requestCopyHtml(page, '1');
 

@@ -12,6 +12,7 @@ import type {
   ViewToHostMessage,
 } from '../../common/index';
 import { ErrorReporter } from '../../src/diagnostics/error-reporter';
+import type { ReceivedConflictsResolved } from '../../src/save/save-coordinator';
 import { handleViewMessage } from '../../src/editor/view-message-handler';
 import type { ViewMessageContext } from '../../src/editor/view-message-handler';
 
@@ -44,6 +45,8 @@ interface Harness {
   readonly historyMessages: unknown[];
   /** The restore choices passed to the receiver. */
   readonly restoreActions: RestoreAction[];
+  /** The conflict choices, cancels and invalid messages passed to the save coordinator, in the order received. */
+  readonly receivedConflictsResolved: ReceivedConflictsResolved[];
   /** How many times the text editor switch receiver was called. */
   readonly readTextEditorSwitchCount: () => number;
   readonly readSkeletonRequestCount: () => number;
@@ -71,6 +74,7 @@ interface Harness {
 function createHarness(unreadable = false): Harness {
   const sent: HostToViewMessage[] = [];
   const restoreActions: RestoreAction[] = [];
+  const receivedConflictsResolved: ReceivedConflictsResolved[] = [];
   let initializeMissing = false;
   const received: { text: string; resent: boolean }[] = [];
   const settled: ResponseMessage[] = [];
@@ -103,6 +107,7 @@ function createHarness(unreadable = false): Harness {
     historyMessages,
     trace,
     restoreActions,
+    receivedConflictsResolved,
     setInitializeMissing: (missing) => {
       initializeMissing = missing;
     },
@@ -137,6 +142,7 @@ function createHarness(unreadable = false): Harness {
       },
       receiveUnsavedContent: (text, resent) => received.push({ text, resent }),
       receiveRestoreAction: (action) => restoreActions.push(action),
+      receiveConflictsResolved: (resolved) => receivedConflictsResolved.push(resolved),
       receiveTextEditorSwitchRequest: () => {
         textEditorSwitchCount += 1;
       },
@@ -401,6 +407,39 @@ describe('restore decision and choice', () => {
 
     expect(harness.restoreActions).toEqual([]);
     expect(harness.reporter.readInspection().logLines).toHaveLength(1);
+  });
+});
+
+describe('conflict choices', () => {
+  it('passes a conflict choice within the contract to the save coordinator without a change notice', async () => {
+    const harness = createHarness();
+
+    await handleViewMessage(
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.conflictsResolved, presentationId: 3, choices: ['view', 'both'] },
+      harness.context,
+    );
+
+    expect([harness.receivedConflictsResolved, harness.readEditNoticeCount()]).toEqual([
+      [{ kind: 'chosen', presentationId: 3, choices: ['view', 'both'] }],
+      0,
+    ]);
+  });
+
+  it('records a conflict choice outside the contract and passes it on as invalid', async () => {
+    const harness = createHarness();
+    // The type fixes the spellings of the choices, but any value can arrive at runtime.
+    const outOfContract = {
+      type: VIEW_TO_HOST_MESSAGE_TYPE.conflictsResolved,
+      presentationId: 3,
+      choices: ['view', 'mine'],
+    } as unknown as ViewToHostMessage;
+
+    await handleViewMessage(outOfContract, harness.context);
+
+    expect([harness.receivedConflictsResolved, harness.reporter.readInspection().logLines.length]).toEqual([
+      [{ kind: 'invalid', presentationId: 3, detail: 'choice mine' }],
+      1,
+    ]);
   });
 });
 

@@ -15,7 +15,10 @@ export interface OverlayAction {
   run(): void;
 }
 
-/** The content one overlay reason shows. When all three are empty, it is a blank overlay. */
+/**
+ * The content one overlay reason shows. When the heading, descriptions and actions are empty and there is no body, it
+ * is a blank overlay.
+ */
 export interface OverlayContent {
   /** The heading. Empty for a blank overlay. */
   readonly heading: string;
@@ -23,6 +26,11 @@ export interface OverlayContent {
   readonly descriptions: readonly string[];
   /** The overlay actions. */
   readonly actions: readonly OverlayAction[];
+  /**
+   * Parts the owner builds itself, placed after the heading and descriptions, for content that strings and buttons
+   * cannot show. The same element is placed again on every render, so whatever the user set in it is kept.
+   */
+  readonly body?: HTMLElement;
 }
 
 /**
@@ -225,6 +233,10 @@ function buildSection(document: Document, reason: InputStopReason, content: Over
     paragraph.textContent = description;
     children.push(paragraph);
   });
+
+  if (content.body !== undefined) {
+    children.push(content.body);
+  }
 
   for (const action of content.actions) {
     const button = document.createElement('button');

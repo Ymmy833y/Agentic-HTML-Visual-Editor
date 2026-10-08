@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CONFLICT_CHOICE,
   DOCUMENT_REPLACE_TIMEOUT_MS,
   HOST_TO_VIEW_MESSAGE_TYPE,
   RESPONSE_TIMEOUT_MS,
@@ -9,11 +10,13 @@ import {
 } from '../../common/index';
 import type {
   BodyOutputResponseMessage,
+  ConflictChoice,
   DocumentApplyOutcome,
   DocumentReplacedMessage,
   HostToViewMessage,
   LineEnding,
   MessageKey,
+  PresentConflictsMessage,
 } from '../../common/index';
 import { EditHistoryCoordinator } from '../../src/history/edit-history-coordinator';
 import { BUFFER_FOLLOW_POLL_MS, BUFFER_FOLLOW_TIMEOUT_MS } from '../../src/save/buffer-follow';
@@ -122,6 +125,16 @@ interface Harness {
   holdRoundTripEnd(): () => void;
   /** Enqueues one change notification and waits for its reconciliation to finish. */
   reconcile(trigger: SourceChangeTrigger): Promise<void>;
+  /** For each notice that a save waits for a conflict choice, how many presentations had been sent when it opened. */
+  readonly waitingNotices: number[];
+  /** Keeps every waiting notice open from here on, as a user who has not closed it yet. Returns the closer. */
+  holdWaitingNotices(): () => void;
+  /** Makes showing the waiting notice fail. */
+  setWaitingNoticeFailing(failing: boolean): void;
+  /** Makes sending a presentation of conflicts fail. */
+  setPresentFailing(failing: boolean): void;
+  /** Keeps every user error notification open from here on, as a user who has not closed it yet. Returns the closer. */
+  holdUserErrors(): () => void;
 }
 
 /**
@@ -153,6 +166,11 @@ function createHarness(): Harness {
   let fileReadable = true;
   let fileText = DISK_TEXT;
   let releaseRoundTripEnd: (() => void) | undefined;
+  const waitingNotices: number[] = [];
+  let waitingNoticeClosers: (() => void)[] | undefined;
+  let waitingNoticeFailing = false;
+  let presentFailing = false;
+  let userErrorClosers: (() => void)[] | undefined;
 
   let lastKnownContent: string | undefined;
   let lineEnding: LineEnding = 'lf';
@@ -222,6 +240,11 @@ function createHarness(): Harness {
         return;
       }
 
+      // The user answers a presentation, not the view, so each test sends the choice itself.
+      if (message.type === HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts && presentFailing) {
+        throw new Error('The webview could not be reached');
+      }
+
       if (message.type === HOST_TO_VIEW_MESSAGE_TYPE.requestBodyOutput) {
         if (behavior === 'sendFails') {
           throw new Error('The webview could not be reached');
@@ -263,7 +286,13 @@ function createHarness(): Harness {
     },
     reportUserError: (key) => {
       notifications.push(key);
-      return Promise.resolve();
+      const closers = userErrorClosers;
+      if (closers === undefined) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        closers.push(resolve);
+      });
     },
     reportUserInformation: (key) => {
       informations.push(key);
@@ -275,11 +304,27 @@ function createHarness(): Harness {
         dirtyNoticeClosers.push(resolve);
       });
     },
+    reportConflictsWaiting: () => {
+      waitingNotices.push(messagesOfType(sent, HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts).length);
+      if (waitingNoticeFailing) {
+        return Promise.reject(new Error('The notification could not be shown'));
+      }
+      const closers = waitingNoticeClosers;
+      if (closers === undefined) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        closers.push(resolve);
+      });
+    },
   };
 
   coordinator = new SaveCoordinator(DOCUMENT_URI, state, host);
   // Production wiring always installs it before any save entry point runs, so install it by default too.
-  const history = installHistoryPort(coordinator);
+  const history = installHistoryPort(coordinator, () => ({
+    applied: applied.filter((request) => request.kind === 'saveCandidate').length,
+    written: written.length,
+  }));
 
   return {
     coordinator,
@@ -335,6 +380,33 @@ function createHarness(): Harness {
       // Reconciliation is enqueued and has no return value. One turn after enqueueing, a path with no remaining wait
       // reaches completion.
       await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    waitingNotices,
+    holdWaitingNotices: () => {
+      const closers: (() => void)[] = [];
+      waitingNoticeClosers = closers;
+      return () => {
+        waitingNoticeClosers = undefined;
+        for (const close of closers.splice(0)) {
+          close();
+        }
+      };
+    },
+    setWaitingNoticeFailing: (failing) => {
+      waitingNoticeFailing = failing;
+    },
+    setPresentFailing: (failing) => {
+      presentFailing = failing;
+    },
+    holdUserErrors: () => {
+      const closers: (() => void)[] = [];
+      userErrorClosers = closers;
+      return () => {
+        userErrorClosers = undefined;
+        for (const close of closers.splice(0)) {
+          close();
+        }
+      };
     },
     holdRoundTripEnd: () => {
       // A marker until the real releaser is installed; it is swapped on every send.
@@ -1308,6 +1380,540 @@ describe('the declared encoding of a saved document', () => {
   });
 });
 
+describe('resolving conflicts on a save', () => {
+  const CONFLICT_SOURCE_TEXT = BASE_TEXT.replace('<p>first</p>', '<p>from source</p>');
+  const CONFLICT_VIEW_TEXT = BASE_TEXT.replace('<p>first</p>', '<p>from view</p>');
+  const CHOSEN_VIEW_TEXT = CONFLICT_VIEW_TEXT;
+
+  /**
+   * Prepares a harness whose save meets one conflict region on the first paragraph.
+   *
+   * @returns The harness.
+   */
+  function createConflictHarness(): Harness {
+    const harness = createHarness();
+    harness.syncState.initialize(BASE_TEXT);
+    harness.setBuffer(CONFLICT_SOURCE_TEXT, false);
+    harness.setViewText(CONFLICT_VIEW_TEXT);
+    return harness;
+  }
+
+  /**
+   * Waits until the given number of presentations of conflicts has been sent.
+   *
+   * @param harness The harness.
+   * @param count The number of presentations to wait for.
+   * @returns The presentations sent so far.
+   */
+  async function waitForPresentations(harness: Harness, count = 1): Promise<PresentConflictsMessage[]> {
+    await vi.waitFor(() => {
+      expect(messagesOfType(harness.sent, HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts)).toHaveLength(count);
+    });
+    return harness.sent.filter(
+      (message): message is PresentConflictsMessage => message.type === HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts,
+    );
+  }
+
+  it('presents both sides of each conflict region and neither applies nor writes until a choice arrives', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+
+    expect([presentation.conflicts, harness.applied, harness.written]).toEqual([
+      [{ source: ['<p>from source</p>'], view: ['<p>from view</p>'] }],
+      [],
+      [],
+    ]);
+    harness.coordinator.receiveConflictsResolved({ kind: 'canceled', presentationId: presentation.presentationId });
+    await saving;
+  });
+
+  it('applies the candidate built from the choice to the view and then writes it', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+
+    expect([await saving, harness.appliedOfKind('saveCandidate'), harness.written]).toEqual([
+      'completed',
+      [CHOSEN_VIEW_TEXT],
+      [{ uri: DOCUMENT_URI, text: CHOSEN_VIEW_TEXT }],
+    ]);
+  });
+
+  /**
+   * Runs one save to its presentation of conflicts and cancels it there.
+   *
+   * @param harness The harness.
+   * @param count How many presentations have been sent once this one is.
+   */
+  async function saveAndCancel(harness: Harness, count: number): Promise<void> {
+    const saving = harness.coordinator.save(notCancelled);
+    const presentations = await waitForPresentations(harness, count);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'canceled',
+      presentationId: presentations[count - 1].presentationId,
+    });
+    await saving;
+  }
+
+  it('tells the user that the save waits once the presentation has been sent', async () => {
+    const harness = createConflictHarness();
+
+    await saveAndCancel(harness, 1);
+
+    expect(harness.waitingNotices).toEqual([1]);
+  });
+
+  it('tells the user again on a later presentation while the earlier notice is still open', async () => {
+    const harness = createConflictHarness();
+    const closeNotices = harness.holdWaitingNotices();
+
+    await saveAndCancel(harness, 1);
+    await saveAndCancel(harness, 2);
+    closeNotices();
+
+    expect(harness.waitingNotices).toEqual([1, 2]);
+  });
+
+  it('does not tell the user that the save waits when the presentation cannot be sent', async () => {
+    const harness = createConflictHarness();
+    harness.setPresentFailing(true);
+
+    await harness.coordinator.save(notCancelled);
+
+    expect(harness.waitingNotices).toEqual([]);
+  });
+
+  it('keeps waiting for the choice and records one line when the waiting notice cannot be shown', async () => {
+    const harness = createConflictHarness();
+    harness.setWaitingNoticeFailing(true);
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+
+    expect([await saving, harness.logLines]).toEqual([
+      'completed',
+      ['Could not tell the user that a save waits for a conflict choice: Error: The notification could not be shown'],
+    ]);
+  });
+
+  it('returns the user cancel without applying, writing, or moving the sync base', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({ kind: 'canceled', presentationId: presentation.presentationId });
+
+    expect([await saving, harness.applied, harness.written, harness.syncState.syncBase]).toEqual([
+      'canceled',
+      [],
+      [],
+      BASE_TEXT,
+    ]);
+  });
+
+  it('writes the chosen content even when the save is cancelled after the presentation', async () => {
+    const harness = createConflictHarness();
+    let cancelled = false;
+
+    const saving = harness.coordinator.save(() => cancelled);
+    const [presentation] = await waitForPresentations(harness);
+    // A later save cancels this one's token while the user is choosing.
+    cancelled = true;
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+
+    expect([await saving, harness.written]).toEqual([
+      'completed',
+      [{ uri: DOCUMENT_URI, text: CHOSEN_VIEW_TEXT }],
+    ]);
+  });
+
+  it('fails without writing and sends one release when the view is reloaded while waiting', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    await waitForPresentations(harness);
+    harness.coordinator.notifyViewRestarted();
+
+    expect([
+      await saving,
+      harness.written,
+      messagesOfType(harness.sent, HOST_TO_VIEW_MESSAGE_TYPE.saveReleased).length,
+    ]).toEqual(['failed', [], 1]);
+  });
+
+  it('settles as a failure without writing when the coordinator is disposed while waiting', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    await waitForPresentations(harness);
+    harness.coordinator.dispose();
+
+    expect([await saving, harness.written]).toEqual(['failed', []]);
+  });
+
+  it('fails the save without waiting when the presentation cannot be sent', async () => {
+    const harness = createConflictHarness();
+    harness.setPresentFailing(true);
+
+    const outcome = await harness.coordinator.save(notCancelled);
+
+    expect([outcome, harness.applied, harness.written]).toEqual(['failed', [], []]);
+  });
+
+  it('drops a choice for another presentation and keeps waiting', async () => {
+    const harness = createConflictHarness();
+    let settled = false;
+
+    const saving = harness.coordinator.save(notCancelled).then((outcome) => {
+      settled = true;
+      return outcome;
+    });
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId + 1,
+      choices: [CONFLICT_CHOICE.view],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect([settled, harness.written]).toEqual([false, []]);
+    harness.coordinator.receiveConflictsResolved({ kind: 'canceled', presentationId: presentation.presentationId });
+    await saving;
+  });
+
+  it('fails without writing and records one line when the number of choices differs from the regions', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view, CONFLICT_CHOICE.source],
+    });
+
+    expect([await saving, harness.written, harness.logLines]).toEqual([
+      'failed',
+      [],
+      ['Skipped the save because the view sent 2 conflict choices for 1 conflict regions'],
+    ]);
+  });
+
+  it('keeps a change the file received on a distant line while the user was choosing', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.setBuffer(CONFLICT_SOURCE_TEXT.replace('<p>second</p>', '<p>SECOND</p>'), false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+
+    expect([await saving, harness.written]).toEqual([
+      'completed',
+      [{ uri: DOCUMENT_URI, text: CHOSEN_VIEW_TEXT.replace('<p>second</p>', '<p>SECOND</p>') }],
+    ]);
+  });
+
+  it('uses the source resolved after the choice as the save retry base and the previous source of the reconcile', async () => {
+    const harness = createConflictHarness();
+    const changedSource = CONFLICT_SOURCE_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+    let retryBaseAtWrite: string | undefined;
+    harness.setWriteObserver(() => {
+      retryBaseAtWrite = harness.syncState.saveRetryBase;
+    });
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.setBuffer(changedSource, false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+    await saving;
+
+    expect([retryBaseAtWrite, harness.syncState.writeReconcile?.previousSource]).toEqual([
+      changedSource,
+      changedSource,
+    ]);
+  });
+
+  it('presents again with a new presentation id when the file changed the chosen lines while the user was choosing', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [first] = await waitForPresentations(harness);
+    harness.setBuffer(BASE_TEXT.replace('<p>first</p>', '<p>source again</p>'), false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: first.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+    const [, second] = await waitForPresentations(harness, 2);
+
+    expect([second.presentationId > first.presentationId, second.repeated, second.conflicts]).toEqual([
+      true,
+      true,
+      [{ source: ['<p>source again</p>'], view: ['<p>from view</p>'] }],
+    ]);
+    harness.coordinator.receiveConflictsResolved({ kind: 'canceled', presentationId: second.presentationId });
+    await saving;
+  });
+
+  it('fails without applying or writing and raises the dirty notice when the text buffer is dirty after the choice', async () => {
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.setBuffer(CONFLICT_SOURCE_TEXT, true);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+
+    expect([await saving, harness.applied, harness.written, harness.dirtyNotices.length]).toEqual([
+      'failed',
+      [],
+      [],
+      1,
+    ]);
+  });
+
+  it('fails the save before the user closes the notice when the source cannot be read after the choice', async () => {
+    const harness = createConflictHarness();
+    const closeNotices = harness.holdUserErrors();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.setBufferReadable(false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+    const outcome = await saving;
+    closeNotices();
+
+    expect([outcome, harness.notifications, harness.written]).toEqual(['failed', ['syncFailed.message'], []]);
+  });
+
+  it('declares UTF-8 in the candidate applied and the text written after a choice', async () => {
+    const shiftJis = (text: string): string =>
+      text.replace('<html>\n', '<html>\n<head><meta charset="shift_jis"></head>\n');
+    const harness = createHarness();
+    harness.syncState.initialize(shiftJis(BASE_TEXT));
+    harness.setBuffer(shiftJis(CONFLICT_SOURCE_TEXT), false);
+    harness.setViewText(shiftJis(CONFLICT_VIEW_TEXT));
+    const expected = CHOSEN_VIEW_TEXT.replace('<html>\n', '<html>\n<head><meta charset="utf-8"></head>\n');
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.view],
+    });
+    await saving;
+
+    expect([harness.appliedOfKind('saveCandidate'), harness.written]).toEqual([
+      [expected],
+      [{ uri: DOCUMENT_URI, text: expected }],
+    ]);
+  });
+
+  /**
+   * Runs one save whose first presentation is answered with the given choice.
+   *
+   * @param harness The harness.
+   * @param choice The side kept in the only conflict region.
+   * @returns The outcome of the save.
+   */
+  async function saveChoosing(harness: Harness, choice: ConflictChoice): Promise<SaveOutcome> {
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [choice],
+    });
+    return saving;
+  }
+
+  /**
+   * Picks the endpoints out of the registered conflict choice entries.
+   *
+   * @param harness The harness.
+   */
+  function choiceEndpoints(harness: Harness): [string, string][] {
+    return harness.history.choiceEntries.map((entry) => [entry.viewSideText, entry.chosenText]);
+  }
+
+  it.each([
+    ['the file side', CONFLICT_CHOICE.source, CONFLICT_SOURCE_TEXT],
+    ['both sides', CONFLICT_CHOICE.both, BASE_TEXT.replace('<p>first</p>', '<p>from source</p>\n<p>from view</p>')],
+  ])('registers one history entry from the view side to the choice between applying and writing when the user keeps %s', async (
+    _label,
+    choice,
+    chosen,
+  ) => {
+    const harness = createConflictHarness();
+
+    const outcome = await saveChoosing(harness, choice);
+
+    expect([outcome, harness.history.choiceEntries, harness.written]).toEqual([
+      'completed',
+      [{ viewSideText: CONFLICT_VIEW_TEXT, chosenText: chosen, appliedBefore: 1, writesBefore: 0 }],
+      [{ uri: DOCUMENT_URI, text: chosen }],
+    ]);
+  });
+
+  it('registers no history entry when the visual editor side is kept', async () => {
+    const harness = createConflictHarness();
+
+    const outcome = await saveChoosing(harness, CONFLICT_CHOICE.view);
+
+    expect([outcome, harness.history.choiceEntries]).toEqual(['completed', []]);
+  });
+
+  it('keeps a source change on a distant line at the undo endpoint of the choice', async () => {
+    const distant = (text: string): string => text.replace('<p>second</p>', '<p>SECOND</p>');
+    const harness = createConflictHarness();
+    harness.setBuffer(distant(CONFLICT_SOURCE_TEXT), false);
+
+    await saveChoosing(harness, CONFLICT_CHOICE.source);
+
+    expect(choiceEndpoints(harness)).toEqual([[distant(CONFLICT_VIEW_TEXT), distant(CONFLICT_SOURCE_TEXT)]]);
+  });
+
+  it('keeps a change the file received on a distant line while the user was choosing at the undo endpoint', async () => {
+    const distant = (text: string): string => text.replace('<p>second</p>', '<p>SECOND</p>');
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [presentation] = await waitForPresentations(harness);
+    harness.setBuffer(distant(CONFLICT_SOURCE_TEXT), false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: presentation.presentationId,
+      choices: [CONFLICT_CHOICE.source],
+    });
+    await saving;
+
+    expect(choiceEndpoints(harness)).toEqual([[distant(CONFLICT_VIEW_TEXT), distant(CONFLICT_SOURCE_TEXT)]]);
+  });
+
+  it('registers no history entry when the view does not apply the chosen candidate', async () => {
+    const harness = createConflictHarness();
+    harness.setViewBehavior('rejectsUnsaved');
+
+    const outcome = await saveChoosing(harness, CONFLICT_CHOICE.source);
+
+    expect([outcome, harness.history.choiceEntries, harness.written]).toEqual(['failed', [], []]);
+  });
+
+  it('retries a failed write of the choice without asking again or registering a second entry', async () => {
+    const harness = createConflictHarness();
+    harness.setWriteFailing(true);
+    const first = await saveChoosing(harness, CONFLICT_CHOICE.source);
+    // The view now holds the chosen content, so that is what it outputs next.
+    harness.setViewText(CONFLICT_SOURCE_TEXT);
+    harness.setWriteFailing(false);
+
+    const retried = await harness.coordinator.save(notCancelled);
+
+    expect([
+      first,
+      retried,
+      messagesOfType(harness.sent, HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts).length,
+      harness.history.choiceEntries.length,
+      harness.written,
+    ]).toEqual(['failed', 'completed', 1, 1, [{ uri: DOCUMENT_URI, text: CONFLICT_SOURCE_TEXT }]]);
+  });
+
+  it('returns the undo endpoint to the view output, not to an earlier choice, after a presentation again', async () => {
+    const sourceAgain = BASE_TEXT.replace('<p>first</p>', '<p>source again</p>');
+    const harness = createConflictHarness();
+
+    const saving = harness.coordinator.save(notCancelled);
+    const [first] = await waitForPresentations(harness);
+    harness.setBuffer(sourceAgain, false);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: first.presentationId,
+      choices: [CONFLICT_CHOICE.both],
+    });
+    const [, second] = await waitForPresentations(harness, 2);
+    harness.coordinator.receiveConflictsResolved({
+      kind: 'chosen',
+      presentationId: second.presentationId,
+      choices: [CONFLICT_CHOICE.source],
+    });
+    await saving;
+
+    expect(choiceEndpoints(harness)).toEqual([[CONFLICT_VIEW_TEXT, sourceAgain]]);
+  });
+
+  it('declares UTF-8 at both endpoints and adds no entry for a choice that only rewrote the declaration', async () => {
+    const shiftJis = (text: string): string =>
+      text.replace('<html>\n', '<html>\n<head><meta charset="shift_jis"></head>\n');
+    const utf8 = (text: string): string =>
+      text.replace('<html>\n', '<html>\n<head><meta charset="utf-8"></head>\n');
+    const createShiftJisHarness = (): Harness => {
+      const harness = createHarness();
+      harness.syncState.initialize(shiftJis(BASE_TEXT));
+      harness.setBuffer(shiftJis(CONFLICT_SOURCE_TEXT), false);
+      harness.setViewText(shiftJis(CONFLICT_VIEW_TEXT));
+      return harness;
+    };
+    const keepingFile = createShiftJisHarness();
+    const keepingEditor = createShiftJisHarness();
+
+    await saveChoosing(keepingFile, CONFLICT_CHOICE.source);
+    await saveChoosing(keepingEditor, CONFLICT_CHOICE.view);
+
+    expect([choiceEndpoints(keepingFile), choiceEndpoints(keepingEditor)]).toEqual([
+      [[utf8(CONFLICT_VIEW_TEXT), utf8(CONFLICT_SOURCE_TEXT)]],
+      [],
+    ]);
+  });
+
+  it('fails without writing and records one line when history does not take the choice', async () => {
+    const harness = createConflictHarness();
+    harness.history.setChoiceEntryAccepted(false);
+
+    const outcome = await saveChoosing(harness, CONFLICT_CHOICE.source);
+
+    expect([outcome, harness.written, harness.history.saved, harness.logLines]).toEqual([
+      'failed',
+      [],
+      [],
+      ['Skipped writing the chosen content because the history did not take it'],
+    ]);
+  });
+});
+
 describe('applying a save candidate to the view', () => {
   it('does not write the file or change the sync base when the view returns application failure', async () => {
     const harness = createHarness();
@@ -1423,23 +2029,43 @@ interface HistoryPortRecord {
   readonly saved: string[];
   readonly reverts: { succeeded: boolean; text: string | undefined }[];
   readonly protections: { reason: string; staleText: string | undefined }[];
+  /** Conflict choice entries, each with how many candidates had been applied and written when it was registered. */
+  readonly choiceEntries: ChoiceEntryRecord[];
   setConfirm(result: boolean): void;
   setHistoryEventDriven(driven: boolean): void;
+  /** Sets whether a conflict choice entry is taken. */
+  setChoiceEntryAccepted(accepted: boolean): void;
+}
+
+/** One conflict choice entry the history port received. */
+interface ChoiceEntryRecord {
+  readonly viewSideText: string;
+  readonly chosenText: string;
+  /** How many save candidates had been applied to the view when it was registered. */
+  readonly appliedBefore: number;
+  /** How many writes had happened when it was registered. */
+  readonly writesBefore: number;
 }
 
 /**
  * Installs a history port that only records.
  *
  * @param coordinator Save coordinator to install it on.
+ * @param readProgress Returns how many save candidates have been applied and how many writes have happened so far.
  * @returns Record of received calls.
  */
-function installHistoryPort(coordinator: SaveCoordinator): HistoryPortRecord {
+function installHistoryPort(
+  coordinator: SaveCoordinator,
+  readProgress: () => { applied: number; written: number },
+): HistoryPortRecord {
   const confirmations: string[] = [];
   const saved: string[] = [];
   const reverts: { succeeded: boolean; text: string | undefined }[] = [];
   const protections: { reason: string; staleText: string | undefined }[] = [];
+  const choiceEntries: ChoiceEntryRecord[] = [];
   let confirm = true;
   let driven = false;
+  let choiceEntryAccepted = true;
 
   coordinator.setHistoryPort({
     isHistoryEventDriven: () => driven,
@@ -1452,6 +2078,11 @@ function installHistoryPort(coordinator: SaveCoordinator): HistoryPortRecord {
       return confirm;
     },
     notifySaveSucceeded: (text) => saved.push(text),
+    registerConflictChoiceEntry: (viewSideText, chosenText) => {
+      const progress = readProgress();
+      choiceEntries.push({ viewSideText, chosenText, appliedBefore: progress.applied, writesBefore: progress.written });
+      return choiceEntryAccepted;
+    },
     notifyRevertResult: (succeeded, text) => reverts.push({ succeeded, text }),
     reportProtection: (reason, staleText) => protections.push({ reason, staleText }),
   });
@@ -1461,11 +2092,15 @@ function installHistoryPort(coordinator: SaveCoordinator): HistoryPortRecord {
     saved,
     reverts,
     protections,
+    choiceEntries,
     setConfirm: (value) => {
       confirm = value;
     },
     setHistoryEventDriven: (value) => {
       driven = value;
+    },
+    setChoiceEntryAccepted: (value) => {
+      choiceEntryAccepted = value;
     },
   };
 }
@@ -1623,6 +2258,8 @@ function connectHistory(harness: Harness): ConnectedHistory {
       savePoints.push(text);
       history.notifySaveSucceeded(text);
     },
+    registerConflictChoiceEntry: (viewSideText, chosenText) =>
+      history.registerConflictChoiceEntry(viewSideText, chosenText),
     notifyRevertResult: (succeeded, text) => history.notifyRevertResult(succeeded, text),
     reportProtection: (reason, staleText) => history.reportProtection(reason, staleText),
   });

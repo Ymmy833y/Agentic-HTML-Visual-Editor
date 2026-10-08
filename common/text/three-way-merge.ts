@@ -22,6 +22,23 @@ export interface ConflictRegion {
 /** A single region in a merge result. */
 export type MergeRegion = StableRegion | ConflictRegion;
 
+/**
+ * Which lines of a conflict region go into the result.
+ *
+ * The spellings are carried between the host and the view, so they must remain stable.
+ */
+export const CONFLICT_CHOICE = {
+  /** The source lines only. */
+  source: 'source',
+  /** The view lines only. */
+  view: 'view',
+  /** The source lines followed by the view lines. */
+  both: 'both',
+} as const;
+
+/** Which lines of a conflict region go into the result. */
+export type ConflictChoice = (typeof CONFLICT_CHOICE)[keyof typeof CONFLICT_CHOICE];
+
 /** The result of a three-way merge. */
 export interface MergeResult {
   readonly regions: readonly MergeRegion[];
@@ -98,19 +115,41 @@ export function mergeThreeWay(
 /**
  * Concatenates merge regions into one full document text.
  *
- * A conflict region drops the base side and places all source lines followed by all view lines. Git-style
- * markers are not inserted because they would break the HTML. Until a resolution UI exists, keeping both
- * sides takes priority. Save and history share this function so the same conflict is never ordered
- * differently depending on the path.
+ * A conflict region drops the base side and places the lines of the chosen side. Without choices, every
+ * conflict region places all source lines followed by all view lines: only a save asks the user to choose,
+ * and the other paths keep both sides so that neither is dropped without the user knowing. Git-style
+ * markers are not inserted because they would break the HTML. Every path shares this function so the same
+ * conflict is never ordered differently depending on the path.
  *
  * @param regions Merge regions returned by the three-way merge.
+ * @param choices The choice for each conflict region, counting conflict regions only, in document order.
  * @returns Concatenated full document text.
+ * @throws {RangeError} When choices are given and their number differs from the number of conflict regions.
  */
-export function flattenMergeRegions(regions: readonly MergeRegion[]): string {
+export function flattenMergeRegions(
+  regions: readonly MergeRegion[],
+  choices?: readonly ConflictChoice[],
+): string {
+  if (choices !== undefined) {
+    const conflictCount = regions.filter((region) => region.kind === 'conflict').length;
+    if (choices.length !== conflictCount) {
+      throw new RangeError(
+        `Received ${choices.length} conflict choices for ${conflictCount} conflict regions`,
+      );
+    }
+  }
+
   const lines: string[] = [];
+  let conflictIndex = 0;
   for (const region of regions) {
+    let sides: readonly (readonly string[])[];
+    if (region.kind === 'stable') {
+      sides = [region.lines];
+    } else {
+      sides = selectConflictSides(region, choices?.[conflictIndex] ?? CONFLICT_CHOICE.both);
+      conflictIndex += 1;
+    }
     // Spreading a large document into a single call can fail, so append one line at a time.
-    const sides = region.kind === 'stable' ? [region.lines] : [region.source, region.view];
     for (const side of sides) {
       for (const line of side) {
         lines.push(line);
@@ -119,6 +158,26 @@ export function flattenMergeRegions(regions: readonly MergeRegion[]): string {
   }
 
   return joinLines(lines);
+}
+
+/**
+ * Returns the sides of a conflict region that go into the result, in order.
+ *
+ * @param region The conflict region.
+ * @param choice Which lines to keep.
+ * @returns The line arrays to place, source first when both are kept.
+ */
+function selectConflictSides(
+  region: ConflictRegion,
+  choice: ConflictChoice,
+): readonly (readonly string[])[] {
+  if (choice === CONFLICT_CHOICE.source) {
+    return [region.source];
+  }
+  if (choice === CONFLICT_CHOICE.view) {
+    return [region.view];
+  }
+  return [region.source, region.view];
 }
 
 /**

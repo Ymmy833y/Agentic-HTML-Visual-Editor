@@ -289,6 +289,8 @@ describe('test support API', () => {
       },
       prepareInitialReconcileForTest: () => undefined,
       saveTextEditorThenViewForTest: () => Promise.resolve(true),
+      showConflictsForTest: () => true,
+      closeWithoutSavingForTest: () => Promise.resolve(true),
     };
     const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
     const api = createTestSupportApi(createDependencies(overrides));
@@ -331,6 +333,8 @@ describe('test support API', () => {
         return gate;
       },
       saveTextEditorThenViewForTest: () => Promise.resolve(true),
+      showConflictsForTest: () => true,
+      closeWithoutSavingForTest: () => Promise.resolve(true),
     } satisfies BackupTestAccess;
     const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
     const api = createTestSupportApi(createDependencies(overrides));
@@ -355,6 +359,8 @@ describe('test support API', () => {
         retried.push(documentUri);
         return Promise.resolve(true);
       },
+      showConflictsForTest: () => true,
+      closeWithoutSavingForTest: () => Promise.resolve(true),
     } satisfies BackupTestAccess;
     const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
     const api = createTestSupportApi(createDependencies(overrides));
@@ -365,6 +371,39 @@ describe('test support API', () => {
 
     expect([enabledResult, disabledResult]).toEqual([true, false]);
     expect(retried).toEqual(['file:///normalized.html']);
+  });
+
+  it('runs the conflict notice actions through the restricted backup access in canonical form only when enabled', async () => {
+    const calls: string[] = [];
+    const access = {
+      readBackupInspection: () => undefined,
+      readRestoreInspection: () => undefined,
+      requestBackupForTest: () => Promise.resolve({ id: 'memory:/backup', delete: () => undefined }),
+      controlBackupViewForTest: () => Promise.resolve(true),
+      prepareInitialReconcileForTest: () => undefined,
+      saveTextEditorThenViewForTest: () => Promise.resolve(true),
+      showConflictsForTest: (documentUri: string) => {
+        calls.push(`show ${documentUri}`);
+        return true;
+      },
+      closeWithoutSavingForTest: (documentUri: string) => {
+        calls.push(`close ${documentUri}`);
+        return Promise.resolve(true);
+      },
+    } satisfies BackupTestAccess;
+    const overrides = { normalizeDocumentUri: () => 'file:///normalized.html', backupAccess: () => access };
+    const api = createTestSupportApi(createDependencies(overrides));
+    const disabled = createTestSupportApi(createDependencies({ ...overrides, enabled: false }));
+
+    const results = [
+      api.showConflictsForTest('FILE:///normalized.html'),
+      await api.closeWithoutSavingForTest('FILE:///normalized.html'),
+      disabled.showConflictsForTest(RECORDED_URI),
+      await disabled.closeWithoutSavingForTest(RECORDED_URI),
+    ];
+
+    expect(results).toEqual([true, true, false, false]);
+    expect(calls).toEqual(['show file:///normalized.html', 'close file:///normalized.html']);
   });
 });
 

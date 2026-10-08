@@ -16,6 +16,11 @@ import type { HistoryPointId } from './history-state';
 // number, so they never collide with this spelling.
 const RESTORE_ENTRY_UNIT_ID = 'restore';
 
+// The prefix of the edit unit ids of conflict choice entries, completed by the point id so that every one is unique.
+// Entries are kept by unit id, and a shared id would leave only the newest one reachable. It contains letters outside
+// hexadecimal, so it never collides with an id issued by the view either.
+const CONFLICT_CHOICE_ENTRY_UNIT_ID_PREFIX = 'conflict-choice-';
+
 /** Operations that can be delegated to a standard command. */
 export const STANDARD_COMMAND_KIND = {
   save: 'save',
@@ -39,6 +44,9 @@ export interface RecordedEndpoints {
  * Its before and after endpoints are kept equal to the actual state at registration. When registered ahead of
  * time only the start endpoint is known, so the endpoints of the same object are replaced once the settlement
  * arrives. VS Code holds a reference to this object, so recreating it would run undo with the stale endpoints.
+ *
+ * A conflict choice entry is the one exception: its before endpoint is the view side of the save's merge, which the
+ * view never held, so that undoing the choice keeps the source changes the same save merged.
  */
 export interface HistoryEntryRecord {
   readonly unitId: EditUnitId;
@@ -439,6 +447,40 @@ export class EditHistoryCoordinator {
     // The restored full text is settled. It is what the view has finished displaying, so the next save is
     // checked against this full text.
     this.confirmedText = restoredText;
+    this.fireHistoryEvent(record);
+    return true;
+  }
+
+  /**
+   * Registers what the user chose in the conflict overlay of a save as one settled history entry.
+   *
+   * Its before endpoint is the full text with the view side kept in every conflict region, not the view output the
+   * save started from: that output lacks the source changes the same save merged on other lines, and undoing back to
+   * it would drop them. Undo therefore takes back only the choice.
+   *
+   * @param viewSideText Full text with the view side kept in every conflict region (LF).
+   * @param chosenText Full text of the chosen candidate that the view now holds (LF).
+   * @returns Whether it was registered. Not while protected, and not after disposal.
+   */
+  registerConflictChoiceEntry(viewSideText: string, chosenText: string): boolean {
+    if (this.disposed) {
+      return false;
+    }
+    const point = this.historyState.registerEntry();
+    if (point === undefined) {
+      return false;
+    }
+
+    const record: HistoryEntryRecord = {
+      unitId: `${CONFLICT_CHOICE_ENTRY_UNIT_ID_PREFIX}${String(point.pointId)}`,
+      pointId: point.pointId,
+      previousPointId: point.previousPointId,
+      before: { text: viewSideText, selection: null },
+      after: { text: chosenText, selection: null },
+    };
+    this.entries.set(record.unitId, record);
+    // The view now holds the chosen content, so the next save is checked against it.
+    this.confirmedText = chosenText;
     this.fireHistoryEvent(record);
     return true;
   }

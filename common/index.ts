@@ -19,6 +19,8 @@ export type {
   BodyOutputResponseMessage,
   CodeBlockCopyRequestedMessage,
   CodeBlockCopySucceededMessage,
+  ConflictSides,
+  ConflictsResolvedMessage,
   CopyHtmlResponseMessage,
   CopyRequestedMessage,
   CopySucceededMessage,
@@ -34,6 +36,7 @@ export type {
   HistoryProtectionActivatedMessage,
   HostToViewMessage,
   InitializeMessage,
+  PresentConflictsMessage,
   RelativeLinkRequestedMessage,
   ReplaceDocumentMessage,
   ReplaceCurrentDocumentMessage,
@@ -145,8 +148,9 @@ export {
 export type { LineEnding } from './text/line-ending';
 export { diffLines } from './text/line-diff';
 export type { LineDiffSegment, LineRange } from './text/line-diff';
-export { flattenMergeRegions, mergeThreeWay } from './text/three-way-merge';
+export { CONFLICT_CHOICE, flattenMergeRegions, mergeThreeWay } from './text/three-way-merge';
 export type {
+  ConflictChoice,
   ConflictRegion,
   MergeRegion,
   MergeResult,

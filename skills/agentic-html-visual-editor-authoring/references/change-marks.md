@@ -55,6 +55,6 @@ Two kinds of elements never carry the kind:
 - A decision is an ordinary edit: the person can undo it, and it reaches the file when they save. After that, the HTML holds no trace of the mark. To learn what was decided, read the file again.
 - Taking a mark out takes everything inside it along, comments included. Put a comment about a change outside the mark, not inside it. A list or a table left without items or rows goes too.
 - Clicking inside the annotated text of a comment opens the comment's thread, even inside a mark. A mark inside a comment is reached from the sidebar.
-- When the person edited the same lines in the editor while you wrote the marks, saving keeps both versions of those lines, the file's and the editor's, one after the other, as it does for any change that collides. Marks get no special treatment there.
+- When the person edited the same lines in the editor while you wrote the marks, saving asks the person to choose, for each conflict, whether to keep the file's version, the editor's version, or both, as it does for any change that collides. The lines they choose stay as they are, marks included. Marks get no special treatment there.
 
 `scripts/list_comments.py` lists comments only. It does not list marks.

@@ -49,6 +49,8 @@ export interface BackupTestAccess {
   controlBackupViewForTest(documentUri: string, operation: BackupTestOperation, text?: string): Promise<boolean>;
   prepareInitialReconcileForTest(documentUri: string): InitialReconcileTestGate | undefined;
   saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
+  showConflictsForTest(documentUri: string): boolean;
+  closeWithoutSavingForTest(documentUri: string): Promise<boolean>;
 }
 
 /** The inspection, clearing, and drive hooks exposed to the integration tests. */
@@ -72,6 +74,8 @@ export interface TestSupportApi {
   requestBackupForTest(documentUri: string, destinationUri: string): Promise<TestHotExitBackup | undefined>;
   controlBackupViewForTest(documentUri: string, operation: BackupTestOperation, text?: string): Promise<boolean>;
   saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
+  showConflictsForTest(documentUri: string): boolean;
+  closeWithoutSavingForTest(documentUri: string): Promise<boolean>;
 }
 
 /** The minimal shape of a session that the test drive hooks may touch. */
@@ -224,6 +228,16 @@ export function createTestSupportApi(dependencies: TestSupportDependencies): Tes
         return false;
       }
       return await dependencies.backupAccess()?.saveTextEditorThenViewForTest(
+        dependencies.normalizeDocumentUri(documentUri),
+      ) ?? false;
+    },
+    showConflictsForTest: (documentUri) => enabled
+      && (dependencies.backupAccess()?.showConflictsForTest(dependencies.normalizeDocumentUri(documentUri)) ?? false),
+    closeWithoutSavingForTest: async (documentUri) => {
+      if (!enabled) {
+        return false;
+      }
+      return await dependencies.backupAccess()?.closeWithoutSavingForTest(
         dependencies.normalizeDocumentUri(documentUri),
       ) ?? false;
     },

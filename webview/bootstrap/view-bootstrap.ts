@@ -84,6 +84,7 @@ import { DeliveryFailureController } from '../messaging/delivery-failure-control
 import { EditSnapshotCapture } from '../history/edit-snapshot';
 import { EditTransactionController } from '../history/edit-transaction-controller';
 import { remapHistorySelection } from '../history/history-selection-remap';
+import { ConflictResolution } from '../save/conflict-resolution';
 import { DocumentApply } from '../save/document-apply';
 import { SaveRoundTrip } from '../save/save-round-trip';
 import type { SaveRoundTripOutput } from '../save/save-round-trip';
@@ -213,6 +214,10 @@ let deliveryFailureController: DeliveryFailureController | undefined;
 // The single save round trip created after the initial mount succeeds. It is not recreated on a
 // document replacement.
 let saveRoundTrip: SaveRoundTrip | undefined;
+
+// Created on the first presentation of conflicts and held for the lifetime of the view. A presentation arrives only
+// during a save round trip, which needs a mounted document.
+let conflictResolution: ConflictResolution | undefined;
 
 // Create exactly one document apply after the initial mount succeeds; do not recreate it on replacement. If the
 // object retaining each request id's outcome changed on every replacement, retries could not return the same outcome.
@@ -387,6 +392,33 @@ function readShell(view: Window): ViewShell {
 
   const created: ViewShell = { inputStop, overlay, actionDialog, tooltip, activation, editorReturn };
   shell = created;
+  return created;
+}
+
+/**
+ * Returns the conflict resolution, creating it if it does not exist yet.
+ *
+ * @param view The view window.
+ * @param channel The host channel.
+ */
+function readConflictResolution(view: Window, channel: HostChannel): ConflictResolution {
+  const existing = conflictResolution;
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created = new ConflictResolution(view, {
+    overlay: readShell(view).overlay,
+    channel,
+    localizer: createLocalizer(readEmbeddedCatalog(view.document)),
+    // The base URIs do not change after the mount, but they are read on every presentation, so that a presentation
+    // before the mount still gets empty values instead of failing.
+    readDocument: () => ({
+      documentUri: mountTarget?.documentUri ?? '',
+      resourceRootUri: mountTarget?.resourceRootUri ?? '',
+    }),
+    reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  conflictResolution = created;
   return created;
 }
 
@@ -1374,11 +1406,18 @@ async function handleHostMessage(
       saveRoundTrip.handleOutputRequest(message.requestId);
       return;
     case HOST_TO_VIEW_MESSAGE_TYPE.saveCommitted:
+      // The host settles a save before it ends the round trip, so no save waits for a choice any longer. The conflict
+      // overlay is lowered first, so that input comes back when the round trip lowers its own.
+      conflictResolution?.handleRoundTripEnded();
       // Without a save round trip no overlay was ever raised, so there is nothing to lower; drop it.
       saveRoundTrip?.handleCommitted();
       return;
     case HOST_TO_VIEW_MESSAGE_TYPE.saveReleased:
+      conflictResolution?.handleRoundTripEnded();
       saveRoundTrip?.handleReleased(message.resendUnsavedContent);
+      return;
+    case HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts:
+      readConflictResolution(view, channel).present(message);
       return;
     case HOST_TO_VIEW_MESSAGE_TYPE.historyProtectionActivated:
       // Added as a reason that the protection alone can lift. Even when a save committed or a save

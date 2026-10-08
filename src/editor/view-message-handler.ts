@@ -1,9 +1,11 @@
 import {
+  CONFLICT_CHOICE,
   RESTORE_ACTION,
   VIEW_TO_HOST_MESSAGE_TYPE,
   discardUnhandledMessage,
 } from '../../common/index';
 import type {
+  ConflictChoice,
   CopyHtmlResponseMessage,
   HostToViewMessage,
   InitializeMessage,
@@ -13,6 +15,7 @@ import type {
   ViewToHostMessage,
 } from '../../common/index';
 import type { ErrorReporter } from '../diagnostics/error-reporter';
+import type { ReceivedConflictsResolved } from '../save/save-coordinator';
 import { LINK_OPEN_FAILURE, formatLinkOpenFailure } from '../link/relative-link-opener';
 import { parseSidebarLayoutChange } from './sidebar-layout-store';
 
@@ -66,6 +69,14 @@ export interface ViewMessageContext {
    * @param action The choice, validated against the contract.
    */
   receiveRestoreAction(action: RestoreAction): void;
+
+  /**
+   * Passes what the user chose in the conflict overlay to the save coordinator waiting for it.
+   *
+   * @param received The choices or cancel, or an invalid message, which still ends the wait so that the save does not
+   *   wait for a choice the view has already sent.
+   */
+  receiveConflictsResolved(received: ReceivedConflictsResolved): void;
 
   /**
    * Receives a request to switch to the standard text editor.
@@ -249,6 +260,14 @@ export async function handleViewMessage(
       context.receiveRestoreAction(selected);
       return;
     }
+    case VIEW_TO_HOST_MESSAGE_TYPE.conflictsResolved: {
+      const received = readConflictsResolved(message.presentationId, message.choices);
+      if (received.kind === 'invalid') {
+        context.errorReporter.reportInternalError(`Received a conflict choice outside the contract: ${received.detail}`);
+      }
+      context.receiveConflictsResolved(received);
+      return;
+    }
     case VIEW_TO_HOST_MESSAGE_TYPE.textEditorSwitchRequested:
       // The target is determined by the document of the panel that received the message. Nothing but the type is
       // read, so no value sent by the view can change the target.
@@ -326,4 +345,42 @@ export async function handleViewMessage(
       );
       discardUnhandledMessage(message);
   }
+}
+
+/**
+ * Reads a conflicts resolved message against the contract.
+ *
+ * The type fixes the shape, but the view can send any value at runtime. Every field is checked before it can decide
+ * what is written to the file.
+ *
+ * @param presentationId The presentation id as received.
+ * @param choices The choices as received.
+ * @returns The choice or cancel, or invalid with the reason.
+ */
+function readConflictsResolved(presentationId: unknown, choices: unknown): ReceivedConflictsResolved {
+  if (typeof presentationId !== 'number' || !Number.isSafeInteger(presentationId)) {
+    return { kind: 'invalid', presentationId: undefined, detail: `presentation id ${String(presentationId)}` };
+  }
+  if (choices === null) {
+    return { kind: 'canceled', presentationId };
+  }
+  if (!Array.isArray(choices)) {
+    return { kind: 'invalid', presentationId, detail: `choices of type ${typeof choices}` };
+  }
+  const received: readonly unknown[] = choices;
+  if (!received.every(isConflictChoice)) {
+    const outside = received.find((choice) => !isConflictChoice(choice));
+    return { kind: 'invalid', presentationId, detail: `choice ${String(outside)}` };
+  }
+  return { kind: 'chosen', presentationId, choices: received };
+}
+
+/**
+ * Reports whether a received value is one of the conflict choices.
+ *
+ * @param value The received value.
+ * @returns `true` for a spelling in the contract.
+ */
+function isConflictChoice(value: unknown): value is ConflictChoice {
+  return Object.values<unknown>(CONFLICT_CHOICE).includes(value);
 }

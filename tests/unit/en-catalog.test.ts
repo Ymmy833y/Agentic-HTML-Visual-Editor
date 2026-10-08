@@ -278,6 +278,15 @@ describe('English message resource', () => {
     ]).toEqual([10, true]);
   });
 
+  it('has English messages for the 17 conflict resolution keys', () => {
+    const keys = MESSAGE_KEYS.filter((key) => key.startsWith('conflictResolution.'));
+
+    expect([
+      keys.length,
+      keys.every((key) => typeof Reflect.get(englishMessages, key) === 'string'),
+    ]).toEqual([17, true]);
+  });
+
   it('contains no keys that are not defined', () => {
     const definedKeys = new Set<string>(MESSAGE_KEYS);
     const extraKeys = Object.keys(englishMessages).filter((key) => !definedKeys.has(key));
