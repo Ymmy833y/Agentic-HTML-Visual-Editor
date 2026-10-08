@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { devices, expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 import {
@@ -33,6 +33,15 @@ const RESET = `${BAR} button[aria-label="Reset Zoom"]`;
 const SMALL_BODY = '\n<p>before</p>\n<pre class="mermaid">flowchart TD\n  A --&gt; B</pre>\n<p>after</p>\n';
 // A wide diagram, drawn wider than the column and shown shrunk to it.
 const WIDE_BODY = '\n<p>before</p>\n<pre class="mermaid">flowchart LR\n  A[Alpha alpha] --&gt; B[Beta beta] --&gt; C[Gamma gamma] --&gt; D[Delta delta] --&gt; E[Epsilon epsilon] --&gt; F[Zeta zeta]</pre>\n<p>after</p>\n';
+// A small diagram followed by enough paragraphs for the document to scroll.
+const TALL_BODY = `\n<p>before</p>\n<pre class="mermaid">flowchart TD\n  A --&gt; B</pre>\n${'<p>after</p>\n'.repeat(80)}`;
+
+// The view decides the primary modifier from the userAgent, but the Desktop Chrome descriptor returns a Windows
+// userAgent whatever the OS. The wheel is turned with the modifier held as a real key, so the userAgent is aligned with
+// the running OS.
+const MAC_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
+test.use({ userAgent: process.platform === 'darwin' ? MAC_USER_AGENT : devices['Desktop Chrome'].userAgent });
 
 /**
  * Opens the view with the English messages and mounts a body.
@@ -265,6 +274,81 @@ test.describe('Zoom buttons of diagrams', () => {
     await expect(page.locator(`#${TOOLTIP_ELEMENT_ID}`)).toHaveText('Zoom In');
     expect(await page.locator(`${BAR} button`).evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))))
       .toEqual(['Zoom In', 'Zoom Out', 'Reset Zoom']);
+  });
+});
+
+test.describe('Wheel zoom of diagrams', () => {
+  test('turning the wheel away with the primary modifier over a drawn diagram scales it by 1.25, and turning it back restores it', async ({ page }) => {
+    await openDiagramEditor(page, SMALL_BODY);
+    await waitForMark(page);
+    const usual = await readImageWidth(page);
+    await hoverDiagram(page);
+
+    await page.keyboard.down('ControlOrMeta');
+    await page.mouse.wheel(0, -100);
+    await expect.poll(() => readImageWidth(page)).toBe(usual * 1.25);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => readImageWidth(page)).toBe(usual);
+    await page.keyboard.up('ControlOrMeta');
+  });
+
+  test('turning the wheel over a diagram without the primary modifier scrolls the document and keeps the zoom level', async ({ page }) => {
+    await openDiagramEditor(page, TALL_BODY);
+    await waitForMark(page);
+    const usual = await readImageWidth(page);
+    await hoverDiagram(page);
+
+    await page.mouse.wheel(0, 200);
+
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    expect(await readImageWidth(page)).toBe(usual);
+  });
+
+  test('zooming with the primary modifier and the wheel opens no dialog and changes neither the output, the selection, the focus nor the history', async ({ page }) => {
+    await openDiagramEditor(page, SMALL_BODY);
+    await waitForMark(page);
+    await installReceiver(page);
+    await page.evaluate((rootId) => {
+      document.getElementById(rootId)?.focus();
+      const text = document.querySelector('p')?.firstChild;
+      if (text !== null && text !== undefined) {
+        window.getSelection()?.collapse(text, 2);
+      }
+    }, EDITOR_ROOT_ELEMENT_ID);
+    const body = await page.evaluate(() => window.__serializationProbe?.()?.body ?? '');
+    const usual = await readImageWidth(page);
+
+    await hoverDiagram(page);
+    await page.keyboard.down('ControlOrMeta');
+    await page.mouse.wheel(0, -100);
+    await expect.poll(() => readImageWidth(page)).toBe(usual * 1.25);
+    await page.keyboard.up('ControlOrMeta');
+    await sendToWebview(page, { type: HOST_TO_VIEW_MESSAGE_TYPE.requestEditTransactionFlush, requestId: 'wheel' });
+
+    expect([
+      await page.locator(DIALOG).count(),
+      await page.evaluate(() => window.__serializationProbe?.()?.body ?? ''),
+      await page.evaluate(() => [window.getSelection()?.anchorNode?.textContent, window.getSelection()?.anchorOffset]),
+      await page.evaluate((rootId) => document.activeElement?.id === rootId, EDITOR_ROOT_ELEMENT_ID),
+      (await readRecord(page)).kinds,
+      await countSent(page, VIEW_TO_HOST_MESSAGE_TYPE.editTransaction),
+    ]).toEqual([0, body, ['before', 2], true, [], 0]);
+  });
+
+  test('turning the wheel with the primary modifier over the zoom buttons zooms the diagram they are shown for', async ({ page }) => {
+    await openDiagramEditor(page, SMALL_BODY);
+    await waitForMark(page);
+    const usual = await readImageWidth(page);
+
+    // A key press hides the buttons, so the modifier is held before the pointer brings them up. The pointer rests on
+    // Reset Zoom, so that a click by mistake would not pass for the zoom.
+    await page.keyboard.down('ControlOrMeta');
+    await hoverDiagram(page);
+    await page.locator(RESET).hover();
+    await page.mouse.wheel(0, -100);
+    await page.keyboard.up('ControlOrMeta');
+
+    await expect.poll(() => readImageWidth(page)).toBe(usual * 1.25);
   });
 });
 

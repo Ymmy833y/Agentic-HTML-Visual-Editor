@@ -1,7 +1,9 @@
 import type { Localizer } from '../../common/index';
 import { isDiagramSource } from '../diagram/diagram-source';
 import { DIAGRAM_MARK_NAME, DIAGRAM_MARK_NAMESPACE, DIAGRAM_ZOOM_LEVELS } from '../diagram/diagram-view';
+import type { ShortcutPlatform } from '../editing/shortcut-receiver';
 import { readCodeBlockCopyPlacement } from './code-block-copy';
+import { hasPrimaryModifier } from './link-follow';
 import { createItemIcon } from './toolbar';
 
 /** The ID of the element that holds the zoom buttons. The bundled stylesheet and E2E look it up with the same spelling. */
@@ -9,6 +11,11 @@ export const DIAGRAM_ZOOM_ELEMENT_ID = 'editor-diagram-zoom';
 
 /** What a zoom button does: one step up, one step down, or back to 100%. */
 export type DiagramZoomAction = 'zoomIn' | 'zoomOut' | 'reset';
+
+// A trackpad stroke or a fine-grained wheel sends a burst of wheel events for one movement. Events that follow the
+// previous one in the same direction within this gap belong to the same burst, which moves the zoom level only once.
+// It is the gap VS Code's editor uses to tell one trackpad gesture from the next when zooming with Ctrl+wheel.
+const WHEEL_BURST_GAP_MS = 50;
 
 // A magnifier: the lens and the handle.
 const LENS_PATH = 'M17 10.5a6.5 6.5 0 1 1-13 0a6.5 6.5 0 1 1 13 0Z M15.2 15.2L20 20';
@@ -84,6 +91,27 @@ export function readNextZoomLevel(current: number, action: DiagramZoomAction): n
 }
 
 /**
+ * Returns which way a wheel event moves the zoom level of a diagram.
+ *
+ * Only the platform's primary modifier is looked at, as for following links; Shift, Alt and the other modifier do not
+ * matter.
+ *
+ * @param event The wheel event.
+ * @param platform The shortcut platform.
+ * @returns `zoomIn` for a turn away from the user and `zoomOut` for a turn toward the user, as Ctrl+wheel zooms in
+ *   browsers. `undefined` without the primary modifier or without a vertical turn.
+ */
+export function readWheelZoomAction(
+  event: WheelEvent,
+  platform: ShortcutPlatform,
+): Exclude<DiagramZoomAction, 'reset'> | undefined {
+  if (!hasPrimaryModifier(event, platform) || event.deltaY === 0) {
+    return undefined;
+  }
+  return event.deltaY < 0 ? 'zoomIn' : 'zoomOut';
+}
+
+/**
  * Returns the drawn diagram that contains the target. A diagram that shows an error or an empty card, or that is not
  * drawn yet, has no picture to zoom, so it does not count.
  *
@@ -107,7 +135,7 @@ export function findZoomableDiagram(target: EventTarget | null, root: Element): 
 
 /**
  * Shows the zoom buttons at the top right of the drawn diagram under the pointer, and changes its zoom level when one
- * is pressed.
+ * is pressed or when the wheel is turned over it with the primary modifier.
  *
  * The buttons live outside the editor root, so they never enter the tree or the body output, and a press on them is
  * not a click on the diagram. One per view, not recreated on document replacement.
@@ -116,14 +144,19 @@ export class DiagramZoom {
   // The diagram the buttons are shown for. `undefined` while hidden.
   private block: Element | undefined;
 
+  // The direction and the time stamp of the last wheel event that zoomed or was taken into a burst.
+  private lastWheel: { readonly action: Exclude<DiagramZoomAction, 'reset'>; readonly time: number } | undefined;
+
   /**
    * @param root The editor root.
    * @param bar The element that holds the buttons.
+   * @param platform The shortcut platform. Decides the primary modifier of the wheel.
    * @param ports The ports of the buttons.
    */
   constructor(
     private readonly root: HTMLElement,
     private readonly bar: HTMLElement,
+    private readonly platform: ShortcutPlatform,
     private readonly ports: DiagramZoomPorts,
   ) {}
 
@@ -223,6 +256,35 @@ export class DiagramZoom {
     this.place(block);
   }
 
+  /**
+   * On a wheel turn with the primary modifier over a drawn diagram, or over the buttons shown for one, moves the
+   * diagram one step. Within a burst of events, only the first moves it; a change of direction always does.
+   *
+   * @param event The wheel event.
+   */
+  handleWheel(event: WheelEvent): void {
+    const action = readWheelZoomAction(event, this.platform);
+    if (action === undefined) {
+      return;
+    }
+    // The buttons lie over their diagram, so a turn over them is a turn over that diagram.
+    const block = contains(this.bar, event.target) ? this.block : findZoomableDiagram(event.target, this.root);
+    if (block === undefined || !this.root.contains(block)) {
+      return;
+    }
+    // The turn is the zoom even when it moves no step, or the browser would zoom the page or scroll in between.
+    event.preventDefault();
+    const previous = this.lastWheel;
+    this.lastWheel = { action, time: event.timeStamp };
+    if (previous !== undefined && previous.action === action && event.timeStamp - previous.time < WHEEL_BURST_GAP_MS) {
+      return;
+    }
+    this.ports.zoomDiagram(block, readNextZoomLevel(this.ports.readZoom(block), action));
+    if (this.block === block) {
+      this.place(block);
+    }
+  }
+
   /** Hides the buttons. Safe to call while they are hidden. */
   hide(): void {
     this.block = undefined;
@@ -254,15 +316,21 @@ export class DiagramZoom {
  *
  * @param view The view's window.
  * @param root The editor root.
+ * @param platform The shortcut platform. Decides the primary modifier of the wheel.
  * @param ports The ports of the buttons.
  * @returns The attached zoom buttons.
  */
-export function attachDiagramZoom(view: Window, root: HTMLElement, ports: DiagramZoomPorts): DiagramZoom {
+export function attachDiagramZoom(
+  view: Window,
+  root: HTMLElement,
+  platform: ShortcutPlatform,
+  ports: DiagramZoomPorts,
+): DiagramZoom {
   const document = view.document;
   const bar = document.createElement('div');
   bar.id = DIAGRAM_ZOOM_ELEMENT_ID;
   bar.hidden = true;
-  const zoom = new DiagramZoom(root, bar, ports);
+  const zoom = new DiagramZoom(root, bar, platform, ports);
   for (const action of ZOOM_ACTIONS) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -286,6 +354,9 @@ export function attachDiagramZoom(view: Window, root: HTMLElement, ports: Diagra
   bar.addEventListener('mouseleave', (event) => zoom.handleBarLeave(event));
   root.addEventListener('mousemove', (event) => zoom.handlePointerMove(event));
   root.addEventListener('mouseleave', (event) => zoom.handleRootLeave(event));
+  // Not passive, so that a turn that zooms can stop the browser from zooming the page or scrolling.
+  root.addEventListener('wheel', (event) => zoom.handleWheel(event), { passive: false });
+  bar.addEventListener('wheel', (event) => zoom.handleWheel(event), { passive: false });
   // Presses and keys are received in the capture phase, so that they hide the buttons even when another listener stops
   // propagation.
   document.addEventListener('pointerdown', (event) => zoom.handlePointerDown(event), true);
