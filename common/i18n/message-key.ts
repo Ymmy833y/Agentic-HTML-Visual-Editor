@@ -210,6 +210,23 @@ export const MESSAGE_KEYS = [
   'changePopup.replacement',
   'changePopup.accept',
   'changePopup.reject',
+  'conflictResolution.heading',
+  'conflictResolution.description',
+  'conflictResolution.changedAgain',
+  'conflictResolution.conflict',
+  'conflictResolution.fileSide',
+  'conflictResolution.editorSide',
+  'conflictResolution.keepFile',
+  'conflictResolution.keepEditor',
+  'conflictResolution.keepBoth',
+  'conflictResolution.showHtml',
+  'conflictResolution.empty',
+  'conflictResolution.save',
+  'conflictResolution.cancel',
+  'conflictResolution.waiting.message',
+  'conflictResolution.showConflicts',
+  'conflictResolution.canceled.message',
+  'conflictResolution.closeWithoutSaving',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

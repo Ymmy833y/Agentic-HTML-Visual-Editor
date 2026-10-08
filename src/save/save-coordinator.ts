@@ -14,12 +14,16 @@ import {
 } from '../../common/index';
 import type {
   BodyOutputResponseMessage,
+  ConflictChoice,
+  ConflictRegion,
+  ConflictSides,
   DocumentApplyKind,
   DocumentApplyOutcome,
   DocumentReplacedMessage,
   HistoryDirection,
   HostToViewMessage,
   LineEnding,
+  MergeRegion,
   MessageKey,
   ReplaceEditHistoryMessage,
   RequestId,
@@ -34,8 +38,7 @@ import { BUFFER_FOLLOW_TIMEOUT_MS, pollTextBuffer } from './buffer-follow';
 import { DocumentOperationQueue } from './document-operation-queue';
 import type { QueuedOperationResult } from './document-operation-queue';
 import type { DocumentSyncState } from './document-sync-state';
-import { mergeSaveCandidate } from './save-merge';
-import type { SaveCandidate } from './save-merge';
+import { flattenSaveCandidate, mergeSaveRegions, mergeViewSide } from './save-merge';
 
 /** The result of reading the text buffer once. */
 export interface TextBufferSnapshot {
@@ -120,6 +123,19 @@ export interface SaveHost {
    * @param cause One line describing the cause, recorded in the diagnostic log.
    */
   reportDirtyTextBuffer(cause: string): Promise<void>;
+
+  /**
+   * Tells the user, when the view's tab is not visible, that a save waits for them to choose in it, and offers to bring
+   * the tab forward.
+   *
+   * A save can start while the tab is behind another one (Save All, auto save, closing the window), and the user cannot
+   * answer a conflict they cannot see. The tab is not brought forward unasked: an auto save on focus change starts as
+   * the user moves to another tab, and pulling them back would keep them from ever leaving.
+   *
+   * The returned promise settles at once when the view is visible, and otherwise when the notification closes, after
+   * the tab was asked to come forward if the user chose to. Nothing waits for it.
+   */
+  reportConflictsWaiting(): Promise<void>;
 }
 
 /** The per-document state the save coordinator reads and writes. */
@@ -210,6 +226,20 @@ export interface SaveHistoryPort {
   notifySaveSucceeded(text: string): void;
 
   /**
+   * Registers what the user chose in the conflict overlay as one settled history entry, after the chosen candidate
+   * was applied to the view.
+   *
+   * Without it the view holds content that no history entry ends at, so undo merges against the wrong endpoint and
+   * redo reaches the save point with content that differs from the file.
+   *
+   * @param viewSideText Full text with the view side kept in every conflict region: where undo returns to.
+   * @param chosenText Full text of the applied candidate: where redo returns to.
+   * @returns Whether it was registered. False while protected, when writing would put content into the file that
+   *   undo cannot take back.
+   */
+  registerConflictChoiceEntry(viewSideText: string, chosenText: string): boolean;
+
+  /**
    * Reports the result of a Revert.
    *
    * @param succeeded Whether it succeeded.
@@ -229,10 +259,11 @@ export interface SaveHistoryPort {
 /**
  * The outcome returned by the three save entry points.
  *
- * There is no value dedicated to cancellation. A cancellation joins the existing path as one kind of
- * failure, which avoids adding another recovery mechanism.
+ * A cancellation of the save by VS Code joins the existing path as one kind of failure, which avoids adding another
+ * recovery mechanism. Canceled is only the user's cancel in the conflict overlay: the user already knows the file was
+ * not saved, and reporting it as a failure would offer Revert, which discards the edits.
  */
-export type SaveOutcome = 'completed' | 'failed';
+export type SaveOutcome = 'completed' | 'failed' | 'canceled';
 
 /**
  * The outcome of a Revert.
@@ -241,7 +272,7 @@ export type SaveOutcome = 'completed' | 'failed';
  * waiting for the Revert to finish. Only a failure with the view still present is treated as a failure, and the
  * backup is kept.
  */
-export type RevertOutcome = SaveOutcome | 'abandoned';
+export type RevertOutcome = 'completed' | 'failed' | 'abandoned';
 
 /**
  * The result of an output request.
@@ -333,6 +364,71 @@ type BufferFollowOutcome = BufferText | { readonly kind: 'dirty' };
  */
 export type HostApplyResult = DocumentApplyOutcome | 'notApplied';
 
+/**
+ * What the view sent back for a presentation of conflicts, after the message handler checked its shape.
+ *
+ * Invalid carries the presentation id only when it could be read.
+ */
+export type ReceivedConflictsResolved =
+  | {
+    readonly kind: 'chosen';
+    readonly presentationId: number;
+    /** The choice for each conflict region, in document order. */
+    readonly choices: readonly ConflictChoice[];
+  }
+  | { readonly kind: 'canceled'; readonly presentationId: number }
+  | { readonly kind: 'invalid'; readonly presentationId: number | undefined; readonly detail: string };
+
+/** How the wait for the user's choice ended. */
+type ConflictWaitOutcome =
+  | { readonly kind: 'chosen'; readonly choices: readonly ConflictChoice[] }
+  | { readonly kind: 'canceled' }
+  // The view sent a choice outside the contract, or one that does not fit the presented regions.
+  | { readonly kind: 'invalid'; readonly detail: string }
+  // The view was reloaded or disposed, or the presentation could not be sent.
+  | { readonly kind: 'abandoned'; readonly detail: string };
+
+/** A presentation of conflicts waiting for the user's choice. */
+interface ConflictWait {
+  readonly presentationId: number;
+  /** The number of conflict regions presented. A choice must have exactly this many entries. */
+  readonly conflictCount: number;
+  readonly settle: (outcome: ConflictWaitOutcome) => void;
+}
+
+/**
+ * The full text a save goes on to apply and write, or the outcome that ends the save before applying.
+ *
+ * The source is the one the candidate was merged against last. While the user chooses, the file can change and the
+ * source is resolved again, so the source resolved at the start of the save no longer describes the candidate.
+ */
+type CandidateDecision =
+  | {
+    readonly kind: 'decided';
+    /** Full document text to apply and write (LF). */
+    readonly text: string;
+    /** Full text of the source the candidate was merged against (LF). */
+    readonly sourceText: string;
+    /** Line ending detected from that source. */
+    readonly lineEnding: LineEnding;
+    /** Whether the user chose a side for at least one conflict region. */
+    readonly presented: boolean;
+    /**
+     * Full text with the view side kept in every conflict region, merged against the same source (LF). Equal to the
+     * text when nothing was presented or the user kept the visual editor's version everywhere.
+     */
+    readonly viewSideText: string;
+  }
+  | {
+    readonly kind: 'stopped';
+    readonly outcome: 'failed' | 'canceled';
+    /**
+     * The source resolution that failed after the user chose, when that is why the save stops. The save reports it
+     * only after settling, because the notification settles only when the user closes it.
+     */
+    readonly failedResolution?: Exclude<SourceResolution, { readonly kind: 'resolved' }>;
+  };
+
 /** Full-document application awaiting a final outcome. */
 interface ApplyInFlight {
   readonly requestId: RequestId;
@@ -364,6 +460,11 @@ export class SaveCoordinator {
   private readonly pending: PendingRequests;
 
   private applyInFlight: ApplyInFlight | undefined;
+
+  private conflictWait: ConflictWait | undefined;
+
+  // Presentation ids only grow, so a choice that arrives for an earlier presentation of conflicts is told apart.
+  private nextPresentationId = 1;
 
   // Sync base for which delayed buffer follow has already been settled. A buffer that did not move before timeout can
   // only produce the same result until the sync base moves. Waiting for the full timeout whenever both notification
@@ -428,7 +529,7 @@ export class SaveCoordinator {
    * has finished.
    *
    * @param isCancelled A function returning whether the supplied token has been cancelled.
-   * @returns Whether it completed or failed.
+   * @returns Whether it completed, failed, or was canceled by the user in the conflict overlay.
    */
   save(isCancelled: () => boolean): Promise<SaveOutcome> {
     return this.runEntry<SaveOutcome>(async (settle) => {
@@ -469,17 +570,18 @@ export class SaveCoordinator {
         return;
       }
 
-      const candidate = this.buildSaveCandidate(resolution.text, viewText);
-      if (candidate === undefined) {
-        // If the view mounted, the sync base is initialized, so a save that received output cannot reach this branch.
-        // This is not actionable by the user; record it and fail the save.
-        this.host.reportInternalError('Skipped merging because the sync base is not initialized');
-        settle('failed');
+      const candidate = await this.buildSaveCandidate(resolution.text, resolution.lineEnding, viewText);
+      if (candidate.kind === 'stopped') {
+        // The file, the sync state and the view's edits are all unchanged.
+        settle(candidate.outcome);
+        if (candidate.failedResolution !== undefined) {
+          await this.reportResolutionFailure(candidate.failedResolution, 'saving');
+        }
         await this.endRoundTrip(false, false);
         return;
       }
 
-      const applied = await this.applySaveCandidate(candidate, resolution.text);
+      const applied = await this.applySaveCandidate(candidate.text, candidate.sourceText);
       if (applied !== DOCUMENT_APPLY_OUTCOME.applied) {
         settle('failed');
         // The file is unchanged, and the view still contains the edits from before the save.
@@ -491,11 +593,25 @@ export class SaveCoordinator {
         return;
       }
 
+      // Registered before the write: VS Code takes the save point when the save returns, so an entry fired earlier is
+      // at the save point once the write succeeds, and the view already holds the candidate even if the write fails.
+      if (
+        candidate.viewSideText !== candidate.text
+        && this.historyPort?.registerConflictChoiceEntry(candidate.viewSideText, candidate.text) === false
+      ) {
+        this.host.reportInternalError('Skipped writing the chosen content because the history did not take it');
+        settle('failed');
+        await this.endRoundTrip(false, false);
+        return;
+      }
+
       const written = await this.writeDocumentText(
         this.documentUri,
         candidate.text,
-        resolution.lineEnding,
-        isCancelled,
+        candidate.lineEnding,
+        // Once the user has chosen, the candidate is the newest content. A later save cancels this one's token, and
+        // dropping the choice there would make the user choose again, while the later save writes the same content.
+        candidate.presented ? () => false : isCancelled,
       );
       if (!written) {
         // Leave the sync base and write reconcile unchanged. The view containing the candidate and the save retry base
@@ -505,7 +621,7 @@ export class SaveCoordinator {
         return;
       }
 
-      this.retainWrittenBody(candidate.text, resolution.text);
+      this.retainWrittenBody(candidate.text, candidate.sourceText);
       this.historyPort?.notifySaveSucceeded(candidate.text);
       settle('completed');
       await this.endRoundTrip(true, false);
@@ -585,7 +701,7 @@ export class SaveCoordinator {
    *
    * @param destinationUri The string form of the destination URI.
    * @param isCancelled A function returning whether the supplied token has been cancelled.
-   * @returns Whether it completed or failed.
+   * @returns Whether it completed, failed, or was canceled by the user in the conflict overlay.
    */
   saveAs(destinationUri: string, isCancelled: () => boolean): Promise<SaveOutcome> {
     if (destinationUri === this.documentUri) {
@@ -739,6 +855,8 @@ export class SaveCoordinator {
    */
   notifyViewRestarted(): void {
     this.applyInFlight?.abandon();
+    // The reloaded view no longer shows the conflicts, so nobody is left to choose.
+    this.conflictWait?.settle({ kind: 'abandoned', detail: 'the view was reloaded while waiting for a conflict choice' });
     // Output requests addressed to the old view will never get a response, so end them as unresponsive without
     // waiting for the timeout.
     this.pending.abandonForViewRestart();
@@ -871,6 +989,7 @@ export class SaveCoordinator {
     this.disposed = true;
     this.queue.close();
     this.applyInFlight?.abandon();
+    this.conflictWait?.settle({ kind: 'abandoned', detail: 'the view was closed while waiting for a conflict choice' });
     this.pending.dispose();
   }
 
@@ -1336,45 +1455,226 @@ export class SaveCoordinator {
   }
 
   /**
-   * Builds a save candidate from the merge base, resolved source, and full view text.
+   * Builds a save candidate from the merge base, resolved source, and full view text, asking the user to choose a side
+   * for each conflict region.
+   *
+   * While the user chooses, the file can change. The source is therefore resolved again after every choice, and a
+   * changed source is merged once more with the source the user saw as the common ancestor and the chosen result as the
+   * view side. That keeps both the user's choice and the newer change on disk.
    *
    * @param sourceText Full text of the resolved clean source (LF).
+   * @param lineEnding Line ending detected from that source.
    * @param viewText Full text generated by the view after input was blocked (LF).
-   * @returns A save candidate, or `undefined` when the merge base is uninitialized.
+   * @returns The candidate to apply and write, or the outcome that ends the save.
    */
-  private buildSaveCandidate(sourceText: string, viewText: string): SaveCandidate | undefined {
+  private async buildSaveCandidate(
+    sourceText: string,
+    lineEnding: LineEnding,
+    viewText: string,
+  ): Promise<CandidateDecision> {
     const base = this.state.syncState.mergeBase;
     // Do not perform a save-time merge with an uninitialized sync base. Using the source as the common ancestor would
     // hide source changes in the base and treat content that has not been synchronized as synchronized.
     if (base === undefined) {
-      return undefined;
+      // If the view mounted, the sync base is initialized, so a save that received output cannot reach this branch.
+      // This is not actionable by the user; record it and fail the save.
+      this.host.reportInternalError('Skipped merging because the sync base is not initialized');
+      return { kind: 'stopped', outcome: 'failed' };
     }
-    const merged = mergeSaveCandidate(base, sourceText, viewText);
-    // The file is written as UTF-8. The declaration is rewritten in the candidate, before it is applied to the view,
-    // so that the view, the file, and the sync base keep agreeing on the full text.
-    return { ...merged, text: rewriteCharsetDeclaration(merged.text) };
+
+    let ancestor = base;
+    let source = { text: sourceText, lineEnding };
+    let viewSide = viewText;
+    let presented = false;
+    for (;;) {
+      const merged = mergeSaveRegions(ancestor, source.text, viewSide);
+      let candidateText: string;
+      if (merged.hasConflict) {
+        const chosen = await this.presentConflicts(merged.regions, presented);
+        if (chosen.kind !== 'chosen') {
+          return this.stopForConflictOutcome(chosen);
+        }
+        presented = true;
+        candidateText = flattenSaveCandidate(merged.regions, chosen.choices);
+      } else {
+        candidateText = flattenSaveCandidate(merged.regions, []);
+      }
+
+      if (presented) {
+        const recheck = await this.resolveCurrentSource('save');
+        if (recheck.kind !== 'resolved') {
+          // The choice is lost here, as on any other failed save; the notification tells the user what to do first.
+          return { kind: 'stopped', outcome: 'failed', failedResolution: recheck };
+        }
+        if (recheck.text !== source.text) {
+          ancestor = source.text;
+          viewSide = candidateText;
+          source = { text: recheck.text, lineEnding: recheck.lineEnding };
+          continue;
+        }
+        source = { text: recheck.text, lineEnding: recheck.lineEnding };
+      }
+
+      // The file is written as UTF-8. The declaration is rewritten in the final candidate, before it is applied to
+      // the view, so that the view, the file, and the sync base keep agreeing on the full text.
+      const text = rewriteCharsetDeclaration(candidateText);
+      return {
+        kind: 'decided',
+        text,
+        sourceText: source.text,
+        lineEnding: source.lineEnding,
+        presented,
+        // Built from the view output rather than from the last round's regions: after a presentation again, those
+        // regions already hold the earlier choice, and undo would keep it. The declaration is rewritten here too, so
+        // that undoing a choice does not also take back the declaration.
+        viewSideText: presented ? rewriteCharsetDeclaration(mergeViewSide(base, source.text, viewText)) : text,
+      };
+    }
+  }
+
+  /**
+   * Shows the conflict regions in the view and waits until the user chooses, cancels, or the view goes away.
+   *
+   * The wait has no deadline: the user may take as long as they need to read both sides, and a deadline would only fill
+   * the diagnostic log. A reload or disposal of the view releases it. A tab that is not visible stays where it is, and
+   * the user is told that the save waits for them.
+   *
+   * @param regions Merge regions containing at least one conflict region.
+   * @param repeated Whether the user already chose for an earlier presentation of this save.
+   * @returns How the wait ended.
+   */
+  private async presentConflicts(
+    regions: readonly MergeRegion[],
+    repeated: boolean,
+  ): Promise<ConflictWaitOutcome> {
+    if (this.disposed) {
+      return { kind: 'abandoned', detail: 'the document was closed before the conflicts were presented' };
+    }
+
+    const conflicts: ConflictSides[] = regions
+      .filter((region): region is ConflictRegion => region.kind === 'conflict')
+      .map((region) => ({ source: region.source, view: region.view }));
+    const presentationId = this.nextPresentationId;
+    this.nextPresentationId += 1;
+
+    const outcome = new Promise<ConflictWaitOutcome>((resolve) => {
+      this.conflictWait = {
+        presentationId,
+        conflictCount: conflicts.length,
+        settle: (settled) => {
+          this.conflictWait = undefined;
+          resolve(settled);
+        },
+      };
+    });
+
+    try {
+      await this.host.postToView({
+        type: HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts,
+        presentationId,
+        conflicts,
+        repeated,
+      });
+    } catch (error) {
+      // Nothing would ever answer a presentation that did not arrive, so the wait ends at once.
+      this.conflictWait?.settle({ kind: 'abandoned', detail: `the conflicts could not be presented: ${String(error)}` });
+      return outcome;
+    }
+
+    this.notifyConflictsWaiting();
+    return outcome;
+  }
+
+  /**
+   * Tells the user that the save waits for their choice, without waiting for the notice to close.
+   *
+   * It runs on every presentation: a notice from an earlier one may have gone from view while the user chose without
+   * it, and VS Code replaces an earlier notification with the same text instead of adding a second one.
+   */
+  private notifyConflictsWaiting(): void {
+    this.host.reportConflictsWaiting().catch((error: unknown) => {
+      // The user can still answer once they open the tab, so the save goes on waiting.
+      this.host.reportInternalError(`Could not tell the user that a save waits for a conflict choice: ${String(error)}`);
+    });
+  }
+
+  /**
+   * Turns a wait for the user's choice that did not end with a choice into the outcome of the save.
+   *
+   * @param outcome How the wait ended.
+   * @returns The stopped decision.
+   */
+  private stopForConflictOutcome(
+    outcome: Exclude<ConflictWaitOutcome, { readonly kind: 'chosen' }>,
+  ): CandidateDecision {
+    if (outcome.kind === 'canceled') {
+      return { kind: 'stopped', outcome: 'canceled' };
+    }
+    this.host.reportInternalError(`Skipped the save because ${outcome.detail}`);
+    return { kind: 'stopped', outcome: 'failed' };
+  }
+
+  /**
+   * Receives what the user chose in the conflict overlay.
+   *
+   * A choice for an earlier presentation is dropped and the wait goes on, because the regions it answered have been
+   * merged again since.
+   *
+   * @param received The choices, cancel, or invalid message, as checked by the message handler.
+   */
+  receiveConflictsResolved(received: ReceivedConflictsResolved): void {
+    const wait = this.conflictWait;
+    if (wait === undefined) {
+      this.host.reportInternalError(
+        `Discarded a conflict choice that no save is waiting for: presentation ${String(received.presentationId)}`,
+      );
+      return;
+    }
+    if (received.presentationId !== undefined && received.presentationId !== wait.presentationId) {
+      this.host.reportInternalError(
+        `Discarded a conflict choice for presentation ${received.presentationId} while waiting for presentation ${wait.presentationId}`,
+      );
+      return;
+    }
+
+    if (received.kind === 'invalid') {
+      wait.settle({ kind: 'invalid', detail: `the view sent a conflict choice outside the contract: ${received.detail}` });
+      return;
+    }
+    if (received.kind === 'canceled') {
+      wait.settle({ kind: 'canceled' });
+      return;
+    }
+    if (received.choices.length !== wait.conflictCount) {
+      wait.settle({
+        kind: 'invalid',
+        detail: `the view sent ${received.choices.length} conflict choices for ${wait.conflictCount} conflict regions`,
+      });
+      return;
+    }
+    wait.settle({ kind: 'chosen', choices: received.choices });
   }
 
   /**
    * Applies a save candidate to the view before writing it to the file.
    *
-   * @param candidate Save candidate.
+   * @param candidateText Full document text of the save candidate (LF).
    * @param sourceBeforeApply Full source text before application (LF).
    * @returns Application outcome determined by the host.
    */
   private async applySaveCandidate(
-    candidate: SaveCandidate,
+    candidateText: string,
     sourceBeforeApply: string,
   ): Promise<HostApplyResult> {
     const applied = await this.requestDocumentApply({
       kind: DOCUMENT_APPLY_KIND.saveCandidate,
-      text: candidate.text,
+      text: candidateText,
     });
     if (applied === DOCUMENT_APPLY_OUTCOME.applied) {
       // Retain the applied candidate on the host so it can be passed to initialization if the view is recreated after
       // replacement. Returning to the pre-application output could lose source changes incorporated by the merge on
       // the next save.
-      this.state.retainUnsavedContent(candidate.text);
+      this.state.retainUnsavedContent(candidateText);
       // Set the common ancestor to use until the write completes. Advancing the sync base here would treat content as
       // synchronized even if the write fails.
       this.state.syncState.beginSaveRetry(sourceBeforeApply);
@@ -1708,7 +2008,7 @@ export class SaveCoordinator {
    * @param cause One line describing the cause, recorded in the diagnostic log.
    * @returns The failure outcome.
    */
-  private failRevert(cause: string): SaveOutcome {
+  private failRevert(cause: string): RevertOutcome {
     void this.host.reportUserError('revertFailed.message', cause);
     this.historyPort?.notifyRevertResult(false, this.state.lastKnownContent);
     return 'failed';

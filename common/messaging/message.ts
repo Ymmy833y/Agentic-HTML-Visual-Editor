@@ -6,6 +6,7 @@ import type {
   EncodedSelection,
 } from '../history/edit-transaction';
 import type { LineRange } from '../text/line-diff';
+import type { ConflictChoice } from '../text/three-way-merge';
 import type { SidebarLayoutChange } from '../view/sidebar-layout';
 
 /** Types of messages sent from the host to the view. */
@@ -24,6 +25,7 @@ export const HOST_TO_VIEW_MESSAGE_TYPE = {
   requestCopyHtml: 'requestCopyHtml',
   copySucceeded: 'copySucceeded',
   codeBlockCopySucceeded: 'codeBlockCopySucceeded',
+  presentConflicts: 'presentConflicts',
 } as const;
 
 /** Types of messages sent from the view to the host. */
@@ -49,6 +51,7 @@ export const VIEW_TO_HOST_MESSAGE_TYPE = {
   copyHtmlResponse: 'copyHtmlResponse',
   codeBlockCopyRequested: 'codeBlockCopyRequested',
   sidebarLayoutChanged: 'sidebarLayoutChanged',
+  conflictsResolved: 'conflictsResolved',
 } as const;
 
 /** A message indicating that the view is ready to receive messages. */
@@ -500,6 +503,45 @@ export interface SidebarLayoutChangedMessage extends SidebarLayoutChange {
   readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged;
 }
 
+/** The two sides of one conflict region, as the lines of the full document text (LF). */
+export interface ConflictSides {
+  /** The lines from the file on disk. */
+  readonly source: readonly string[];
+  /** The lines from the view's unsaved content. */
+  readonly view: readonly string[];
+}
+
+/**
+ * Host → view message, without a response, that asks the user to choose what to keep for each conflict region of a
+ * save.
+ *
+ * The choice is not a response: the host waits for the user without a deadline and lets go only when the view is
+ * reloaded or disposed. A deadline would expire while the user reads both sides. The presentation id tells a choice
+ * for this presentation from one for an earlier presentation of the same save.
+ */
+export interface PresentConflictsMessage {
+  readonly type: typeof HOST_TO_VIEW_MESSAGE_TYPE.presentConflicts;
+  /** Identifies this presentation. A later presentation always carries a larger id. */
+  readonly presentationId: number;
+  /** The conflict regions in document order. */
+  readonly conflicts: readonly ConflictSides[];
+  /** Whether the file changed again after the user chose for an earlier presentation of the same save. */
+  readonly repeated: boolean;
+}
+
+/**
+ * View → host message, without a response, that carries what the user chose in the conflict overlay.
+ *
+ * Choices are `null` when the user canceled. Otherwise there is one choice per conflict region, in document order.
+ */
+export interface ConflictsResolvedMessage {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.conflictsResolved;
+  /** The presentation id of the presentation the user answered. */
+  readonly presentationId: number;
+  /** The choice for each conflict region, or `null` for a cancel. */
+  readonly choices: readonly ConflictChoice[] | null;
+}
+
 /**
  * Messages the host can send to the view.
  */
@@ -516,7 +558,8 @@ export type HostToViewMessage =
   | DirtyStateMessage
   | RequestCopyHtmlMessage
   | CopySucceededMessage
-  | CodeBlockCopySucceededMessage;
+  | CodeBlockCopySucceededMessage
+  | PresentConflictsMessage;
 
 /**
  * Messages the view can send to the host.
@@ -541,4 +584,5 @@ export type ViewToHostMessage =
   | CopyRequestedMessage
   | CopyHtmlResponseMessage
   | CodeBlockCopyRequestedMessage
-  | SidebarLayoutChangedMessage;
+  | SidebarLayoutChangedMessage
+  | ConflictsResolvedMessage;

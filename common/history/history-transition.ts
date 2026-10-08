@@ -44,7 +44,10 @@ export interface HistoryTransitionCandidate {
   readonly text: string;
   /** Line range of the recorded edit, relative to the target endpoint's full text. */
   readonly editRange: LineRange;
-  /** Whether it contains conflict regions. A resolution UI is the job of a later feature unit. */
+  /**
+   * Whether it contains conflict regions. Only a save asks the user to choose; an undo or redo keeps both sides so that
+   * neither is dropped without the user knowing.
+   */
   readonly hasConflict: boolean;
 }
 

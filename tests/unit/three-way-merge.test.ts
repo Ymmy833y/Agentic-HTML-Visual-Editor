@@ -2,7 +2,7 @@
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 
-import { flattenMergeRegions, mergeThreeWay } from '../../common/index';
+import { CONFLICT_CHOICE, flattenMergeRegions, mergeThreeWay } from '../../common/index';
 import type { MergeResult } from '../../common/index';
 
 /**
@@ -300,5 +300,43 @@ describe('three-way merge', () => {
     expect(flattened).toBe(
       ['<body>', '<p>s1</p>', '<p>s2</p>', '<p>v</p>', '</body>', ''].join('\n'),
     );
+  });
+
+  it('places the source lines of a region chosen as source and the view lines of a region chosen as view', () => {
+    const flattened = flattenMergeRegions(
+      [
+        { kind: 'stable', lines: ['<body>'] },
+        { kind: 'conflict', base: ['<p>a</p>'], source: ['<p>s1</p>'], view: ['<p>v1</p>'] },
+        { kind: 'stable', lines: ['<hr>'] },
+        { kind: 'conflict', base: ['<p>b</p>'], source: ['<p>s2</p>'], view: ['<p>v2</p>'] },
+        { kind: 'stable', lines: ['</body>', ''] },
+      ],
+      [CONFLICT_CHOICE.source, CONFLICT_CHOICE.view],
+    );
+
+    expect(flattened).toBe(['<body>', '<p>s1</p>', '<hr>', '<p>v2</p>', '</body>', ''].join('\n'));
+  });
+
+  it('places the source lines followed by the view lines for a region chosen as both', () => {
+    const flattened = flattenMergeRegions(
+      [
+        { kind: 'stable', lines: ['<body>'] },
+        { kind: 'conflict', base: [], source: ['<p>s</p>'], view: ['<p>v1</p>', '<p>v2</p>'] },
+        { kind: 'stable', lines: ['</body>', ''] },
+      ],
+      [CONFLICT_CHOICE.both],
+    );
+
+    expect(flattened).toBe(['<body>', '<p>s</p>', '<p>v1</p>', '<p>v2</p>', '</body>', ''].join('\n'));
+  });
+
+  it('throws when the number of choices differs from the number of conflict regions', () => {
+    const regions = [
+      { kind: 'stable', lines: ['<body>'] },
+      { kind: 'conflict', base: ['<p>a</p>'], source: ['<p>s</p>'], view: ['<p>v</p>'] },
+      { kind: 'stable', lines: ['</body>', ''] },
+    ] as const;
+
+    expect(() => flattenMergeRegions(regions, [CONFLICT_CHOICE.source, CONFLICT_CHOICE.view])).toThrow(RangeError);
   });
 });

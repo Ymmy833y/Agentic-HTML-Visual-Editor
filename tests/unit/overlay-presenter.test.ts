@@ -154,6 +154,45 @@ describe('presenting the overlay', () => {
     expect(harness.readOverlay()?.hasAttribute('role')).toBe(false);
   });
 
+  it('places the content\'s own parts after the heading and descriptions and before the actions', () => {
+    const harness = createOverlayHarness();
+    const body = document.createElement('fieldset');
+
+    harness.overlay.present(INPUT_STOP_REASON.conflictResolution, {
+      heading: 'Heading',
+      descriptions: ['Description'],
+      actions: [{ label: 'Action', run: ignore }],
+      body,
+    });
+
+    expect(Array.from(
+      harness.readOverlay()?.firstElementChild?.children ?? [],
+      (child) => child.tagName.toLowerCase(),
+    )).toEqual(['p', 'p', 'fieldset', 'button']);
+  });
+
+  it('keeps the same element of the own parts, with what was set in it, when the overlay is drawn again', () => {
+    const harness = createOverlayHarness();
+    const body = document.createElement('input');
+    body.type = 'checkbox';
+    harness.overlay.present(INPUT_STOP_REASON.conflictResolution, {
+      heading: 'Heading',
+      descriptions: [],
+      actions: [],
+      body,
+    });
+    body.checked = true;
+
+    harness.overlay.present(INPUT_STOP_REASON.sendFailure, buildSendFailureOverlay(
+      localizer,
+      { deliveryFailed: true, captureFailed: false },
+      ignore,
+    ));
+
+    const placed = harness.readOverlay()?.querySelector('input');
+    expect([placed === body, placed?.checked]).toEqual([true, true]);
+  });
+
   it('puts a message in as text rather than as an element', () => {
     const harness = createOverlayHarness();
 

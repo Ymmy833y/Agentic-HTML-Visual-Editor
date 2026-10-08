@@ -12,6 +12,7 @@ export const INPUT_STOP_REASON = {
   unopenableDocument: 'unopenableDocument',
   sendFailure: 'sendFailure',
   saveRoundTrip: 'saveRoundTrip',
+  conflictResolution: 'conflictResolution',
   restoreIncomplete: 'restoreIncomplete',
   historyProtected: 'historyProtected',
   actionDialog: 'actionDialog',

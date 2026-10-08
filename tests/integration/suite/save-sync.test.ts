@@ -33,6 +33,11 @@ const MERGED_TEXT = SOURCE_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>')
 const CONFLICT_SOURCE_EDITED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from source</p>');
 const CONFLICT_VIEW_EDITED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from view</p>');
 const CONFLICT_MERGED_TEXT = INITIAL_TEXT.replace('<p>first</p>', '<p>from source</p>\n<p>from view</p>');
+// A change to a line away from the conflict, made to the file while the user is choosing.
+const CONFLICT_SOURCE_EDITED_AGAIN_TEXT = CONFLICT_SOURCE_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+
+// Another file, opened in front of the WYSIWYG tab so that the tab is in the background when it is saved.
+const OTHER_FILE_NAME = 'save-sync-other.html';
 
 const CRLF_TEXT = INITIAL_TEXT.replace(/\n/g, '\r\n');
 const CRLF_SOURCE_EDITED_TEXT = SOURCE_EDITED_TEXT.replace(/\n/g, '\r\n');
@@ -50,6 +55,12 @@ const ADJACENT_MERGED_TEXT = ADJACENT_SOURCE_EDITED_TEXT.replace('<p>second</p>'
 
 // A fragment of the notification shown when the text tab holds unsaved edits.
 const DIRTY_TEXT_TAB_NOTICE_FRAGMENT = 'unsaved edits';
+
+// A fragment of the notification shown while a save waits for a choice in a tab that is not visible.
+const WAITING_NOTICE_FRAGMENT = 'is waiting for you to choose';
+
+// A fragment of the notification offering to close the view without saving after a canceled choice.
+const CLOSE_WITHOUT_SAVING_NOTICE_FRAGMENT = 'close it without saving';
 
 interface RecordedMessage {
   readonly direction: 'fromView' | 'toView';
@@ -69,6 +80,8 @@ interface ExtensionApi {
   readSaveEntryInspection(): { readonly calls: readonly { readonly kind: string }[] };
   clearSaveEntryInspection(): void;
   saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
+  showConflictsForTest(documentUri: string): boolean;
+  closeWithoutSavingForTest(documentUri: string): Promise<boolean>;
   injectViewMessage(documentUri: string, message: unknown): Promise<boolean>;
   replaceViewContentForTest(documentUri: string, text: string): Promise<boolean>;
   prepareInitialReconcileForTest(documentUri: string): {
@@ -235,10 +248,11 @@ let injectedEditUnits = 0;
 // The extension host cannot generate webview keystrokes, so the signal sequence a real view sends for one
 // edit is injected in the same order. The after full text is the full text the view currently holds, because
 // the history side compares it with the output right before saving.
-async function makeViewDirty(uri: vscode.Uri): Promise<void> {
+async function makeViewDirty(uri: vscode.Uri, beforeText?: string): Promise<void> {
   const after = { text: await readViewText(uri), selection: null };
-  // The before text only has to differ from the after text. An identical pair is rejected as invalid.
-  const before = { text: `${after.text}<!-- before -->`, selection: null };
+  // Unless a case undoes the edit, the before text only has to differ from the after text. An identical pair is
+  // rejected as invalid.
+  const before = { text: beforeText ?? `${after.text}<!-- before -->`, selection: null };
   injectedEditUnits += 1;
   const unitId = `integration-${injectedEditUnits}`;
 
@@ -281,6 +295,94 @@ async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
 async function resetEditors(): Promise<void> {
   await revertDirtyTextEditors();
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+}
+
+// The ids of the conflict presentations the host sent to the view, in send order.
+async function readPresentationIds(uri: vscode.Uri): Promise<number[]> {
+  return (await readRecordedMessages(uri))
+    .filter((recorded) => recorded.direction === 'toView' && readMessageType(recorded.message) === 'presentConflicts')
+    .flatMap((recorded) => {
+      const value: unknown = Object.getOwnPropertyDescriptor(recorded.message, 'presentationId')?.value;
+      return typeof value === 'number' ? [value] : [];
+    });
+}
+
+// A save with a conflict waits for the user's choice, so it is started without waiting for it. Its outcome is waited
+// for after the choice is injected; a cancelled save rejects, and that rejection is not what these cases look at.
+function startSave(command = 'workbench.action.files.save'): Promise<unknown> {
+  return Promise.resolve(vscode.commands.executeCommand(command)).then(undefined, () => undefined);
+}
+
+// Waits until the view has been shown the given number of presentations and returns the id of the last one.
+async function waitForPresentation(uri: vscode.Uri, count = 1): Promise<number> {
+  await waitUntil(async () => (await readPresentationIds(uri)).length >= count, 'the host presented the conflicts');
+  const ids = await readPresentationIds(uri);
+  return ids[ids.length - 1];
+}
+
+// The extension host cannot press the buttons of the overlay, so the choice the view would send is injected.
+async function chooseConflicts(
+  uri: vscode.Uri,
+  presentationId: number,
+  choices: readonly string[] | null,
+): Promise<void> {
+  const dispatched = await (await api()).injectViewMessage(
+    uri.toString(),
+    { type: 'conflictsResolved', presentationId, choices },
+  );
+  assert.ok(dispatched, 'the choice was not delivered because no session is registered');
+}
+
+// Prepares a dirty view whose edit and an external edit both change the same line. The edit is recorded from the
+// initial content, so undoing it returns there.
+async function prepareConflict(sourceText = CONFLICT_SOURCE_EDITED_TEXT): Promise<vscode.Uri> {
+  const uri = await resetScratch();
+  await openWysiwyg(uri);
+  await replaceViewContent(uri, CONFLICT_VIEW_EDITED_TEXT);
+  await makeViewDirty(uri, INITIAL_TEXT);
+  await writeExternally(uri, sourceText);
+  return uri;
+}
+
+// Whether the extension has shown a notification containing the fragment since the inspection was last cleared.
+async function wasNotified(fragment: string): Promise<boolean> {
+  return (await api()).readDiagnosticInspection().notifications.some((message) => message.includes(fragment));
+}
+
+async function setAutoSave(value: string | undefined): Promise<void> {
+  await vscode.workspace.getConfiguration('files').update('autoSave', value, vscode.ConfigurationTarget.Global);
+  await waitUntil(
+    () => vscode.workspace.getConfiguration('files').inspect('autoSave')?.globalValue === value,
+    `auto save became ${String(value)}`,
+  );
+}
+
+// Sets auto save in the HTML language section of the user settings, leaving the setting for all files as it is.
+async function setHtmlAutoSave(value: string | undefined): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration('files', { languageId: 'html' });
+  await configuration.update('autoSave', value, vscode.ConfigurationTarget.Global, true);
+  await waitUntil(
+    () => vscode.workspace.getConfiguration('files', { languageId: 'html' }).inspect('autoSave')
+      ?.globalLanguageValue === value,
+    `auto save for HTML became ${String(value)}`,
+  );
+}
+
+// The standard undo and redo return before the view has applied the entry, and VS Code does not take the next one
+// until the round trip closes. Returns the full text the view was given.
+async function runHistoryCommand(uri: vscode.Uri, command: 'undo' | 'redo'): Promise<string> {
+  const countReleases = async (): Promise<number> => (await readRecordedMessages(uri)).filter(
+    (recorded) => recorded.direction === 'toView' && readMessageType(recorded.message) === 'saveReleased',
+  ).length;
+  const releasesBefore = await countReleases();
+  const appliedBefore = (await readReplacements(uri, 'editHistory')).length;
+
+  await vscode.commands.executeCommand(command);
+  await waitUntil(async () => await countReleases() > releasesBefore, `${command} finished its round trip`);
+
+  const applied = await readReplacements(uri, 'editHistory');
+  assert.strictEqual(applied.length, appliedBefore + 1, `${command} did not apply exactly one entry`);
+  return applied[applied.length - 1];
 }
 
 describe('reflecting external changes in the view', () => {
@@ -422,14 +524,12 @@ describe('save-time merge', () => {
     assert.strictEqual(await readFileText(uri), ADJACENT_MERGED_TEXT);
   });
 
-  it('writes the source line and then the view line, each as written, after saving when both sides change the same line', async () => {
-    const uri = await resetScratch();
-    await openWysiwyg(uri);
-    await replaceViewContent(uri, CONFLICT_VIEW_EDITED_TEXT);
-    await makeViewDirty(uri);
-    await writeExternally(uri, CONFLICT_SOURCE_EDITED_TEXT);
+  it('writes the source line and then the view line, each as written, when both sides change the same line and both are kept', async () => {
+    const uri = await prepareConflict();
 
-    await vscode.commands.executeCommand('workbench.action.files.save');
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), ['both']);
+    await saving;
     await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
 
     assert.strictEqual(await readFileText(uri), CONFLICT_MERGED_TEXT);
@@ -512,5 +612,298 @@ describe('save-time merge', () => {
 
     assert.strictEqual(await readFileText(uri), UNBOUNDED_TEXT);
     assert.strictEqual(findCustomTab(uri)?.isDirty, true);
+  });
+});
+
+describe('resolving conflicts on a save', () => {
+  beforeEach(async () => {
+    await resetEditors();
+    await resetScratch();
+    (await api()).clearDiagnosticInspection();
+  });
+
+  // A case that fails while the save waits for a choice would leave the save holding the document. Cancelling the last
+  // presentation lets it go; a presentation no save waits for any longer is only logged.
+  afterEach(async () => {
+    const uri = fixtureUri(SCRATCH_FILE_NAME);
+    const ids = await readPresentationIds(uri);
+    if (ids.length > 0) {
+      await (await api()).injectViewMessage(
+        uri.toString(),
+        { type: 'conflictsResolved', presentationId: ids[ids.length - 1], choices: null },
+      );
+    }
+  });
+
+  after(async () => {
+    await resetEditors();
+    await deleteIfPresent(fixtureUri(SCRATCH_FILE_NAME));
+    await deleteIfPresent(fixtureUri(OTHER_FILE_NAME));
+  });
+
+  it('writes only the source line and clears the dirty mark when the file\'s version is kept', async () => {
+    const uri = await prepareConflict();
+
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), ['source']);
+    await saving;
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(await readFileText(uri), CONFLICT_SOURCE_EDITED_TEXT);
+    // The overlay is in front of the user, so no notice says that the save waits.
+    assert.strictEqual(await wasNotified(WAITING_NOTICE_FRAGMENT), false);
+  });
+
+  it('writes only the view line when the visual editor\'s version is kept', async () => {
+    const uri = await prepareConflict();
+
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), ['view']);
+    await saving;
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(await readFileText(uri), CONFLICT_VIEW_EDITED_TEXT);
+  });
+
+  it('leaves the file unchanged and keeps the dirty mark when the choice is cancelled', async () => {
+    const uri = await prepareConflict();
+
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), null);
+    await saving;
+    await delay(SETTLE_MS);
+
+    assert.strictEqual(await readFileText(uri), CONFLICT_SOURCE_EDITED_TEXT);
+    assert.strictEqual(findCustomTab(uri)?.isDirty, true);
+  });
+
+  it('writes the chosen version together with a change the file received away from the conflict while choosing', async () => {
+    const uri = await prepareConflict();
+
+    const saving = startSave();
+    const presentationId = await waitForPresentation(uri);
+    await writeExternally(uri, CONFLICT_SOURCE_EDITED_AGAIN_TEXT);
+    await chooseConflicts(uri, presentationId, ['view']);
+    await saving;
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(
+      await readFileText(uri),
+      CONFLICT_VIEW_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>'),
+    );
+  });
+
+  it('writes the chosen version and clears the dirty mark when the save is run again while choosing', async () => {
+    const uri = await prepareConflict();
+
+    const first = startSave();
+    const presentationId = await waitForPresentation(uri);
+    const second = startSave();
+    await chooseConflicts(uri, presentationId, ['view']);
+    await Promise.all([first, second]);
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+
+    assert.strictEqual(await readFileText(uri), CONFLICT_VIEW_EDITED_TEXT);
+  });
+
+  it('leaves a WYSIWYG tab in the background where it is, tells the user, and brings it forward when asked', async () => {
+    const uri = await prepareConflict();
+    const otherUri = fixtureUri(OTHER_FILE_NAME);
+    await writeFileText(otherUri, INITIAL_TEXT);
+    await vscode.commands.executeCommand('vscode.open', otherUri);
+    await waitUntil(() => findCustomTab(uri)?.isActive === false, 'the WYSIWYG tab went to the background');
+
+    const saving = startSave('workbench.action.files.saveAll');
+    const presentationId = await waitForPresentation(uri);
+    // The notice names the file, so that the notices of two documents do not replace each other.
+    await waitUntil(
+      () => wasNotified(`${SCRATCH_FILE_NAME} ${WAITING_NOTICE_FRAGMENT}`),
+      'the user was told that the save of this file waits',
+    );
+    const stayedBehind = findCustomTab(uri)?.isActive === false;
+    assert.ok((await api()).showConflictsForTest(uri.toString()), 'the notice action found no open document');
+    await waitUntil(() => findCustomTab(uri)?.isActive === true, 'the WYSIWYG tab came to the front');
+    await chooseConflicts(uri, presentationId, ['view']);
+    await saving;
+
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+    assert.strictEqual(stayedBehind, true);
+  });
+
+  it('offers no way to close without saving after a cancel while auto save is off', async () => {
+    const uri = await prepareConflict();
+
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), null);
+    await saving;
+    await delay(SETTLE_MS);
+
+    assert.strictEqual(await wasNotified(CLOSE_WITHOUT_SAVING_NOTICE_FRAGMENT), false);
+  });
+
+  it('closes only the WYSIWYG tab without saving while a dirty text editor in another group is active', async () => {
+    const uri = await prepareConflict();
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), null);
+    await saving;
+    const otherUri = fixtureUri(OTHER_FILE_NAME);
+    await writeFileText(otherUri, INITIAL_TEXT);
+    const editor = await vscode.window.showTextDocument(otherUri, { viewColumn: vscode.ViewColumn.Two, preview: false });
+    await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- edited -->'));
+    await waitUntil(() => findCustomTab(uri)?.group.isActive === false, 'the other group became active');
+
+    assert.ok(await (await api()).closeWithoutSavingForTest(uri.toString()), 'the notice action did not close');
+    await waitUntil(() => findCustomTab(uri) === undefined, 'the WYSIWYG tab closed');
+
+    assert.deepStrictEqual(
+      [findTextTab(otherUri)?.isDirty, await readFileText(uri)],
+      [true, CONFLICT_SOURCE_EDITED_TEXT],
+    );
+  });
+
+  // Undo takes back the choice alone, to the view side merged with the rest of the same save, and redo returns to the
+  // file. Neither adds lines, however often it is repeated.
+  for (const [label, choice, chosen] of [
+    ['the file\'s version', 'source', CONFLICT_SOURCE_EDITED_TEXT],
+    ['both versions', 'both', CONFLICT_MERGED_TEXT],
+  ] as const) {
+    it(`undoes ${label} back to the view side and redoes it to the file, twice over, after the save`, async () => {
+      const uri = await prepareConflict();
+      const saving = startSave();
+      await chooseConflicts(uri, await waitForPresentation(uri), [choice]);
+      await saving;
+      await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+      const buffer = await vscode.workspace.openTextDocument(uri);
+      await waitUntil(() => buffer.getText() === chosen, 'the buffer followed the save');
+
+      const steps: [string, boolean | undefined][] = [];
+      for (const command of ['undo', 'redo', 'undo', 'redo'] as const) {
+        const text = await runHistoryCommand(uri, command);
+        await waitUntil(
+          () => findCustomTab(uri)?.isDirty === (command === 'undo'),
+          `the dirty mark followed the ${command}`,
+        );
+        steps.push([text, findCustomTab(uri)?.isDirty]);
+      }
+
+      assert.deepStrictEqual(steps, [
+        [CONFLICT_VIEW_EDITED_TEXT, true],
+        [chosen, false],
+        [CONFLICT_VIEW_EDITED_TEXT, true],
+        [chosen, false],
+      ]);
+      assert.strictEqual(await readFileText(uri), chosen);
+    });
+  }
+
+  it('keeps an external change the save took in on a distant line when the original edit is undone too', async () => {
+    const uri = await prepareConflict(CONFLICT_SOURCE_EDITED_AGAIN_TEXT);
+    const saving = startSave();
+    await chooseConflicts(uri, await waitForPresentation(uri), ['source']);
+    await saving;
+    await waitUntil(() => findCustomTab(uri)?.isDirty === false, 'the WYSIWYG tab stopped being dirty');
+    const buffer = await vscode.workspace.openTextDocument(uri);
+    await waitUntil(() => buffer.getText() === CONFLICT_SOURCE_EDITED_AGAIN_TEXT, 'the buffer followed the save');
+
+    const undone = [await runHistoryCommand(uri, 'undo'), await runHistoryCommand(uri, 'undo')];
+
+    assert.deepStrictEqual(undone, [
+      CONFLICT_VIEW_EDITED_TEXT.replace('<p>second</p>', '<p>SECOND</p>'),
+      INITIAL_TEXT.replace('<p>second</p>', '<p>SECOND</p>'),
+    ]);
+  });
+
+  describe('with auto save on focus change', () => {
+    beforeEach(async () => {
+      await setAutoSave('onFocusChange');
+    });
+
+    // Turned off before the outer cleanup cancels and closes, so that neither starts another save.
+    afterEach(async () => {
+      await setAutoSave(undefined);
+    });
+
+    it('keeps the tab the user moved to in front when the save on leaving meets a conflict', async () => {
+      const uri = await prepareConflict();
+      const otherUri = fixtureUri(OTHER_FILE_NAME);
+      await writeFileText(otherUri, INITIAL_TEXT);
+      const viewColumn = findCustomTab(uri)?.group.viewColumn;
+
+      await vscode.window.showTextDocument(otherUri, { viewColumn, preview: false });
+      await waitForPresentation(uri);
+      await waitUntil(() => wasNotified(WAITING_NOTICE_FRAGMENT), 'the user was told that the save waits');
+      await delay(SETTLE_MS);
+
+      assert.deepStrictEqual(
+        [findCustomTab(uri)?.isActive, findTextTab(otherUri)?.isActive],
+        [false, true],
+      );
+    });
+
+    it('offers to close without saving after a close is canceled, and closes the tab without writing', async () => {
+      const uri = await prepareConflict();
+
+      const closing = Promise.resolve(vscode.commands.executeCommand('workbench.action.closeActiveEditor'))
+        .then(undefined, () => undefined);
+      await chooseConflicts(uri, await waitForPresentation(uri), null);
+      await closing;
+      await waitUntil(
+        () => wasNotified(CLOSE_WITHOUT_SAVING_NOTICE_FRAGMENT),
+        'the user was offered to close without saving',
+      );
+      const openAfterCancel = findCustomTab(uri) !== undefined;
+      assert.ok(await (await api()).closeWithoutSavingForTest(uri.toString()), 'the notice action did not close');
+      await waitUntil(() => findCustomTab(uri) === undefined, 'the WYSIWYG tab closed');
+
+      assert.deepStrictEqual([openAfterCancel, await readFileText(uri)], [true, CONFLICT_SOURCE_EDITED_TEXT]);
+    });
+  });
+
+  // In the desktop app the offer follows this setting whatever the OS, since the extension cannot tell the OS apart.
+  describe('with auto save on window change', () => {
+    beforeEach(async () => {
+      await setAutoSave('onWindowChange');
+    });
+
+    afterEach(async () => {
+      await setAutoSave(undefined);
+    });
+
+    it('offers to close without saving after a cancel', async () => {
+      const uri = await prepareConflict();
+
+      const saving = startSave();
+      await chooseConflicts(uri, await waitForPresentation(uri), null);
+      await saving;
+
+      await waitUntil(
+        () => wasNotified(`${SCRATCH_FILE_NAME} was not saved`),
+        'the user was offered to close this file without saving',
+      );
+    });
+  });
+
+  // VS Code reads the setting for the file's language when it closes the editor, so the offer has to as well.
+  describe('with auto save on focus change set for HTML only', () => {
+    beforeEach(async () => {
+      await setHtmlAutoSave('onFocusChange');
+    });
+
+    afterEach(async () => {
+      await setHtmlAutoSave(undefined);
+    });
+
+    it('offers to close without saving after a cancel', async () => {
+      const uri = await prepareConflict();
+
+      const saving = startSave();
+      await chooseConflicts(uri, await waitForPresentation(uri), null);
+      await saving;
+
+      await waitUntil(
+        () => wasNotified(CLOSE_WITHOUT_SAVING_NOTICE_FRAGMENT),
+        'the user was offered to close without saving',
+      );
+    });
   });
 });

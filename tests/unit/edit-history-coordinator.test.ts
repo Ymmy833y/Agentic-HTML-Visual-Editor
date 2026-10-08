@@ -422,3 +422,66 @@ describe('restore entry', () => {
     expect([applied, harness.savePointReturns]).toEqual([true, []]);
   });
 });
+
+describe('conflict choice entry', () => {
+  beforeEach(() => {
+    availability.enabled = true;
+  });
+
+  it('registers one entry from the view side to the chosen full text', () => {
+    const harness = createHarness();
+
+    const registered = harness.coordinator.registerConflictChoiceEntry(TEXT_A, TEXT_AB);
+
+    expect([registered, harness.events.length]).toEqual([true, 1]);
+    expect([harness.events[0].before, harness.events[0].after]).toEqual([snapshot(TEXT_A), snapshot(TEXT_AB)]);
+  });
+
+  it('keeps every registered choice reachable by undo', async () => {
+    const harness = createHarness();
+    harness.coordinator.registerConflictChoiceEntry(TEXT_A, TEXT_AB);
+    harness.coordinator.registerConflictChoiceEntry(TEXT_AB, TEXT_ABC);
+
+    const undone = [
+      await harness.coordinator.runHistoryTransitionForTest(HISTORY_DIRECTION.undo),
+      await harness.coordinator.runHistoryTransitionForTest(HISTORY_DIRECTION.undo),
+    ];
+
+    expect([undone, harness.events[0].unitId === harness.events[1].unitId]).toEqual([[true, true], false]);
+  });
+
+  it('checks the next save against the chosen full text', () => {
+    const harness = createHarness();
+    harness.coordinator.registerConflictChoiceEntry(TEXT_A, TEXT_AB);
+
+    expect([
+      harness.coordinator.confirmSaveEndpoint(TEXT_A),
+      harness.coordinator.confirmSaveEndpoint(TEXT_AB),
+    ]).toEqual([false, true]);
+  });
+
+  it('returns to the save point by redo after the save that wrote the choice', async () => {
+    const harness = createHarness();
+    harness.coordinator.registerConflictChoiceEntry(TEXT_A, TEXT_AB);
+    harness.coordinator.notifySaveSucceeded(TEXT_AB);
+
+    await harness.coordinator.runHistoryTransitionForTest(HISTORY_DIRECTION.undo);
+    const returnsAfterUndo = harness.savePointReturns.length;
+    await harness.coordinator.runHistoryTransitionForTest(HISTORY_DIRECTION.redo);
+
+    expect([returnsAfterUndo, harness.savePointReturns.length, harness.replacementCalls]).toEqual([
+      0,
+      1,
+      ['block', 'unblock'],
+    ]);
+  });
+
+  it('refuses the entry while protected', () => {
+    const harness = createHarness();
+    harness.coordinator.reportProtection('forced', undefined);
+
+    const registered = harness.coordinator.registerConflictChoiceEntry(TEXT_A, TEXT_AB);
+
+    expect([registered, harness.events]).toEqual([false, []]);
+  });
+});

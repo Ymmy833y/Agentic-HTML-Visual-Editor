@@ -1779,6 +1779,140 @@
   margin-left: 0.5em;
 }
 
+/* The conflict resolution of a save. The class matches the constant in conflict-overlay.ts.
+   Its section is wider than the others, so that the two sides of a region fit side by side, and its parts read from
+   the start of the line. */
+#editor-overlay > div:has(> .conflict-resolution) {
+  width: 100%;
+  max-width: 72em;
+}
+
+#editor-overlay .conflict-resolution {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  margin-top: 1em;
+  text-align: start;
+}
+
+/* One conflict region. A fieldset would otherwise grow to its widest content and push the sides out of the view. */
+#editor-overlay .conflict-region {
+  min-width: 0;
+  margin: 0;
+  padding: 0.5em 1em 1em;
+  border: 1px solid var(--ahve-border);
+  border-radius: 6px;
+}
+
+#editor-overlay .conflict-region > legend {
+  padding: 0 0.4em;
+  font-weight: 600;
+}
+
+#editor-overlay .conflict-show-html {
+  display: block;
+  margin-left: auto;
+}
+
+/* The two sides sit side by side, and one above the other once the view is too narrow for two. */
+#editor-overlay .conflict-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr));
+  gap: 0.75em;
+  margin: 0.75em 0;
+}
+
+#editor-overlay .conflict-side {
+  min-width: 0;
+}
+
+#editor-overlay .conflict-side-heading {
+  margin: 0 0 0.35em;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+/* The box that holds a side. Its height is capped and it scrolls. Containing layout and paint makes it the containing
+   block of anything positioned inside, so that an element with fixed position stays within the box and cannot cover
+   the choices or the buttons. */
+#editor-overlay .conflict-side > div {
+  box-sizing: border-box;
+  max-height: 16em;
+  overflow: auto;
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--ahve-border);
+  border-radius: 4px;
+  contain: layout paint;
+}
+
+/* The rendering of a side. A simple look of its own, not the editor root's. The comment entries are hidden as in the
+   editor root. */
+#editor-overlay .conflict-side-rendered :is(p, ul, ol, pre, blockquote, table, details, hr, h1, h2, h3, h4, h5, h6) {
+  margin: 0.4em 0;
+}
+
+#editor-overlay .conflict-side-rendered :is(comment-body, comment-reply) {
+  display: none;
+}
+
+#editor-overlay .conflict-side-rendered img {
+  max-width: 100%;
+  height: auto;
+}
+
+#editor-overlay .conflict-side-rendered table {
+  border-collapse: collapse;
+}
+
+#editor-overlay .conflict-side-rendered :is(th, td) {
+  padding: 0.2em 0.4em;
+  border: 1px solid var(--ahve-border);
+}
+
+#editor-overlay .conflict-side-source {
+  margin: 0;
+  font-family: var(--ahve-font-family-mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#editor-overlay .conflict-side-empty {
+  margin: 0;
+  color: var(--ahve-muted);
+  font-style: italic;
+}
+
+#editor-overlay .conflict-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em 1.25em;
+}
+
+#editor-overlay .conflict-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+#editor-overlay .conflict-choices input {
+  margin: 0;
+  accent-color: var(--ahve-accent);
+}
+
+#editor-overlay .conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5em;
+}
+
+/* While the conflict resolution is up, the action dialog's box would sit in front of it and hide its regions. The box
+   and its backdrop are hidden until the resolution goes down; what was typed into the dialog is kept. */
+body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialog-backdrop) {
+  visibility: hidden;
+}
+
 /* The backdrop of the action dialog. The ID matches the constant in action-dialog.ts.
    It dims everything behind the dialog, showing that the document cannot be edited while the dialog
    is open. It stacks in front of the toolbar and behind the overlay, so that an overlay that goes up
@@ -2126,7 +2260,9 @@
 #editor-change-popup :focus-visible,
 #editor-search-panel :focus-visible,
 #action-dialog :focus-visible,
-#editor-overlay button:focus-visible {
+#editor-overlay button:focus-visible,
+#editor-overlay .conflict-choices input:focus-visible,
+#editor-overlay .conflict-side > div:focus-visible {
   outline: 2px solid var(--ahve-focus-ring);
   outline-offset: 2px;
 }
@@ -2240,6 +2376,29 @@
 
 #editor-overlay > div > button:first-of-type:hover {
   background: var(--ahve-button-hover-bg);
+}
+
+/* The conflict resolution's Save is its main action. Its buttons sit inside the resolution's own parts, so the rule
+   for the first overlay action does not reach it. Until every region has a choice it is disabled and does not react
+   to the pointer. */
+#editor-overlay .conflict-save {
+  color: var(--ahve-button-fg);
+  background: var(--ahve-button-bg);
+}
+
+#editor-overlay .conflict-save:hover {
+  background: var(--ahve-button-hover-bg);
+}
+
+#editor-overlay .conflict-save:disabled {
+  background: var(--ahve-button-bg);
+  opacity: 0.5;
+}
+
+/* The HTML toggle while it is pressed. */
+#editor-overlay .conflict-show-html[aria-pressed="true"] {
+  border-color: var(--ahve-accent);
+  background: var(--ahve-selection);
 }
 
 /* High contrast themes. VS Code puts one of these classes on the body. A difference in background
@@ -2395,6 +2554,7 @@
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog button,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay > div > button,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-resolution button,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:is(.comment-thread-save, .comment-thread-cancel),
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker button {
   color: inherit;
@@ -2404,9 +2564,23 @@
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog button:hover,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay > div > button:hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-resolution button:hover,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:is(.comment-thread-save, .comment-thread-cancel):hover,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker button:hover {
   background: var(--ahve-code-bg);
+}
+
+/* The conflict resolution's pressed HTML toggle is told by its border, and its disabled Save by a dashed border, like
+   the toolbar items. The pressed toggle keeps the text color on the code background: the selection color of these
+   themes would leave its label unreadable. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-show-html[aria-pressed="true"] {
+  color: inherit;
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-accent);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-save:disabled {
+  border-style: dashed;
 }
 
 /* The sidebar. The shade, the fills and the tint of the chosen tab are translucent mixes that can vanish in these

@@ -209,5 +209,22 @@
   "changePopup.deletion": "Deletion",
   "changePopup.replacement": "Replacement",
   "changePopup.accept": "Accept",
-  "changePopup.reject": "Reject"
+  "changePopup.reject": "Reject",
+  "conflictResolution.heading": "Your edits conflict with changes made to the file.",
+  "conflictResolution.description": "Choose what to keep for each conflict. The file is saved after you choose.",
+  "conflictResolution.changedAgain": "The file changed again while you were choosing. Choose again for these conflicts.",
+  "conflictResolution.conflict": "Conflict {index} of {count}",
+  "conflictResolution.fileSide": "In the File",
+  "conflictResolution.editorSide": "In the Visual Editor",
+  "conflictResolution.keepFile": "Keep the File's Version",
+  "conflictResolution.keepEditor": "Keep the Visual Editor's Version",
+  "conflictResolution.keepBoth": "Keep Both",
+  "conflictResolution.showHtml": "Show HTML",
+  "conflictResolution.empty": "(Empty)",
+  "conflictResolution.save": "Save",
+  "conflictResolution.cancel": "Cancel",
+  "conflictResolution.waiting.message": "Saving {name} is waiting for you to choose what to keep for each conflict in the visual editor.",
+  "conflictResolution.showConflicts": "Show Conflicts",
+  "conflictResolution.canceled.message": "{name} was not saved, so the visual editor still has unsaved edits. You can keep editing or close it without saving.",
+  "conflictResolution.closeWithoutSaving": "Close Without Saving"
 }

@@ -101,6 +101,10 @@ const RESTORE_RECORD_FOLDER = 'records';
 // recovery from staying stuck because of an unresponsive view.
 const RECOVERY_REOPEN_TIMEOUT_MS = 10000;
 
+// How long to wait for the tab brought forward to become the active editor before closing it without saving. Bringing
+// it forward is one round trip to the window, so this only gives up when something else took the focus.
+const CLOSE_WITHOUT_SAVING_TIMEOUT_MS = 2000;
+
 const RECOVERY_REOPEN_POLL_MS = 50;
 
 // TextEncoder is global in both extension hosts, but this layer has no DOM types. Declare only the
@@ -307,6 +311,8 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       prepareInitialReconcileForTest: (documentUri) =>
         provider.prepareInitialReconcileForTest(documentUri),
       saveTextEditorThenViewForTest: (documentUri) => provider.saveTextEditorThenViewForTest(documentUri),
+      showConflictsForTest: (documentUri) => provider.showConflictsForTest(documentUri),
+      closeWithoutSavingForTest: (documentUri) => provider.closeWithoutSavingForTest(documentUri),
     });
 
     // Do not hold up activation. As long as the discard record remains, deletion can be retried on the next
@@ -390,7 +396,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     const saveCoordinator = new SaveCoordinator(
       document.sourceUri.toString(),
       document,
-      this.createSaveHost(document, webview),
+      this.createSaveHost(document, webviewPanel),
     );
     session.setSaveCoordinator(saveCoordinator);
 
@@ -416,6 +422,8 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       prepareSaveEndpoint: (text) => historyCoordinator.prepareSaveEndpoint(text),
       confirmSaveEndpoint: (text) => historyCoordinator.confirmSaveEndpoint(text),
       notifySaveSucceeded: (text) => historyCoordinator.notifySaveSucceeded(text),
+      registerConflictChoiceEntry: (viewSideText, chosenText) =>
+        historyCoordinator.registerConflictChoiceEntry(viewSideText, chosenText),
       notifyRevertResult: (succeeded, text) => historyCoordinator.notifyRevertResult(succeeded, text),
       reportProtection: (reason, staleText) => historyCoordinator.reportProtection(reason, staleText),
     });
@@ -1237,11 +1245,12 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
    * Assembles the extension-host channel the save coordinator uses.
    *
    * @param document The target document.
-   * @param webview The panel webview to send to.
+   * @param panel The panel of the view to send to, whose visibility decides whether the user is told that a save waits.
    * @returns A channel for writing files, reading the text buffer, sending to the view, firing change
    * events, recording diagnostics, and notifying the user.
    */
-  private createSaveHost(document: HtmlCustomDocument, webview: vscode.Webview): SaveHost {
+  private createSaveHost(document: HtmlCustomDocument, panel: vscode.WebviewPanel): SaveHost {
+    const webview = panel.webview;
     return {
       writeFile: async (uri, text) => {
         // Write through the workspace API; node:fs cannot be resolved in the web extension host.
@@ -1275,7 +1284,137 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
           await this.saveTextEditorThenView(document);
         }
       },
+      reportConflictsWaiting: async () => {
+        if (panel.visible) {
+          return;
+        }
+        // VS Code closes an earlier notification with the same text and actions when it shows this one, so a notice
+        // is shown on every presentation without piling up. The path keeps the notices of two documents apart, even
+        // for files of the same name in different folders.
+        const selected = await this.errorReporter.reportUserInformation(
+          'conflictResolution.waiting.message',
+          ['conflictResolution.showConflicts'],
+          { name: vscode.workspace.asRelativePath(document.sourceUri) },
+        );
+        if (selected !== undefined) {
+          this.showConflicts(document);
+        }
+      },
     };
+  }
+
+  /**
+   * Brings the view's tab forward with focus, so that the user can choose for the conflicts a save waits on.
+   *
+   * The document can be closed while the notification is open, so that is checked when it runs.
+   *
+   * @param document The document whose save waits.
+   * @returns Whether the tab was brought forward.
+   */
+  private showConflicts(document: HtmlCustomDocument): boolean {
+    const session = this.findSessionOf(document);
+    if (document.isDisposed || session === undefined) {
+      this.errorReporter.reportInternalError(
+        `Did not show the conflicts because the document is already closed: ${document.sourceUri.toString()}`,
+      );
+      return false;
+    }
+    session.panel.reveal(session.panel.viewColumn, false);
+    return true;
+  }
+
+  /**
+   * Runs the conflicts waiting notice's action for integration tests, which cannot select a notification action.
+   *
+   * @param documentUri The canonical form of the document's URI.
+   * @returns Whether an open document was found and its tab brought forward.
+   */
+  private showConflictsForTest(documentUri: string): boolean {
+    const document = this.liveDocuments.get(documentUri);
+    return this.testMode && document !== undefined && this.showConflicts(document);
+  }
+
+  /**
+   * After the user canceled a save in the conflict overlay, offers to close the view without saving, when VS Code would
+   * otherwise give them no way to.
+   *
+   * With auto save on focus change, and on window change in the desktop app, VS Code closes a dirty editor by saving it
+   * without asking, and a save that does not complete only stops the close: the confirm dialog with Don't Save never
+   * appears. The save entry point is not told why it runs, so the offer follows the setting alone. Which OS the window
+   * runs on cannot be told from a web extension host; on macOS, where VS Code asks on window change after all, the
+   * offer only adds a second way out.
+   *
+   * @param document The document whose save was canceled.
+   */
+  private offerCloseWithoutSaving(document: HtmlCustomDocument): void {
+    // Read with the file's language as VS Code does when it closes the editor, so that an auto save set only for that
+    // language counts too. Saving reads the text document, so it is normally open; HTML stands in when it is not.
+    const sourceKey = document.sourceUri.toString();
+    const languageId = vscode.workspace.textDocuments.find((textDocument) => textDocument.uri.toString() === sourceKey)
+      ?.languageId ?? 'html';
+    const autoSave = vscode.workspace
+      .getConfiguration('files', { uri: document.sourceUri, languageId })
+      .get<string>('autoSave');
+    const closesBySaving = autoSave === 'onFocusChange'
+      || (autoSave === 'onWindowChange' && vscode.env.uiKind === vscode.UIKind.Desktop);
+    if (!closesBySaving) {
+      return;
+    }
+
+    // Shown on every cancel, so that the way out is in front whenever the close it follows failed. VS Code replaces an
+    // earlier notification with the same text and actions, so they do not pile up.
+    void this.errorReporter
+      .reportUserInformation(
+        'conflictResolution.canceled.message',
+        ['conflictResolution.closeWithoutSaving'],
+        { name: vscode.workspace.asRelativePath(document.sourceUri) },
+      )
+      .then(async (selected) => {
+        if (selected !== undefined) {
+          await this.closeWithoutSaving(document);
+        }
+      })
+      .catch((error: unknown) => {
+        this.errorReporter.reportInternalError(`Could not offer to close without saving: ${String(error)}`);
+      });
+  }
+
+  /**
+   * Reverts and closes the view's tab, as VS Code's Don't Save does.
+   *
+   * The revert-and-close command acts on the active editor, so the tab is brought forward first and the command runs
+   * only once that tab is the active one; run on another editor, it would discard that editor's edits.
+   *
+   * @param document The document to close.
+   * @returns Whether the command ran.
+   */
+  private async closeWithoutSaving(document: HtmlCustomDocument): Promise<boolean> {
+    if (!this.showConflicts(document)) {
+      return false;
+    }
+    const active = await pollUntil(() => {
+      const tab = findTargetTab(document.sourceUri, 'wysiwyg');
+      return tab !== undefined && tab.isActive && tab.group.isActive;
+    }, CLOSE_WITHOUT_SAVING_TIMEOUT_MS);
+    if (!active) {
+      this.errorReporter.reportInternalError(
+        `Did not close without saving because the tab did not become active: ${document.sourceUri.toString()}`,
+      );
+      return false;
+    }
+    await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    return true;
+  }
+
+  /**
+   * Runs the close without saving notice's action for integration tests, which cannot select a notification action.
+   *
+   * @param documentUri The canonical form of the document's URI.
+   * @returns Whether an open document was found and the close ran.
+   */
+  private async closeWithoutSavingForTest(documentUri: string): Promise<boolean> {
+    const document = this.liveDocuments.get(documentUri);
+    return this.testMode && document !== undefined && await this.closeWithoutSaving(document);
   }
 
   /**
@@ -1493,6 +1632,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       receiveRestoreAction: (action: RestoreAction) => {
         void this.ownersOf(document).restore.selectAction(action);
       },
+      receiveConflictsResolved: (received) => coordinator?.receiveConflictsResolved(received),
       receiveTextEditorSwitchRequest: () => this.switchToTextEditor(document),
       // Not awaited, so a slow write does not hold up the handling of later messages from the same panel.
       receiveSkeletonRequest: () => {
@@ -1620,6 +1760,12 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
 
     const coordinator = this.findSaveCoordinator(document);
     const outcome = await coordinator?.save(() => cancellation.isCancellationRequested);
+    if (outcome === 'canceled') {
+      // The user canceled in the conflict overlay. VS Code shows no failure for a cancellation, so it does not offer
+      // Revert, which would discard the edits the user just chose to keep.
+      this.offerCloseWithoutSaving(document);
+      throw new vscode.CancellationError();
+    }
     if (outcome !== 'completed') {
       // Only a rejection keeps the tab dirty. Resolving would clear the dirty mark even though nothing
       // was written.
@@ -1644,6 +1790,11 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       (isEditorResource(destination) ? resolveEditorSource(destination) : destination).toString(),
       () => cancellation.isCancellationRequested,
     );
+    if (outcome === 'canceled') {
+      // Saving as the same file goes through the conflict overlay as well; see saveCustomDocument.
+      this.offerCloseWithoutSaving(document);
+      throw new vscode.CancellationError();
+    }
     if (outcome !== 'completed') {
       throw new Error(this.localizer.getMessage('saveFailed.message'));
     }
