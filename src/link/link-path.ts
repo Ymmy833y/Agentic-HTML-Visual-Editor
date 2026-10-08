@@ -59,8 +59,9 @@ export function resolveTargetPath(href: string, documentPath: string): string | 
  * Resolves a relative file href against the scope root and returns the target path.
  *
  * A link written from the project root (`docs/a.html` in `docs/index.html` meaning `<root>/docs/a.html`) does not
- * point where the document-relative resolution looks. This is the second candidate tried for such links. The scope
- * root is taken as the document path's leading segments at the scope depth, the same spelling the scope check
+ * point where the document-relative resolution looks. This is the second candidate tried for such links. A
+ * root-relative href (`/a.html`) resolves only this way; its leading `/` becomes an empty segment and is dropped. The
+ * scope root is taken as the document path's leading segments at the scope depth, the same spelling the scope check
  * compares against.
  *
  * @param href The href received in the request; it may include leading and trailing whitespace.

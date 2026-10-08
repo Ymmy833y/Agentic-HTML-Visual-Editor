@@ -98,13 +98,14 @@ describe('English message resource', () => {
     ]).toEqual([6, true]);
   });
 
-  it('gives the five added link notification keys a message in the English resource, none with a placeholder', () => {
+  it('gives the six added link notification keys a message in the English resource, none with a placeholder', () => {
     const keys = [
       'relativeLink.unresolvable.message',
       'relativeLink.outsideScope.message',
       'relativeLink.notFound.message',
       'relativeLink.notFile.message',
       'relativeLink.openFailed.message',
+      'relativeLink.noWorkspaceFolder.message',
     ];
     const messages = keys.map((key) => Reflect.get(englishMessages, key));
 
@@ -113,7 +114,7 @@ describe('English message resource', () => {
     expect([
       MESSAGE_KEYS.filter((key) => keys.includes(key)).length,
       messages.every((message) => typeof message === 'string' && message.length > 0 && !/\{[^{}]+\}/.test(message)),
-    ]).toEqual([5, true]);
+    ]).toEqual([6, true]);
   });
 
   it('gives the 12 link editing and following keys a message in the English resource', () => {

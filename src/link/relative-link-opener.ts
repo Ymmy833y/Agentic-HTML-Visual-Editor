@@ -1,4 +1,4 @@
-import { isRelativeFileHref } from '../../common/index';
+import { isRelativeFileHref, isRootRelativeFileHref } from '../../common/index';
 import type { MessageKey } from '../../common/index';
 import type { InternalErrorSink } from '../diagnostics/error-reporter';
 import { isPathWithinScope, resolveScopeRootTargetPath, resolveTargetPath } from './link-path';
@@ -6,13 +6,14 @@ import { isPathWithinScope, resolveScopeRootTargetPath, resolveTargetPath } from
 /**
  * Reasons a link was not opened.
  *
- * Each diagnostic log line carries this spelling as is, so the reasons are closed to these eight and no other value is
+ * Each diagnostic log line carries this spelling as is, so the reasons are closed to these nine and no other value is
  * created.
  */
 export const LINK_OPEN_FAILURE = {
   outsideContract: 'outsideContract',
   notRelative: 'notRelative',
   unresolvable: 'unresolvable',
+  noWorkspaceFolder: 'noWorkspaceFolder',
   outsideScope: 'outsideScope',
   notFound: 'notFound',
   notFile: 'notFile',
@@ -47,6 +48,13 @@ export type LinkTargetCheck =
 export interface RelativeLinkHost {
   /** The base document URI path, fixed when the ports are created and unaffected by request values. */
   readonly documentPath: string;
+
+  /**
+   * Returns whether the base document belongs to a workspace folder.
+   *
+   * Resolves it for every request because the workspace configuration may change while it remains open.
+   */
+  belongsToWorkspaceFolder(): boolean;
 
   /**
    * Returns the depth of the scope root.
@@ -101,6 +109,7 @@ export const LINK_OPEN_FAILURE_MESSAGE_KEY: Readonly<Record<LinkOpenFailure, Mes
   [LINK_OPEN_FAILURE.outsideContract]: undefined,
   [LINK_OPEN_FAILURE.notRelative]: undefined,
   [LINK_OPEN_FAILURE.unresolvable]: 'relativeLink.unresolvable.message',
+  [LINK_OPEN_FAILURE.noWorkspaceFolder]: 'relativeLink.noWorkspaceFolder.message',
   [LINK_OPEN_FAILURE.outsideScope]: 'relativeLink.outsideScope.message',
   [LINK_OPEN_FAILURE.notFound]: 'relativeLink.notFound.message',
   [LINK_OPEN_FAILURE.notFile]: 'relativeLink.notFile.message',
@@ -111,8 +120,9 @@ export const LINK_OPEN_FAILURE_MESSAGE_KEY: Readonly<Record<LinkOpenFailure, Mes
 // Descriptions for each failure reason. These records are only for maintainers, so they do not use a message catalog.
 const FAILURE_DESCRIPTIONS: Record<LinkOpenFailure, string> = {
   [LINK_OPEN_FAILURE.outsideContract]: 'The received value is outside the contract',
-  [LINK_OPEN_FAILURE.notRelative]: 'The href is not a relative file href',
+  [LINK_OPEN_FAILURE.notRelative]: 'The href is neither a relative nor a root-relative file href',
   [LINK_OPEN_FAILURE.unresolvable]: 'The target path cannot be resolved',
+  [LINK_OPEN_FAILURE.noWorkspaceFolder]: 'The root-relative href has no workspace folder to resolve from',
   [LINK_OPEN_FAILURE.outsideScope]: 'The target is outside the permitted scope',
   [LINK_OPEN_FAILURE.notFound]: 'The target does not exist',
   [LINK_OPEN_FAILURE.notFile]: 'The target is not a file',
@@ -202,7 +212,8 @@ function findScopeRootTarget(
  * opening operation, in that order.
  *
  * A target not found from the document directory is looked up once more from the scope root, so a link written from
- * the project root also opens. Later steps are not called once an earlier step fails. When the link is not opened, a single reason is chosen and
+ * the project root also opens. A root-relative href resolves from the workspace folder from the start, so it has no
+ * second lookup. Later steps are not called once an earlier step fails. When the link is not opened, a single reason is chosen and
  * reported once. No failure throws outward, so other message handling in the same panel is not affected.
  *
  * @param href The href received in the request.
@@ -216,18 +227,30 @@ export async function openRelativeLink(
 ): Promise<void> {
   try {
     // Do not trust the view's decision; validate again with the same rule on the opening side.
-    if (!isRelativeFileHref(href)) {
+    const rootRelative = isRootRelativeFileHref(href);
+    if (!rootRelative && !isRelativeFileHref(href)) {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.notRelative, href, undefined, reporter);
       return;
     }
 
-    const targetPath = resolveTargetPath(href, host.documentPath);
+    // A root-relative href names a path from the workspace folder. Resolving it from the document directory instead
+    // could open a file the author did not mean, so a document outside every workspace folder does not open it.
+    if (rootRelative && !host.belongsToWorkspaceFolder()) {
+      reportLinkOpenFailure(LINK_OPEN_FAILURE.noWorkspaceFolder, href, undefined, reporter);
+      return;
+    }
+
+    // In a workspace folder, the scope root is that folder, so a root-relative href resolves from the scope root.
+    const rootScopeDepth = rootRelative ? host.resolveScopeDepth() : undefined;
+    const targetPath = rootScopeDepth === undefined
+      ? resolveTargetPath(href, host.documentPath)
+      : resolveScopeRootTargetPath(href, host.documentPath, rootScopeDepth);
     if (targetPath === undefined) {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.unresolvable, href, undefined, reporter);
       return;
     }
 
-    const scopeDepth = host.resolveScopeDepth();
+    const scopeDepth = rootScopeDepth ?? host.resolveScopeDepth();
     if (!isPathWithinScope(targetPath, host.documentPath, scopeDepth)) {
       reportLinkOpenFailure(LINK_OPEN_FAILURE.outsideScope, href, undefined, reporter);
       return;
@@ -239,8 +262,9 @@ export async function openRelativeLink(
     const check = await host.checkLinkTarget(targetPath);
     if (check.kind === 'notFound') {
       // A link written from the scope root does not resolve from the document directory. Try that reading next, and
-      // take it only when it is a file; otherwise the document-relative reading stays the reported one.
-      const rootTargetPath = findScopeRootTarget(href, host, scopeDepth, targetPath);
+      // take it only when it is a file; otherwise the document-relative reading stays the reported one. A
+      // root-relative href was already read from the scope root.
+      const rootTargetPath = rootRelative ? undefined : findScopeRootTarget(href, host, scopeDepth, targetPath);
       if (rootTargetPath === undefined || (await host.checkLinkTarget(rootTargetPath)).kind !== 'file') {
         reportLinkOpenFailure(LINK_OPEN_FAILURE.notFound, href, undefined, reporter);
         return;

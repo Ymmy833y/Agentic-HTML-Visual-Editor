@@ -804,6 +804,24 @@ test.describe('dispatching link clicks', () => {
     expect([await readRelativeLinkRequests(page), await countWindowClicks(page)]).toEqual([[], 1]);
   });
 
+  test('sends one request with the attribute value as is and keeps the click from reaching the click record when a link starting with a single slash is clicked with the primary modifier', async ({ page }) => {
+    await openLinkEditor(page, '\n<p>x<a href="/abs-root.html">link</a>y</p>\n');
+    await installClickRecord(page);
+
+    await page.locator(LINK).click({ modifiers: ['ControlOrMeta'] });
+
+    expect([await readRelativeLinkRequests(page), await countWindowClicks(page)]).toEqual([['/abs-root.html'], 0]);
+  });
+
+  test('sends no request and lets the click reach the click record when a link starting with // is clicked with the primary modifier', async ({ page }) => {
+    await openLinkEditor(page, '\n<p>x<a href="//example.test/a">link</a>y</p>\n');
+    await installClickRecord(page);
+
+    await page.locator(LINK).click({ modifiers: ['ControlOrMeta'] });
+
+    expect([await readRelativeLinkRequests(page), await countWindowClicks(page)]).toEqual([[], 1]);
+  });
+
   test('sends a request with the link\'s href when a strong inside the link is clicked with the primary modifier', async ({ page }) => {
     await openLinkEditor(page, '\n<p>x<a href="docs/a.html">li<strong>nk</strong></a>y</p>\n');
 

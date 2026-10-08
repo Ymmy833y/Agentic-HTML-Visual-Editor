@@ -221,8 +221,8 @@ async function readReplacements(uri: vscode.Uri, kind: string): Promise<string[]
 }
 
 // View loading has no completion signal, so wait until the startup round trip finishes.
-async function openWysiwyg(uri: vscode.Uri): Promise<void> {
-  await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+async function openWysiwyg(uri: vscode.Uri, viewColumn = vscode.ViewColumn.Active): Promise<void> {
+  await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE, { viewColumn });
 
   await waitUntil(
     async () => (await readRecordedMessages(uri)).length >= 2,
@@ -294,7 +294,12 @@ async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
 
 async function resetEditors(): Promise<void> {
   await revertDirtyTextEditors();
-  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  // The close command returns before tabs and groups disappear; opening sooner can reuse a group still closing.
+  await vscode.commands.executeCommand('workbench.action.closeAllGroups');
+  await waitUntil(
+    () => vscode.window.tabGroups.all.length === 1 && openTabs().length === 0,
+    'every editor group closed',
+  );
 }
 
 // The ids of the conflict presentations the host sent to the view, in send order.
@@ -335,9 +340,12 @@ async function chooseConflicts(
 
 // Prepares a dirty view whose edit and an external edit both change the same line. The edit is recorded from the
 // initial content, so undoing it returns there.
-async function prepareConflict(sourceText = CONFLICT_SOURCE_EDITED_TEXT): Promise<vscode.Uri> {
+async function prepareConflict(
+  sourceText = CONFLICT_SOURCE_EDITED_TEXT,
+  viewColumn = vscode.ViewColumn.Active,
+): Promise<vscode.Uri> {
   const uri = await resetScratch();
-  await openWysiwyg(uri);
+  await openWysiwyg(uri, viewColumn);
   await replaceViewContent(uri, CONFLICT_VIEW_EDITED_TEXT);
   await makeViewDirty(uri, INITIAL_TEXT);
   await writeExternally(uri, sourceText);
@@ -741,25 +749,39 @@ describe('resolving conflicts on a save', () => {
     assert.strictEqual(await wasNotified(CLOSE_WITHOUT_SAVING_NOTICE_FRAGMENT), false);
   });
 
-  it('closes only the WYSIWYG tab without saving while a dirty text editor in another group is active', async () => {
-    const uri = await prepareConflict();
-    const saving = startSave();
-    await chooseConflicts(uri, await waitForPresentation(uri), null);
-    await saving;
-    const otherUri = fixtureUri(OTHER_FILE_NAME);
-    await writeFileText(otherUri, INITIAL_TEXT);
-    const editor = await vscode.window.showTextDocument(otherUri, { viewColumn: vscode.ViewColumn.Two, preview: false });
-    await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- edited -->'));
-    await waitUntil(() => findCustomTab(uri)?.group.isActive === false, 'the other group became active');
+  for (const viewColumn of [vscode.ViewColumn.One, vscode.ViewColumn.Two]) {
+    it(`closes only the WYSIWYG tab without saving while a dirty text editor in another group is active, starting in group ${viewColumn}`, async () => {
+      const uri = await prepareConflict(CONFLICT_SOURCE_EDITED_TEXT, viewColumn);
+      await waitUntil(
+        () => findCustomTab(uri)?.group.viewColumn === viewColumn && findCustomTab(uri)?.group.isActive === true,
+        'the WYSIWYG tab opened in the starting group',
+      );
+      const saving = startSave();
+      await chooseConflicts(uri, await waitForPresentation(uri), null);
+      await saving;
+      const otherUri = fixtureUri(OTHER_FILE_NAME);
+      await writeFileText(otherUri, INITIAL_TEXT);
+      // WYSIWYG can start in either group, so an absolute column does not ensure another group.
+      const editor = await vscode.window.showTextDocument(otherUri, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- edited -->'));
+      // Focus is a precondition of this case, so activate the text editor after preparing its unsaved edit.
+      await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preview: false });
+      await waitUntil(
+        () => findCustomTab(uri)?.group.isActive === false && findTextTab(otherUri)?.group.isActive === true,
+        'the other group became active',
+      );
+      assert.notStrictEqual(findCustomTab(uri)?.group.viewColumn, findTextTab(otherUri)?.group.viewColumn);
+      assert.deepStrictEqual([findCustomTab(uri)?.isDirty, findTextTab(otherUri)?.isDirty], [true, true]);
 
-    assert.ok(await (await api()).closeWithoutSavingForTest(uri.toString()), 'the notice action did not close');
-    await waitUntil(() => findCustomTab(uri) === undefined, 'the WYSIWYG tab closed');
+      assert.ok(await (await api()).closeWithoutSavingForTest(uri.toString()), 'the notice action did not close');
+      await waitUntil(() => findCustomTab(uri) === undefined, 'the WYSIWYG tab closed');
 
-    assert.deepStrictEqual(
-      [findTextTab(otherUri)?.isDirty, await readFileText(uri)],
-      [true, CONFLICT_SOURCE_EDITED_TEXT],
-    );
-  });
+      assert.deepStrictEqual(
+        [findTextTab(otherUri)?.isDirty, await readFileText(uri)],
+        [true, CONFLICT_SOURCE_EDITED_TEXT],
+      );
+    });
+  }
 
   // Undo takes back the choice alone, to the view side merged with the rest of the same save, and redo returns to the
   // file. Neither adds lines, however often it is repeated.

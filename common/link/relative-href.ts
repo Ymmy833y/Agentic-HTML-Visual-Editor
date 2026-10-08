@@ -6,6 +6,10 @@ const SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+\-.]*:/;
 // root-relative paths, `//host`, or UNC paths.
 const NON_RELATIVE_PREFIX_PATTERN = /^[#?/\\]/;
 
+// A single leading `/`. A second `/` makes a `//host` reference, and browsers read `/\` the same way, so neither names
+// a path from the workspace folder.
+const ROOT_RELATIVE_PREFIX_PATTERN = /^\/(?![/\\])/;
+
 /**
  * Removes leading and trailing whitespace from an href.
  *
@@ -34,4 +38,17 @@ export function isRelativeFileHref(href: string): boolean {
     return false;
   }
   return !NON_RELATIVE_PREFIX_PATTERN.test(trimmed) && !SCHEME_PATTERN.test(trimmed);
+}
+
+/**
+ * Returns whether an href points to a file through a path from the root of the document's workspace folder.
+ *
+ * Such an href starts with a single `/`. It is checked with the same trimming as {@link isRelativeFileHref} so that
+ * link detection in the view and validation on the host agree.
+ *
+ * @param href Any string.
+ * @returns `true` if the href is a root-relative file href.
+ */
+export function isRootRelativeFileHref(href: string): boolean {
+  return ROOT_RELATIVE_PREFIX_PATTERN.test(trimHref(href));
 }

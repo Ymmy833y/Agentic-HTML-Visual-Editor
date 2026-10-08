@@ -19,6 +19,19 @@ export function resolveScopeDepth(documentUri: vscode.Uri): number {
 }
 
 /**
+ * Returns whether the base document belongs to a workspace folder.
+ *
+ * It asks VS Code the same way the scope root is determined, so a document that belongs to a folder always has that
+ * folder as its scope root. Resolve it on every call because workspace folders may be added or removed while open.
+ *
+ * @param documentUri The base document URI.
+ * @returns `true` if the document belongs to a workspace folder.
+ */
+export function belongsToWorkspaceFolder(documentUri: vscode.Uri): boolean {
+  return vscode.workspace.getWorkspaceFolder(documentUri) !== undefined;
+}
+
+/**
  * Creates the link target URI by replacing only the path of the base document URI with the target path.
  *
  * Both the check and the opening operation create the link target URI only through this function. Creating it
@@ -107,11 +120,13 @@ export async function openLinkTarget(
  * Keeps the document URI exactly as VS Code returned it and does not normalize its spelling.
  *
  * @param documentUri The document URI of the panel that received the request.
- * @returns Ports for the document path, the scope depth, the link target check, and the opening operation.
+ * @returns Ports for the document path, the workspace folder check, the scope depth, the link target check, and the
+ *   opening operation.
  */
 export function createRelativeLinkHost(documentUri: vscode.Uri): RelativeLinkHost {
   return {
     documentPath: documentUri.path,
+    belongsToWorkspaceFolder: () => belongsToWorkspaceFolder(documentUri),
     resolveScopeDepth: () => resolveScopeDepth(documentUri),
     checkLinkTarget: (targetPath) => checkLinkTarget(documentUri, targetPath),
     openLinkTarget: (targetPath) => openLinkTarget(documentUri, targetPath),

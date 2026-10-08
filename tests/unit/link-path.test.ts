@@ -94,6 +94,10 @@ describe('scope-root target-path resolution', () => {
   it('returns unresolvable for an href that cannot be decoded', () => {
     expect(resolveScopeRootTargetPath('%E0%A4%A.html', DOCUMENT_PATH, 1)).toBeUndefined();
   });
+
+  it('resolves a root-relative href against the scope root', () => {
+    expect(resolveScopeRootTargetPath('/abs-root.html', DOCUMENT_PATH, 1)).toBe('/ws/abs-root.html');
+  });
 });
 
 describe('path-segment extraction', () => {

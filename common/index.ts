@@ -162,7 +162,7 @@ export type {
   RestoreMountInput,
   RestoreProgress,
 } from './backup/restore-mount';
-export { isRelativeFileHref, trimHref } from './link/relative-href';
+export { isRelativeFileHref, isRootRelativeFileHref, trimHref } from './link/relative-href';
 export { createLineMapping, mapToDisk } from './text/line-mapping';
 export type { LineMapping, LineMappingSegment } from './text/line-mapping';
 export { buildBodyOutput } from './text/body-output';

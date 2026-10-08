@@ -133,6 +133,7 @@
   "relativeLink.notFound.message": "リンク先が存在しないため、リンクを開けませんでした。",
   "relativeLink.notFile.message": "リンク先がファイルではないため、リンクを開けませんでした。",
   "relativeLink.openFailed.message": "リンクを開けませんでした。",
+  "relativeLink.noWorkspaceFolder.message": "/ で始まるリンクはワークスペースフォルダーを基準に開くため、ワークスペースフォルダーの外にあるこのファイルからは開けませんでした。",
   "actionDialog.required": "必須",
   "actionDialog.optional": "任意",
   "toolbar.link": "リンク",

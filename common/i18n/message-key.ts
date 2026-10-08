@@ -133,6 +133,7 @@ export const MESSAGE_KEYS = [
   'relativeLink.notFound.message',
   'relativeLink.notFile.message',
   'relativeLink.openFailed.message',
+  'relativeLink.noWorkspaceFolder.message',
   'actionDialog.required',
   'actionDialog.optional',
   'toolbar.link',

@@ -28,6 +28,10 @@ const SCOPE_ROOT_TARGET = '/ws/sub/b.html';
 // Points to `/outside/b.html`, outside the scope root `/ws`.
 const OUTSIDE_SCOPE_HREF = '../../outside/b.html';
 
+// A root-relative href and the target it names from the workspace folder `/ws`.
+const ROOT_RELATIVE_HREF = '/abs-root.html';
+const ROOT_RELATIVE_TARGET = '/ws/abs-root.html';
+
 /** A message key and cause requested from the notification port. */
 interface NotificationRequest {
   readonly key: MessageKey;
@@ -43,6 +47,8 @@ interface HarnessOptions {
   readonly check?: LinkTargetCheck;
   /** Results for individual target paths. They take precedence over `check`. */
   readonly checks?: ReadonlyMap<string, LinkTargetCheck>;
+  /** Whether the base document belongs to a workspace folder. When omitted, it does. */
+  readonly inWorkspaceFolder?: boolean;
 }
 
 interface Harness {
@@ -83,6 +89,10 @@ function createHarness(options: HarnessOptions = {}): Harness {
     },
     host: {
       documentPath: DOCUMENT_PATH,
+      belongsToWorkspaceFolder: () => {
+        trace.push('belongsToWorkspaceFolder');
+        return options.inWorkspaceFolder ?? true;
+      },
       resolveScopeDepth: () => {
         trace.push('resolveScopeDepth');
         if (options.scopeError !== undefined) {
@@ -338,6 +348,76 @@ describe('relative link request handling', () => {
     }]);
   });
 
+  it('resolves a root-relative href from the workspace folder, checks and opens that target, and leaves no log or notification', async () => {
+    const harness = createHarness();
+
+    await openRelativeLink(ROOT_RELATIVE_HREF, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.logLines, harness.notifications]).toEqual([
+      [
+        'belongsToWorkspaceFolder',
+        'resolveScopeDepth',
+        `checkLinkTarget:${ROOT_RELATIVE_TARGET}`,
+        `openLinkTarget:${ROOT_RELATIVE_TARGET}`,
+      ],
+      [],
+      [],
+    ]);
+  });
+
+  it('calls neither the scope depth, the link target check, nor the opening operation and notifies with a no-workspace-folder line for a root-relative href from a document outside every workspace folder', async () => {
+    const harness = createHarness({ inWorkspaceFolder: false });
+
+    await openRelativeLink(ROOT_RELATIVE_HREF, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.notifications]).toEqual([
+      ['belongsToWorkspaceFolder'],
+      [{
+        key: 'relativeLink.noWorkspaceFolder.message',
+        cause: formatLinkOpenFailure(LINK_OPEN_FAILURE.noWorkspaceFolder, ROOT_RELATIVE_HREF),
+      }],
+    ]);
+  });
+
+  it('reports not found for a root-relative href without checking another reading', async () => {
+    const harness = createHarness({ check: { kind: 'notFound' } });
+
+    await openRelativeLink(ROOT_RELATIVE_HREF, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.notifications.map((n) => n.key)]).toEqual([
+      ['belongsToWorkspaceFolder', 'resolveScopeDepth', `checkLinkTarget:${ROOT_RELATIVE_TARGET}`],
+      ['relativeLink.notFound.message'],
+    ]);
+  });
+
+  it('does not call the link target check and notifies with an outside-scope line for a root-relative href that climbs above the workspace folder', async () => {
+    const harness = createHarness();
+    const href = '/../outside/b.html';
+
+    await openRelativeLink(href, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.notifications]).toEqual([
+      ['belongsToWorkspaceFolder', 'resolveScopeDepth'],
+      [{
+        key: 'relativeLink.outsideScope.message',
+        cause: formatLinkOpenFailure(LINK_OPEN_FAILURE.outsideScope, href),
+      }],
+    ]);
+  });
+
+  it('writes only a not-relative log line and requests no notification for an href starting with //', async () => {
+    const harness = createHarness();
+    const href = '//host/a.html';
+
+    await openRelativeLink(href, harness.host, harness.reporter);
+
+    expect([harness.trace, harness.logLines, harness.notifications]).toEqual([
+      [],
+      [formatLinkOpenFailure(LINK_OPEN_FAILURE.notRelative, href)],
+      [],
+    ]);
+  });
+
   it('does not rethrow when a port throws, and notifies an unexpected-exception line with the same message key as an open failure', async () => {
     const scopeError = new Error('cannot resolve the scope root');
     const harness = createHarness({ scopeError });
@@ -400,14 +480,14 @@ describe('reporting a link open failure', () => {
 });
 
 describe('the diagnostic record of a link open failure', () => {
-  it('formats each of the eight reasons as a distinct single line that contains the href', () => {
+  it('formats each of the nine reasons as a distinct single line that contains the href', () => {
     const lines = Object.values(LINK_OPEN_FAILURE)
       .map((failure) => formatLinkOpenFailure(failure, IN_SCOPE_HREF));
 
     expect([
       new Set(lines).size,
       lines.every((line) => line.includes(IN_SCOPE_HREF) && !line.includes('\n')),
-    ]).toEqual([8, true]);
+    ]).toEqual([9, true]);
   });
 
   it('keeps an href containing a newline on one line and leaves that href readable', () => {
