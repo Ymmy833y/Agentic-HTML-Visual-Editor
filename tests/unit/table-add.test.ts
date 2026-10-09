@@ -164,6 +164,14 @@ describe('adding a column', () => {
     );
   });
 
+  it('returns the index of the added column, the one after the rightmost column the reference cell covers when adding right', () => {
+    const { root, table } = createTable(
+      '<table><tbody><tr><td>a</td><td id="b" colspan="2">b</td><td>c</td></tr></tbody></table>',
+    );
+
+    expect(insertTableColumn(resolveTableGrid(table), readElement(root, '#b'), 'right', { changed: false })).toBe(3);
+  });
+
   it('for a reference cell with colspan 2, left goes left of the origin column and right goes right of the rightmost covered column', () => {
     const html = '<table><tbody><tr><td id="a" colspan="2">a</td><td>b</td></tr><tr><td>c</td><td>d</td><td>e</td></tr></tbody></table>';
 

@@ -7,7 +7,12 @@ import { deleteTable, deleteTableColumn, deleteTableRow } from './table-delete';
 import { readCellTable, resolveTableGrid } from './table-grid';
 import { toggleHeaderColumn, toggleHeaderRow } from './table-header';
 import { mergeTableCells, splitTableCell } from './table-merge';
-import { setColumnWidth, toggleTableWidthUnit } from './table-width';
+import {
+  readColumnWidthsForInsert,
+  setColumnWidth,
+  toggleTableWidthUnit,
+  writeDistributedColumnWidths,
+} from './table-width';
 
 /**
  * A table operation.
@@ -194,9 +199,16 @@ function rewriteTable(
       case 'insertRow':
         insertTableRow(grid, cell, operation.direction, progress);
         break;
-      case 'insertColumn':
-        insertTableColumn(grid, cell, operation.direction, progress);
+      case 'insertColumn': {
+        // Read the widths before the new column changes the rendering. In a table with column widths, a column added
+        // without a width is drawn at its minimum width once the other columns take up the table's width.
+        const widths = readColumnWidthsForInsert(grid);
+        const column = insertTableColumn(grid, cell, operation.direction, progress);
+        if (widths !== undefined && column !== undefined) {
+          writeDistributedColumnWidths(table, widths, column);
+        }
         break;
+      }
       case 'appendRow':
         placement = appendTableRow(grid, progress);
         break;

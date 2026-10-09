@@ -73,7 +73,7 @@ import { runTableOperation } from '../editing/table-command';
 import type { TableOperation } from '../editing/table-command';
 import { readTableHeaderState } from '../editing/table-header';
 import { registerTabFallback } from '../editing/tab-fallback';
-import { registerTableShortcuts } from '../editing/table-navigation';
+import { attachTableVerticalKeys, registerTableShortcuts } from '../editing/table-navigation';
 import { readTableWidthUnit } from '../editing/table-width';
 import { replaceTexts } from '../editing/text-replace';
 import { readEmbeddedCatalog } from '../i18n/embedded-catalog';
@@ -930,6 +930,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   registerListShortcuts(receiver, blockCommandPorts);
   // The conditions for taking over do not overlap with the list Tab, so registration order is not relied on.
   registerTableShortcuts(receiver, blockCommandPorts);
+  // Attached before the leading diagram ArrowUp, which leaves a key whose default is already stopped alone.
+  attachTableVerticalKeys(target.root, blockCommandPorts);
   // After every other Tab shortcut, so that it only catches the Tab none of them took over.
   registerTabFallback(receiver, () => floatingMenu?.visible === true);
   // The column resize is attached before the cell range selection, so it receives the same capture-phase press first

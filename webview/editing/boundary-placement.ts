@@ -95,14 +95,16 @@ export function findListTailStructure(list: Element): Element | undefined {
 }
 
 /**
- * Returns the first or last visible position within a sequence of children.
+ * Returns the first or last visible position within a sequence of children. Changes neither the tree nor the selection.
+ *
+ * Also used to find the visible position right after or right before a table, by passing the siblings on that side.
  *
  * @param parent The parent of the children.
  * @param children The children to inspect.
  * @param edge The edge to look for.
  * @returns The visible position, or `undefined` if there is none.
  */
-function findChildrenEdge(parent: Element, children: readonly ChildNode[], edge: VisibleEdge): NodeBoundary | undefined {
+export function findChildrenEdge(parent: Element, children: readonly ChildNode[], edge: VisibleEdge): NodeBoundary | undefined {
   const ordered = edge === 'first' ? children : [...children].reverse();
   for (const child of ordered) {
     if (child instanceof Text) {

@@ -1,6 +1,6 @@
 import { BLOCK_SEPARATOR_TEXT, isHtmlWhitespaceOnly } from './block';
 import type { BlockRewriteProgress } from './block-format';
-import { findGridCell, mapColumnElements } from './table-grid';
+import { findGridCell, mapColumnElements, resolveTableGrid } from './table-grid';
 import type { TableGrid } from './table-grid';
 
 /** The table width unit: whether the table's column widths are written in % or px. */
@@ -22,6 +22,14 @@ export interface TableColumnMeasure {
   readonly tableWidth: number;
   /** The available width: the width of the table when rendered at full width. */
   readonly availableWidth: number;
+}
+
+/** The column widths read before a column is added. A temporary value used only within a single operation. */
+export interface ColumnWidthsBeforeInsert {
+  /** The table width unit the shared widths are written in. */
+  readonly unit: TableWidthUnit;
+  /** The width (px) of each column before the addition. */
+  readonly widths: readonly number[];
 }
 
 /**
@@ -56,18 +64,88 @@ const PIXEL_VALUE_PATTERN = /^\+?(?:\d+\.?\d*|\.\d+)(?:px)?$/iu;
  *   width.
  */
 export function readTableWidthUnit(table: Element): TableWidthUnit {
-  for (const group of table.children) {
-    if (group.localName !== 'colgroup') {
-      continue;
-    }
-    for (const col of group.children) {
-      const written = col.localName === 'col' ? readWrittenWidth(col) : undefined;
-      if (written !== undefined) {
-        return written.endsWith('%') ? 'percent' : 'pixel';
-      }
-    }
+  const written = readFirstWrittenWidth(table);
+  return written === undefined || written.endsWith('%') ? 'percent' : 'pixel';
+}
+
+/**
+ * Reads the column widths before a column is added, to share the table's width with the new column. Does not change
+ * the tree (it reads the rendering).
+ *
+ * When every column's written value agrees with its rendered width, the written values are used, so that columns
+ * written as 30% and 35% keep exact proportions instead of picking up the fractions of the rendering. When even one
+ * column disagrees, the rendered widths are used, for the same reason as when setting a column width: values derived
+ * from a disagreeing column would make the browser redistribute all columns.
+ *
+ * @param grid The table grid before the column is added.
+ * @returns The table width unit and the width (px) of each column. `undefined` for a table with no col that has a
+ *   width, which keeps adding columns without widths, and for a table that is not rendered.
+ */
+export function readColumnWidthsForInsert(grid: TableGrid): ColumnWidthsBeforeInsert | undefined {
+  if (readFirstWrittenWidth(grid.table) === undefined) {
+    return undefined;
   }
-  return 'percent';
+  const unit = readTableWidthUnit(grid.table);
+  const measure = measureTableColumns(grid);
+  if (measure.tableWidth <= 0) {
+    return undefined;
+  }
+  if (!matchesWrittenWidths(grid.table, unit, measure)) {
+    return { unit, widths: measure.widths };
+  }
+  const columns = mapColumnElements(grid.table);
+  const widths = measure.widths.map((rendered, index) => {
+    const col = columns.at(index);
+    const written = col === undefined ? undefined : readWrittenWidth(col);
+    const resolved = written === undefined ? undefined : resolveWrittenWidth(written, unit, measure.tableWidth);
+    return resolved ?? rendered;
+  });
+  return { unit, widths };
+}
+
+/**
+ * Shares the total width with a column added at the given position.
+ *
+ * The added column gets the total divided by the new number of columns, and the other columns shrink keeping their
+ * proportions, so the total does not change. Giving the added column the total's share means it is wide enough to
+ * type in wherever it is added, unlike halving a neighbor, which halves again on every addition next to a narrow
+ * column.
+ *
+ * @param widths The width of each column before the addition.
+ * @param column The index of the added column after the addition.
+ * @returns The width of each column after the addition.
+ */
+export function distributeColumnWidths(widths: readonly number[], column: number): number[] {
+  const total = widths.reduce((sum, width) => sum + width, 0);
+  const count = widths.length + 1;
+  const distributed = widths.map((width) => (width * widths.length) / count);
+  distributed.splice(column, 0, total / count);
+  return distributed;
+}
+
+/**
+ * Writes the shared widths of all columns after a column was added, in the table width unit.
+ *
+ * The table's own width is left as it is: the total of the columns does not change, so the table keeps its width. In a
+ * pixel table each column is rounded to whole pixels, which alone could change the total by a pixel or two, so the
+ * added column takes the difference.
+ *
+ * @param table The table, after the column was added.
+ * @param before The column widths read before the addition.
+ * @param column The index of the added column.
+ */
+export function writeDistributedColumnWidths(table: Element, before: ColumnWidthsBeforeInsert, column: number): void {
+  const widths = distributeColumnWidths(before.widths, column);
+  const basis = widths.reduce((sum, width) => sum + width, 0);
+  const values = new Map(widths.map((width, index): [number, string] => [
+    index,
+    formatColumnWidth(before.unit, width, basis),
+  ]));
+  if (before.unit === 'pixel') {
+    const others = widths.reduce((sum, width, index) => (index === column ? sum : sum + Math.round(width)), 0);
+    values.set(column, `${Math.round(basis) - others}px`);
+  }
+  writeColumnWidths(prepareColumnElements(resolveTableGrid(table), [...values.keys()]), values);
 }
 
 /**
@@ -282,6 +360,27 @@ export function formatColumnWidth(unit: TableWidthUnit, width: number, basis: nu
     return `${Math.round(width)}px`;
   }
   return `${Math.round((width / basis) * 10000) / 100}%`;
+}
+
+/**
+ * Returns the width of the first col that has one. Cols of nested tables are not counted.
+ *
+ * @param table The table.
+ * @returns The width, or `undefined` when no col has a width.
+ */
+function readFirstWrittenWidth(table: Element): string | undefined {
+  for (const group of table.children) {
+    if (group.localName !== 'colgroup') {
+      continue;
+    }
+    for (const col of group.children) {
+      const written = col.localName === 'col' ? readWrittenWidth(col) : undefined;
+      if (written !== undefined) {
+        return written;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**

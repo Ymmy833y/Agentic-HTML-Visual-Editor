@@ -83,6 +83,8 @@ declare global {
   interface Window {
     /** The forwarded key record: the codes of keydown events that reached the window's bubbling phase, in arrival order. */
     __forwardedKeys?: string[];
+    /** The default record: each keydown that reached the window, as its code and whether its default was stopped. */
+    __defaultRecord?: string[];
   }
 }
 
@@ -483,6 +485,30 @@ async function installForwardRecord(page: Page): Promise<void> {
  */
 async function readForwardedKeys(page: Page): Promise<string[]> {
   return page.evaluate(() => window.__forwardedKeys ?? []);
+}
+
+/**
+ * Starts recording, for each keydown that reaches the window's bubbling phase, its code and whether its default was
+ * stopped, as `code:true` or `code:false`.
+ *
+ * @param page The page to operate on.
+ */
+async function installDefaultRecord(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const record: string[] = [];
+    window.__defaultRecord = record;
+    window.addEventListener('keydown', (event) => record.push(`${event.code}:${String(event.defaultPrevented)}`));
+  });
+}
+
+/**
+ * Reads the default record.
+ *
+ * @param page The page to operate on.
+ * @returns The code and whether the default was stopped, for each keydown that arrived.
+ */
+async function readDefaultRecord(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__defaultRecord ?? []);
 }
 
 /**
@@ -1354,6 +1380,324 @@ test.describe('move to adjacent cell', () => {
       + '<tr><td><br></td><td><br></td></tr>\n</tbody>\n</table>\n</details>\n',
       true,
     ]);
+  });
+});
+
+/** Japanese text that wraps into lines of 8 and 7 characters in a cell from wrappedCellTable, with no space at the wrap. */
+const TWO_LINE_JAPANESE = '表の上下の移動を確かめる文です';
+
+/** Japanese text that wraps into lines of 8, 8 and 4 characters in a cell from wrappedCellTable. */
+const THREE_LINE_JAPANESE = '表の上下の移動を確かめるための長い文です';
+
+/** The key that moves the caret to the end of the line. On macOS, End scrolls the document instead. */
+const LINE_END_KEY = process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End';
+
+/** The key that moves the caret to the start of the line. On macOS, Home scrolls the document instead. */
+const LINE_START_KEY = process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home';
+
+/**
+ * Returns a body with a 2-by-2 table whose first column has a fixed width.
+ *
+ * The default width in em fits eight Japanese characters per line whatever the font size, since each is one em wide.
+ *
+ * @param top The text of the first cell of the first row.
+ * @param bottom The text of the first cell of the second row.
+ * @param width The width of the first column.
+ * @returns The body.
+ */
+function wrappedCellTable(top: string, bottom: string, width = '8.5em'): string {
+  return '\n<table>\n<tbody>\n'
+    + `<tr><td style="width: ${width}">${top}</td><td>cd</td></tr>\n`
+    + `<tr><td style="width: ${width}">${bottom}</td><td>gh</td></tr>\n</tbody>\n</table>\n`;
+}
+
+/**
+ * Counts the lines the text of an element is drawn on.
+ *
+ * @param page The page to operate on.
+ * @param selector The selector of the element.
+ * @returns The number of distinct line tops of its characters.
+ */
+async function countTextLines(page: Page, selector: string): Promise<number> {
+  return page.evaluate((target) => {
+    const element = document.querySelector(target);
+    const walker = document.createTreeWalker(element ?? document.body, NodeFilter.SHOW_TEXT);
+    const tops = new Set<number>();
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      for (let offset = 0; offset < (node.textContent ?? '').length; offset += 1) {
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 1);
+        const box = range.getBoundingClientRect();
+        if (box.width > 0) {
+          tops.add(Math.round(box.top));
+        }
+      }
+    }
+    return tops.size;
+  }, selector);
+}
+
+test.describe('move to the cell above or below', () => {
+  test('ArrowDown in a single-line cell moves the caret to the start of the cell directly below, not the cell to the right, without changing the tree', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await placeCaretInText(page, cellAt(1, 1), 1);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([await readCaret(page), await readBodyHtml(page)]).toEqual([['ef', 0], TABLE_BODY]);
+  });
+
+  test('ArrowUp in a single-line cell moves the caret to the end of the cell directly above', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await placeCaretInText(page, cellAt(2, 2), 1);
+
+    await page.keyboard.press('ArrowUp');
+
+    expect(await readCaret(page)).toEqual(['cd', 2]);
+  });
+
+  test('ArrowDown in the first of two paragraphs of a cell moves to the second paragraph of the same cell', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table>\n<tbody>\n<tr><td><p>ab</p><p>cd</p></td><td>x</td></tr>\n<tr><td>ef</td><td>gh</td></tr>\n</tbody>\n</table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td > p:first-child`, 1);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect(await isCaretInside(page, `${EDITOR_ROOT} td > p:nth-child(2)`)).toBe(true);
+  });
+
+  test('ArrowDown twice through a long, a short and a long line of a cell comes back to the original column', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table>\n<tbody>\n<tr><td><p>abcdefghij</p><p>ab</p><p>abcdefghiz</p></td><td>x</td></tr>\n'
+      + '<tr><td>ef</td><td>gh</td></tr>\n</tbody>\n</table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td > p:first-child`, 9);
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+
+    expect(await readCaret(page)).toEqual(['abcdefghiz', 9]);
+  });
+
+  test('ArrowUp twice through a long, a short and a long line of a cell comes back to the original column', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table>\n<tbody>\n<tr><td>x</td><td>y</td></tr>\n'
+      + '<tr><td><p>abcdefghij</p><p>ab</p><p>abcdefghiz</p></td><td>z</td></tr>\n</tbody>\n</table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td > p:last-child`, 9);
+
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+
+    expect(await readCaret(page)).toEqual(['abcdefghij', 9]);
+  });
+
+  test('ArrowDown at the end of bold text that wraps right after it moves to the last line of the same cell', async ({ page }) => {
+    // Each word is narrower than 4em and any two together are wider, whatever the font.
+    await openTableEditor(page, wrappedCellTable('alpha <strong>bravo</strong> charlie', 'ef', '4em'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    await placeCaretInText(page, `${EDITOR_ROOT} td strong`, 5);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, (await readCaret(page))[0]]).toEqual([3, ' charlie']);
+  });
+
+  test('ArrowDown after End on the first of two lines wrapped inside Japanese text moves to the second line, not the cell below', async ({ page }) => {
+    await openTableEditor(page, wrappedCellTable(TWO_LINE_JAPANESE, 'ab'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    await placeCaretInText(page, cellAt(1, 1), 2);
+    await page.keyboard.press(LINE_END_KEY);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, await isCaretInside(page, cellAt(1, 1)), (await readCaret(page))[1]])
+      .toEqual([2, true, TWO_LINE_JAPANESE.length]);
+  });
+
+  test('ArrowDown after Home on the second of two lines wrapped inside Japanese text moves to the start of the cell below', async ({ page }) => {
+    await openTableEditor(page, wrappedCellTable(TWO_LINE_JAPANESE, 'ab'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    await placeCaretInText(page, cellAt(1, 1), TWO_LINE_JAPANESE.length - 1);
+    await page.keyboard.press(LINE_START_KEY);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, await readCaret(page)]).toEqual([2, ['ab', 0]]);
+  });
+
+  test('ArrowUp after End on the first of two lines wrapped inside Japanese text in the second row moves to the end of the cell directly above', async ({ page }) => {
+    await openTableEditor(page, wrappedCellTable('ab', TWO_LINE_JAPANESE));
+    const lines = await countTextLines(page, cellAt(2, 1));
+    await placeCaretInText(page, cellAt(2, 1), 2);
+    await page.keyboard.press(LINE_END_KEY);
+
+    await page.keyboard.press('ArrowUp');
+
+    expect([lines, await readCaret(page)]).toEqual([2, ['ab', 2]]);
+  });
+
+  test('ArrowDown after End on the first of two lines wrapped at a space moves to the second line, not the cell below', async ({ page }) => {
+    // Each word is narrower than 4em and the two together are wider, whatever the font.
+    await openTableEditor(page, wrappedCellTable('alpha bravo', 'ab', '4em'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    await placeCaretInText(page, cellAt(1, 1), 2);
+    await page.keyboard.press(LINE_END_KEY);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, await isCaretInside(page, cellAt(1, 1))]).toEqual([2, true]);
+  });
+
+  test('ArrowDown after a click past the end of the first of two lines wrapped inside Japanese text moves to the second line', async ({ page }) => {
+    await openTableEditor(page, wrappedCellTable(TWO_LINE_JAPANESE, 'ab'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    // Clicks inside the content box: the cell's border is where the column width is dragged.
+    const point = await page.evaluate((selector) => {
+      const cell = document.querySelector(selector);
+      const range = document.createRange();
+      range.setStart(cell?.firstChild ?? document.body, 0);
+      range.setEnd(cell?.firstChild ?? document.body, 1);
+      const first = range.getBoundingClientRect();
+      const right = (cell?.getBoundingClientRect().right ?? 0) - Number.parseFloat(cell === null ? '0' : getComputedStyle(cell).paddingRight);
+      return { x: right - 2, y: first.top + first.height / 2 };
+    }, cellAt(1, 1));
+    await page.mouse.click(point.x, point.y);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, await isCaretInside(page, cellAt(1, 1)), (await readCaret(page))[1]])
+      .toEqual([2, true, TWO_LINE_JAPANESE.length]);
+  });
+
+  test('ArrowDown twice after End on the first of three lines wrapped inside Japanese text stays in the cell', async ({ page }) => {
+    await openTableEditor(page, wrappedCellTable(THREE_LINE_JAPANESE, 'ab'));
+    const lines = await countTextLines(page, cellAt(1, 1));
+    await placeCaretInText(page, cellAt(1, 1), 2);
+    await page.keyboard.press(LINE_END_KEY);
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+
+    expect([lines, await isCaretInside(page, cellAt(1, 1))]).toEqual([3, true]);
+  });
+
+  test('ArrowDown on an empty line of a code block in a cell stays in the code block', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table>\n<tbody>\n<tr><td><pre><code>a\n\nb</code></pre></td><td>x</td></tr>\n'
+      + '<tr><td>ef</td><td>gh</td></tr>\n</tbody>\n</table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td code`, 2);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect(await readCaret(page)).toEqual(['a\n\nb', 3]);
+  });
+
+  test('ArrowDown on the last shown line moves to the cell below even when a hidden comment body follows', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table>\n<tbody>\n<tr><td>ab<comment>cd<comment-body data-author="ai">a hidden body long enough to wrap onto '
+      + 'several lines of the cell</comment-body></comment></td><td>x</td></tr>\n'
+      + '<tr><td>ef</td><td>gh</td></tr>\n</tbody>\n</table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td`, 1);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect(await readCaret(page)).toEqual(['ef', 0]);
+  });
+
+  test('ArrowDown in the last row moves to the start of the paragraph after the table, and ArrowUp in the first row to the end of the paragraph before it', async ({ page }) => {
+    await openTableEditor(page, `\n<p>before</p>${TABLE_BODY}<p>after</p>\n`);
+    await placeCaretInText(page, cellAt(2, 1), 1);
+    await page.keyboard.press('ArrowDown');
+    const below = await readCaret(page);
+
+    await placeCaretInText(page, cellAt(1, 2), 1);
+    await page.keyboard.press('ArrowUp');
+
+    expect([below, await readCaret(page)]).toEqual([['after', 0], ['before', 6]]);
+  });
+
+  test('ArrowDown in the last row of a table that ends the document is not taken over, leaving its default', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await installDefaultRecord(page);
+    await placeCaretInText(page, cellAt(2, 1), 1);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([await readDefaultRecord(page), await readBodyHtml(page)]).toEqual([['ArrowDown:false'], TABLE_BODY]);
+  });
+
+  test('Shift+ArrowDown is not taken over and extends the selection', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await installDefaultRecord(page);
+    await placeCaretInText(page, cellAt(1, 1), 1);
+
+    await page.keyboard.press('Shift+ArrowDown');
+
+    // The Shift press itself is recorded too, so only the record of ArrowDown is checked.
+    expect([(await readDefaultRecord(page)).includes('ArrowDown:false'), await isCollapsed(page)]).toEqual([true, false]);
+  });
+
+  test('ArrowDown during IME composition is not taken over, leaving its default', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await placeCaretInText(page, cellAt(1, 1), 2);
+    const ime = await openImeSession(page);
+    await ime.send('Input.imeSetComposition', { text: 'あ', selectionStart: 1, selectionEnd: 1 });
+    await installDefaultRecord(page);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect(await readDefaultRecord(page)).toEqual(['ArrowDown:false']);
+  });
+
+  test('with a range whose end is on the last line of a cell, ArrowDown collapses the range and moves to the start of the cell below the end', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await selectRange(
+      page,
+      { selector: cellAt(1, 1), childIndex: 0, offset: 0 },
+      { selector: cellAt(1, 2), childIndex: 0, offset: 1 },
+    );
+
+    await page.keyboard.press('ArrowDown');
+
+    expect([await readCaret(page), await isCollapsed(page)]).toEqual([['gh', 0], true]);
+  });
+
+  test('ArrowDown in the last row of an inner table that ends its outer cell moves to the start of the cell below in the outer table', async ({ page }) => {
+    await openTableEditor(
+      page,
+      '\n<table><tbody><tr><td><p>o</p><table><tbody><tr><td>in</td></tr></tbody></table></td><td>x</td></tr>'
+      + '<tr><td>below</td><td>y</td></tr></tbody></table>\n',
+    );
+    await placeCaretInText(page, `${EDITOR_ROOT} td td`, 1);
+
+    await page.keyboard.press('ArrowDown');
+
+    expect(await readCaret(page)).toEqual(['below', 0]);
+  });
+
+  test('ArrowDown and ArrowUp that move between cells set no dirty mark and send no edit unit', async ({ page }) => {
+    await openTableEditor(page, TABLE_BODY);
+    await placeCaretInText(page, cellAt(1, 1), 1);
+
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+    await flushEditTransactions(page, 'table-vertical-move');
+
+    expect([
+      await countMessages(page, VIEW_TO_HOST_MESSAGE_TYPE.viewEdited),
+      await countMessages(page, VIEW_TO_HOST_MESSAGE_TYPE.editUnitStart),
+      await countMessages(page, VIEW_TO_HOST_MESSAGE_TYPE.editTransaction),
+    ]).toEqual([0, 0, 0]);
   });
 });
 
