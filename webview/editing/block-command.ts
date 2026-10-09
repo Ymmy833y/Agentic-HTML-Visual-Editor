@@ -14,10 +14,10 @@ import { insertDiagramSource } from './diagram-insert';
 import { insertHorizontalRule } from './horizontal-rule';
 import { isListOperation, runListOperation } from './list-command';
 import { insertAfterListItem } from './list-split';
-import { isItemLineParagraph, isListItem } from './list-structure';
+import { findOwningItem, isItemLineParagraph, isListItem } from './list-structure';
 import type { ListOperation } from './list-target';
 import { isBetweenBlocksPosition, isEffectivelyEmpty } from './materialization';
-import { convertQuoteLines, isBareBlockquote, planQuoteLines } from './quote-code-block';
+import { convertQuoteLines, isBareBlockquote, planQuoteLines, splitQuoteLines } from './quote-code-block';
 import type { QuoteLinePlan, QuoteLinePoints } from './quote-code-block';
 import { insertTable, insertTableIntoListItem } from './table-insert';
 import type { EditEndpointSelections } from '../history/edit-transaction-controller';
@@ -264,6 +264,11 @@ function rewrite(ports: BlockCommandPorts, root: HTMLElement, operation: BlockOp
       if (range !== undefined && wrapCellRuns(root, range, progress) !== undefined) {
         captured = readBlockSelection(root);
       }
+      // Splitting removes the br elements between the covered lines, which the captured selection counted, so the
+      // selection is captured again on the split tree, the same as after wrapping cell runs.
+      if (splitQuoteForOperation(root, operation, progress)) {
+        captured = readBlockSelection(root);
+      }
       runOperation(operation, collectTargets(ports, root, captured, progress), root, progress, conversions);
     }
   } catch (error) {
@@ -340,6 +345,88 @@ function countLostBefore(conversions: readonly QuoteLineConversion[], side: 'sta
     }
   }
   return lost;
+}
+
+/**
+ * Splits the lines of the bare blockquote an insertion or a list creation acts on into paragraphs inside it, and puts
+ * the selection back on the same characters.
+ *
+ * Without the split, the blockquote itself is the reference or the target: a horizontal rule, table, collapsible
+ * section or diagram lands after it, and a list replaces it. Once split, the paragraph of the caret's line is the
+ * reference or the target, so the same rules as outside a blockquote put the block inside it.
+ *
+ * @param root The editor root.
+ * @param operation The block operation.
+ * @param progress The holder of whether the tree was changed.
+ * @returns `true` when a blockquote was split.
+ */
+function splitQuoteForOperation(root: Element, operation: BlockOperation, progress: BlockRewriteProgress): boolean {
+  const range = readSelectionRange(root);
+  if (range === undefined) {
+    return false;
+  }
+  const quote = findQuoteToSplit(root, operation, range);
+  if (quote === undefined) {
+    return false;
+  }
+
+  const plan = planQuoteLines(quote, range);
+  // An end outside the blockquote is not moved by the rewrite, so it is kept as it is.
+  const outsideStart = { node: range.startContainer, offset: range.startOffset };
+  const outsideEnd = { node: range.endContainer, offset: range.endOffset };
+  // The rewrite changes the tree as soon as it starts. Setting the progress first closes whatever changed as an edit
+  // even if it fails partway.
+  progress.changed = true;
+  const points = splitQuoteLines(plan);
+
+  const domSelection = root.ownerDocument.defaultView?.getSelection();
+  if (domSelection === null || domSelection === undefined) {
+    return true;
+  }
+  const start = points.start ?? outsideStart;
+  const end = points.end ?? outsideEnd;
+  const restored = root.ownerDocument.createRange();
+  restored.setStart(start.node, start.offset);
+  restored.setEnd(end.node, end.offset);
+  domSelection.removeAllRanges();
+  domSelection.addRange(restored);
+  return true;
+}
+
+/**
+ * Returns the bare blockquote whose lines an operation splits before acting.
+ *
+ * The cases follow how the reference and the targets are decided outside a blockquote. An insertion takes the target
+ * at the start as its reference, so a blockquote holding the start is split. A list is created only from a single
+ * target when the range stays inside one block, and a blockquote that a longer range passes through stays as it is,
+ * so only a range inside the blockquote splits it. Toggling a list from inside an item works on the item instead.
+ *
+ * @param root The editor root.
+ * @param operation The block operation.
+ * @param range The selection range.
+ * @returns The blockquote to split, or `undefined` when nothing is split.
+ */
+function findQuoteToSplit(root: Element, operation: BlockOperation, range: Range): Element | undefined {
+  const block = findBlock(range.startContainer, root);
+  if (block === undefined || !isBareBlockquote(block)) {
+    return undefined;
+  }
+  switch (operation.kind) {
+    case 'horizontalRule':
+    case 'insertDetails':
+    case 'insertDiagram':
+    case 'insertTable':
+      return block;
+    case 'toggleList':
+      if (findOwningItem(range.startContainer, root) !== undefined) {
+        return undefined;
+      }
+      return block.contains(range.endContainer) ? block : undefined;
+    case 'createList':
+      return block.contains(range.endContainer) ? block : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -495,7 +582,7 @@ function runOperation(
   }
 
   if (operation.kind === 'alert') {
-    applyAlert(targets, operation.to, progress);
+    applyAlert(targets, operation.to, progress, root);
     return;
   }
 

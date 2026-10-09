@@ -517,6 +517,22 @@ test.describe('Inserting diagrams', () => {
       (await waitForDrawing(page)).startsWith('url("data:image/svg+xml'),
     ]).toEqual(['<p>ab</p>\n<pre class="mermaid">graph TD\n  A --&gt; B</pre>\n<p><br></p>', true]);
   });
+
+  test('the diagram item inserts the diagram inside a blockquote, right after the line holding the caret', async ({ page }) => {
+    await openEditor(page, '<blockquote data-alert="tip">ab<br>cd</blockquote>');
+    await selectText(
+      page,
+      { selector: `${EDITOR_ROOT} blockquote`, offset: 2 },
+      { selector: `${EDITOR_ROOT} blockquote`, offset: 2 },
+    );
+
+    await page.locator(DIAGRAM_ITEM).click();
+
+    await expect(page.locator(SOURCE_FIELD)).toHaveValue('graph TD\n  A --> B');
+    expect(await readBodyOutput(page)).toBe(
+      '<blockquote data-alert="tip"><p>ab</p>\n<pre class="mermaid">graph TD\n  A --&gt; B</pre>\n<p>cd</p></blockquote>',
+    );
+  });
 });
 
 test.describe('Copying, pasting and searching diagrams', () => {

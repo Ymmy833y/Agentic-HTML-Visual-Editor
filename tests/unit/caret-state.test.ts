@@ -66,6 +66,12 @@ describe('Evaluating the current selection', () => {
     expect([state.blockKind, state.convertible]).toEqual([BLOCK_KIND.quote, false]);
   });
 
+  it('with the caret in a paragraph or a list item inside a blockquote with note, the alert is note', () => {
+    const html = '<blockquote data-alert="note"><p>abc</p><ul><li>def</li></ul></blockquote>';
+
+    expect([readStateAtCaret(html, 'p').alert, readStateAtCaret(html, 'li').alert]).toEqual(['note', 'note']);
+  });
+
   it('with the caret in a bare run, there is no kind and the formats are those determined from ancestors', () => {
     const state = readStateAtCaret('<em>abc</em>', 'em');
 

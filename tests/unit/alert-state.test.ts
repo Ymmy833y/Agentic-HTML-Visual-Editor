@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ALERT_KINDS } from '../../common/index';
-import { ALERT_STATE, readAlertState } from '../../webview/editing/alert-state';
+import { ALERT_STATE, findAlertTarget, readAlertState } from '../../webview/editing/alert-state';
 import { createRoot, readElement } from './helpers/format-dom';
 
 /**
@@ -45,9 +45,9 @@ describe('deciding the alert state', () => {
     expect(readStateOf('<p data-alert="note">a</p>', 'p')).toBe(ALERT_STATE.none);
   });
 
-  it('returns none for a blockquote holding a paragraph as a child, even with a known value', () => {
+  it('returns the kind for a blockquote holding a paragraph as a child, the same as for a bare one', () => {
     expect(readStateOf('<blockquote data-alert="note"><p>a</p></blockquote>', 'blockquote'))
-      .toBe(ALERT_STATE.none);
+      .toBe('note');
   });
 
   it('returns none when there is no target, and that none is told apart from the unknown identifier and from all five kinds', () => {
@@ -55,5 +55,28 @@ describe('deciding the alert state', () => {
 
     expect([readAlertState(undefined), new Set(identifiers).size])
       .toEqual([ALERT_STATE.none, identifiers.length]);
+  });
+});
+
+describe('finding the alert target', () => {
+  it('returns a blockquote itself, bare or holding blocks', () => {
+    const root = createRoot('<blockquote id="bare">a</blockquote><blockquote id="blocks"><p>b</p></blockquote>');
+    const quotes = [...root.querySelectorAll('blockquote')];
+
+    expect(quotes.map((quote) => findAlertTarget(quote, root) === quote)).toEqual([true, true]);
+  });
+
+  it('returns the innermost blockquote around a paragraph or a list item inside it', () => {
+    const root = createRoot('<blockquote id="outer"><blockquote id="inner"><p>a</p></blockquote><ul><li>b</li></ul></blockquote>');
+
+    expect([findAlertTarget(readElement(root, 'p'), root)?.id, findAlertTarget(readElement(root, 'li'), root)?.id])
+      .toEqual(['inner', 'outer']);
+  });
+
+  it('returns a block outside any blockquote itself, and nothing when there is no block', () => {
+    const root = createRoot('<p>a</p>');
+    const paragraph = readElement(root, 'p');
+
+    expect([findAlertTarget(paragraph, root) === paragraph, findAlertTarget(undefined, root)]).toEqual([true, undefined]);
   });
 });

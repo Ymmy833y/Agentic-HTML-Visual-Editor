@@ -1034,6 +1034,15 @@ test.describe('keyboard operation of the menu popup', () => {
     await expect(menuItem(view, 'alert.note')).toBeFocused();
   });
 
+  test('opening inside a heading of an alert blockquote, where the heading item is marked too, moves focus to the marked alert kind item', async ({ page }) => {
+    const view = await openView(page, '\n<blockquote data-alert="note"><h2>abcd</h2></blockquote>\n');
+
+    await openMenuByKeyboard(page, view, `${EDITOR_ROOT} blockquote h2`);
+
+    await expect(menuItem(view, BLOCK_KIND_MESSAGE_KEY.heading2)).toHaveAttribute('aria-checked', 'true');
+    await expect(menuItem(view, 'alert.note')).toBeFocused();
+  });
+
   test('opening inside a list item, which has no kind, moves focus to the first item, paragraph', async ({ page }) => {
     const view = await openView(page, '\n<ul><li>abcd</li></ul>\n');
 

@@ -1,4 +1,4 @@
-import { ALERT_STATE, readAlertState } from './alert-state';
+import { ALERT_STATE, findAlertTarget, readAlertState } from './alert-state';
 import type { AlertState } from './alert-state';
 import { readCurrentBlock } from './block-collect';
 import { isConvertibleBlock, readBlockKind } from './block-format';
@@ -17,7 +17,7 @@ export interface CaretState {
   readonly blockKind: BlockKind | undefined;
   /** Whether the block at the start is a convertible block. */
   readonly convertible: boolean;
-  /** Alert state of the block at the start. */
+  /** Alert state of the alert target of the block at the start: the block itself, or the blockquote around it. */
   readonly alert: AlertState;
   /** Whether each of the 5 formats is formatted. */
   readonly formats: FormatState;
@@ -59,7 +59,7 @@ export function readCaretState(
   return {
     blockKind: readBlockKind(block),
     convertible: block !== undefined && isConvertibleBlock(block),
-    alert: readAlertState(block),
+    alert: readAlertState(findAlertTarget(block, root)),
     // Images are counted too, so that the link item's pressed state matches the check for opening the link dialog in
     // the edit state. The four other formats are decided by the target text alone, so this option does not change them.
     formats: applyPendingFormats(readFormatState(readFormatTarget(root, true)), pendingFormats),

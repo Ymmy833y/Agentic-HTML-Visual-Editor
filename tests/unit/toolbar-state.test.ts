@@ -27,6 +27,8 @@ const localizer = createLocalizer({
   'toolbar.blockType': 'Test block type',
   'blockType.quote': 'Test quote',
   'blockType.paragraph': 'Test paragraph',
+  'blockType.heading2': 'Test heading 2',
+  'blockType.codeBlock': 'Test code block',
   'alert.note': 'Test note',
 });
 
@@ -171,6 +173,72 @@ describe('Reflecting onto the fixed toolbar', () => {
     expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test quote');
   });
 
+  it('when the kind is paragraph inside a blockquote with a known alert, the block type item label becomes the message of that alert kind', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.paragraph, convertible: true, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test note');
+  });
+
+  it('for a target block that is not convertible inside a blockquote with a known alert, the block type item label becomes the message of that alert kind', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.heading2, convertible: false, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test note');
+  });
+
+  it('when the kind is div inside a blockquote with a known alert, the block type item label becomes the message of that alert kind', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.div, convertible: true, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test note');
+  });
+
+  it('a heading inside a blockquote with a known alert keeps the heading message as the block type item label', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.heading2, convertible: true, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test heading 2');
+  });
+
+  it('a code block inside a blockquote with a known alert keeps the code block message as the block type item label', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.codeBlock, convertible: true, alert: 'note' }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test code block');
+  });
+
+  it('when the kind is paragraph inside a blockquote with an unknown alert, the block type item label stays the paragraph message', () => {
+    const harness = createHarness();
+
+    reflectToolbarState(
+      harness.ports,
+      createState({ blockKind: BLOCK_KIND.paragraph, convertible: true, alert: ALERT_STATE.unknown }),
+    );
+
+    expect(harness.readLabel(TOOLBAR_SLOT.blockType)).toBe('Test paragraph');
+  });
+
   it('when there is no kind, the block type item label becomes the paragraph message instead of the registered message', () => {
     const harness = createHarness();
     reflectToolbarState(
@@ -250,12 +318,36 @@ describe('Menu marks on popup items', () => {
     expect([...marks]).toEqual([BLOCK_KIND_MESSAGE_KEY.paragraph]);
   });
 
-  it('the set is empty for a target block that is not convertible', () => {
+  it('for a target block that is not convertible, no kind key is in the set but the key of a known alert is', () => {
     const marks = readBlockTypeMarks(
       createState({ blockKind: BLOCK_KIND.quote, convertible: false, alert: 'note' }),
     );
 
+    expect([...marks]).toEqual([ALERT_MESSAGE_KEY.note]);
+  });
+
+  it('the set is empty for a target block that is not convertible and has no alert', () => {
+    const marks = readBlockTypeMarks(
+      createState({ blockKind: undefined, convertible: false, alert: ALERT_STATE.none }),
+    );
+
     expect([...marks]).toEqual([]);
+  });
+
+  it('when the kind is paragraph inside a blockquote with a known alert, only the key of that alert kind is in the set, not the paragraph key', () => {
+    const marks = readBlockTypeMarks(
+      createState({ blockKind: BLOCK_KIND.paragraph, convertible: true, alert: 'tip' }),
+    );
+
+    expect([...marks]).toEqual([ALERT_MESSAGE_KEY.tip]);
+  });
+
+  it('when the kind is a heading inside a blockquote with a known alert, both the key of that alert kind and the heading key are in the set', () => {
+    const marks = readBlockTypeMarks(
+      createState({ blockKind: BLOCK_KIND.heading2, convertible: true, alert: 'tip' }),
+    );
+
+    expect([...marks]).toEqual([ALERT_MESSAGE_KEY.tip, BLOCK_KIND_MESSAGE_KEY.heading2]);
   });
 
   it('when the kind is quote and there is no alert, only the quote key is in the set', () => {

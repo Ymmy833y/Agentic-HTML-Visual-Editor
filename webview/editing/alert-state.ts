@@ -1,6 +1,6 @@
 import { ALERT_ATTRIBUTE_NAME, ALERT_KINDS } from '../../common/index';
 import type { AlertKind } from '../../common/index';
-import { BLOCK_KIND, isConvertibleBlock, readBlockKind } from './block-format';
+import { BLOCK_KIND, readBlockKind } from './block-format';
 
 /**
  * The state identifiers used when the kind is not settled.
@@ -26,21 +26,40 @@ const ALERT_KIND_BY_VALUE: ReadonlyMap<string, AlertKind> = new Map(
 );
 
 /**
- * Returns the alert state of a single block.
+ * Returns the element an alert operation acts on for a block: the alert target.
  *
- * Anything other than a bare blockquote gets `none`, whether or not it carries the attribute. What is answered is
- * the state of what an alert operation acts on, and returning a kind for a block that no rewrite reaches would put
- * the pressed state and the result of pressing out of step.
+ * A blockquote is its own target. A block inside a blockquote has the innermost blockquote around it as its target,
+ * so choosing an alert inside an alert blockquote that holds paragraphs changes that blockquote rather than nesting a
+ * new one around the paragraph. Any other block is its own target.
  *
- * @param target The single block, or `undefined` when there is no target.
+ * @param block The block, or `undefined` when there is none.
+ * @param root The editor root. Blockquotes outside it are not looked at.
+ * @returns The alert target, or `undefined` when there is no block.
+ */
+export function findAlertTarget(block: Element | undefined, root: Element): Element | undefined {
+  if (block === undefined || readBlockKind(block) === BLOCK_KIND.quote) {
+    return block;
+  }
+  for (let current = block.parentElement; current !== null && current !== root; current = current.parentElement) {
+    if (readBlockKind(current) === BLOCK_KIND.quote) {
+      return current;
+    }
+  }
+  return block;
+}
+
+/**
+ * Returns the alert state of an alert target.
+ *
+ * Anything other than a blockquote gets `none`, whether or not it carries the attribute. What is answered is the state
+ * of what an alert operation acts on, so the target is found with `findAlertTarget` first; returning a kind for an
+ * element that no rewrite reaches would put the pressed state and the result of pressing out of step.
+ *
+ * @param target The alert target, or `undefined` when there is no target.
  * @returns The alert state.
  */
 export function readAlertState(target: Element | undefined): AlertState {
-  if (
-    target === undefined
-    || readBlockKind(target) !== BLOCK_KIND.quote
-    || !isConvertibleBlock(target)
-  ) {
+  if (target === undefined || readBlockKind(target) !== BLOCK_KIND.quote) {
     return ALERT_STATE.none;
   }
 

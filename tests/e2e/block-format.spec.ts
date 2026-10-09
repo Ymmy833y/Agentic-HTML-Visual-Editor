@@ -708,6 +708,22 @@ test.describe('horizontal rule', () => {
     expect(await readBodyHtml(page)).toBe('\n<ul><li>ab</li></ul>\n<hr>\n<p><br></p>\n');
   });
 
+  test('pressing the horizontal rule button on the second of three lines of an alert blockquote inserts it inside the blockquote after that line', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note">ab<br>cd<br>ef</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 2, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.horizontalRule);
+
+    expect([
+      await readBodyHtml(page),
+      await isCaretInside(page, `${EDITOR_ROOT} blockquote > hr + p`),
+    ]).toEqual([
+      '\n<blockquote data-alert="note"><p>ab</p>\n<p>cd</p>\n<hr>\n<p><br></p>\n<p>ef</p></blockquote>\n',
+      true,
+    ]);
+  });
+
   test('removes only the hr and leaves the paragraph intact on Backspace at the start of the paragraph after it', async ({ page }) => {
     await openEditor(page, '\n<p>ab</p>\n<hr>\n<p>cd</p>\n');
     await focusEditor(page);

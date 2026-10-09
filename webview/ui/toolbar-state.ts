@@ -85,21 +85,21 @@ export function reflectToolbarState(ports: ToolbarStatePorts, state: CaretState)
  */
 export function readBlockTypeMarks(state: CaretState): ReadonlySet<MessageKey> {
   const marks = new Set<MessageKey>();
-  const kind = readReflectedKind(state);
-  if (kind === undefined) {
-    return marks;
-  }
-
   const alert = readKnownAlert(state);
   if (alert !== undefined) {
-    // In an alert blockquote the quote item gets no menu mark. The quote item clears the alert, so marking it would
-    // make it look like an item that changes nothing when pressed. An unknown value looks like an ordinary
-    // blockquote and the quote item leaves it alone, so quote is marked below in that case.
+    // The alert of the blockquote around the caret is marked whatever the block holding the caret is, because an
+    // alert item acts on that blockquote. The alert items are a group of their own, so this mark sits beside the
+    // mark of the kind.
     marks.add(ALERT_MESSAGE_KEY[alert]);
-    return marks;
   }
-  // Code block and div have no item in the menu, so no item is marked for them.
-  if (isBlockTypeMenuKind(kind)) {
+
+  const kind = readReflectedKind(state);
+  // Where the item label shows the alert, only the alert is marked, so that the marks agree with the label the same
+  // way inside an alert blockquote as on one holding only text. The quote item there also clears the alert, so
+  // marking it would make it look like an item that changes nothing when pressed. An unknown value looks like an
+  // ordinary blockquote and the quote item leaves it alone, so quote is marked in that case. Code block and div have
+  // no item in the menu, so no item is marked for them.
+  if (kind !== undefined && isBlockTypeMenuKind(kind) && !(alert !== undefined && isShownByAlert(kind))) {
     marks.add(BLOCK_KIND_MESSAGE_KEY[kind]);
   }
   return marks;
@@ -110,21 +110,38 @@ export function readBlockTypeMarks(state: CaretState): ReadonlySet<MessageKey> {
  *
  * Anything other than a heading, a quote or a code block (a paragraph, a div, or no kind) gets the paragraph
  * message. Div, which is not in the menu, and list items and details titles, which have no kind, are shown as
- * paragraphs, so that the registered message, which is not a kind, never appears as the item label. A quote with a
- * known alert is shown by its alert kind, because every alert blockquote would otherwise read as the same quote.
+ * paragraphs, so that the registered message, which is not a kind, never appears as the item label. Inside a
+ * blockquote with a known alert, what would read as a paragraph or a quote is shown by the alert kind instead.
  *
  * @param kind The kind to reflect, or `undefined` when there is no kind.
- * @param alert The known alert kind, or `undefined` when there is none.
+ * @param alert The known alert kind of the alert target, or `undefined` when there is none.
  * @returns The message key.
  */
 function readBlockTypeLabelKey(kind: BlockKind | undefined, alert: AlertKind | undefined): MessageKey {
+  if (alert !== undefined && isShownByAlert(kind)) {
+    return ALERT_MESSAGE_KEY[alert];
+  }
   if (kind === undefined || kind === BLOCK_KIND.div) {
     return BLOCK_KIND_MESSAGE_KEY.paragraph;
   }
-  if (kind === BLOCK_KIND.quote && alert !== undefined) {
-    return ALERT_MESSAGE_KEY[alert];
-  }
   return BLOCK_KIND_MESSAGE_KEY[kind];
+}
+
+/**
+ * Determines whether a block of a kind is shown by the known alert of its alert target.
+ *
+ * Otherwise a paragraph or a quote would read the same in every alert blockquote, and the label would not tell the
+ * alert kinds apart. A heading and a code block keep their own kind, which tells more about the block than the alert
+ * does.
+ *
+ * @param kind The kind to reflect, or `undefined` when there is no kind.
+ * @returns `true` for a paragraph, a div, a quote and no kind.
+ */
+function isShownByAlert(kind: BlockKind | undefined): boolean {
+  return kind === undefined
+    || kind === BLOCK_KIND.paragraph
+    || kind === BLOCK_KIND.div
+    || kind === BLOCK_KIND.quote;
 }
 
 /**

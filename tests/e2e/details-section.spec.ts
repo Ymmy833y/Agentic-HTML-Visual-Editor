@@ -435,6 +435,19 @@ test.describe('inserting a collapsible section', () => {
     ]);
   });
 
+  test('creates the collapsible section inside a blockquote with the caret in the title, from pressing the item with the caret on a line of it', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="warning">ab</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 0, offset: 2 });
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.details);
+
+    expect([await readBodyHtml(page), await isCaretInside(page, TITLE)]).toEqual([
+      '\n<blockquote data-alert="warning"><p>ab</p>\n<details open="">\n<summary><br></summary>\n<p><br></p>\n</details>\n<p><br></p></blockquote>\n',
+      true,
+    ]);
+  });
+
   test('shows only the typed character in the saved content, for typing the title right after inserting', async ({ page }) => {
     await openEditor(page, '\n<p>ab</p>\n');
     await focusEditor(page);

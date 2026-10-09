@@ -1,6 +1,6 @@
 import { ALERT_ATTRIBUTE_NAME } from '../../common/index';
 import type { AlertKind } from '../../common/index';
-import { ALERT_STATE, readAlertState } from './alert-state';
+import { ALERT_STATE, findAlertTarget, readAlertState } from './alert-state';
 import { convertBlock } from './block-convert';
 import { BLOCK_KIND, isConvertibleBlock, readBlockKind } from './block-format';
 import type { BlockRewriteProgress } from './block-format';
@@ -14,7 +14,10 @@ import type { BlockRewriteProgress } from './block-format';
 export type AlertSelection = AlertKind | typeof ALERT_STATE.none;
 
 /**
- * Brings the targets to blockquotes and then aligns the alert attribute with the selection.
+ * Brings the alert targets of the targets to blockquotes and then aligns the alert attribute with the selection.
+ *
+ * A target inside a blockquote acts on the innermost blockquote around it, the same one the pressed state is read
+ * from, and targets sharing one blockquote act on it once.
  *
  * Exceptions are not caught here but left to the catch outside. The progress is turned true as each conversion or
  * attribute change is completed, so even when an exception is thrown partway, the rewrites done up to that point
@@ -23,22 +26,29 @@ export type AlertSelection = AlertKind | typeof ALERT_STATE.none;
  * @param targets The target blocks.
  * @param selection The alert selection.
  * @param progress The holder of whether the tree was changed.
+ * @param root The editor root.
  */
 export function applyAlert(
   targets: readonly Element[],
   selection: AlertSelection,
   progress: BlockRewriteProgress,
+  root: Element,
 ): void {
+  const done = new Set<Element>();
   for (const target of targets) {
-    // An ancestor blockquote is not looked at. Only the target itself is acted on.
-    if (!isConvertibleBlock(target)) {
+    const alertTarget = findAlertTarget(target, root) ?? target;
+    if (done.has(alertTarget)) {
       continue;
     }
+    done.add(alertTarget);
 
-    let quote = target;
-    if (readBlockKind(target) !== BLOCK_KIND.quote) {
+    let quote = alertTarget;
+    if (readBlockKind(alertTarget) !== BLOCK_KIND.quote) {
+      if (!isConvertibleBlock(alertTarget)) {
+        continue;
+      }
       // Carrying the attributes over is the job of the side that replaces the element, and is not done here.
-      const converted = convertBlock(target, BLOCK_KIND.quote);
+      const converted = convertBlock(alertTarget, BLOCK_KIND.quote);
       if (converted === undefined) {
         continue;
       }

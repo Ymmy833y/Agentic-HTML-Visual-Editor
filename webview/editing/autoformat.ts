@@ -1,5 +1,5 @@
 import { ALERT_KINDS } from '../../common/index';
-import { ALERT_STATE } from './alert-state';
+import { ALERT_STATE, findAlertTarget } from './alert-state';
 import { fillPlaceholder, findBlock, isEmptyBlock } from './block';
 import { runBlockOperation } from './block-command';
 import type { BlockCommandPorts, BlockOperation } from './block-command';
@@ -27,10 +27,21 @@ export interface AutoformatEntry {
   /**
    * Whether the entry also matches on a line of a bare blockquote. Left out, it does not.
    *
-   * Only the code block entry sets it. The code block conversion turns the caret's line of a bare blockquote into a
-   * code block inside it, while other markers there would silently change the kind of the whole blockquote.
+   * Set on the code block, horizontal rule and list entries. Their operations act on the caret's line of a bare
+   * blockquote and keep the blockquote, while heading and blockquote markers there would silently change the kind of
+   * the whole blockquote.
    */
   readonly matchesQuoteLine?: boolean;
+
+  /**
+   * Whether the entry is left out in a block inside a blockquote. Left out, it is not.
+   *
+   * Set on the blockquote and alert entries. Their operation acts on the blockquote around the block, so a marker
+   * typed at the start of a paragraph there would silently change the kind of the whole blockquote, or, when the
+   * blockquote already has that kind, only remove the marker. The marker stays as text instead, the same as on a line
+   * of a bare blockquote.
+   */
+  readonly skipsInsideQuote?: boolean;
 
   /**
    * Called after the caret has been placed at the start of the block (on a line of a bare blockquote, where the line
@@ -59,7 +70,7 @@ export interface AutoformatMatch {
 
   /**
    * The range to delete as the marker. For a space, from the start of the block to the caret; for Enter, the whole
-   * content, or the content of the caret's line in a bare blockquote.
+   * content. On a line of a bare blockquote, the line takes the place of the block.
    */
   readonly removal: Range;
 
@@ -122,9 +133,9 @@ export class AutoformatTable {
     if (block === undefined) {
       return undefined;
     }
-    // In a bare blockquote Enter inserts a line break, so a line of it is the only place a marker followed by Enter
-    // can be typed there.
-    const quoteLine = commit === 'enter' && isBareBlockquote(block);
+    // In a bare blockquote Enter inserts a line break, so a marker is matched against the caret's line rather than
+    // the whole blockquote.
+    const quoteLine = isBareBlockquote(block);
     if (!quoteLine && (!AUTOFORMAT_BLOCK_TAG_NAMES.has(block.localName) || !isConvertibleBlock(block))) {
       return undefined;
     }
@@ -135,10 +146,13 @@ export class AutoformatTable {
       return undefined;
     }
     const marker = normalizeMarker(text, commit);
+    // A blockquote is the alert target of itself, so only a block inside one has another element as its target.
+    const insideQuote = findAlertTarget(block, root) !== block;
     const entry = this.entries.find(
       (candidate) => candidate.commit === commit
         && candidate.marker === marker
-        && (!quoteLine || candidate.matchesQuoteLine === true),
+        && (!quoteLine || candidate.matchesQuoteLine === true)
+        && !(insideQuote && candidate.skipsInsideQuote === true),
     );
     if (entry === undefined) {
       return undefined;
@@ -172,7 +186,11 @@ function createComparedRange(
 ): Range {
   if (quoteLine) {
     // The br elements that separate the lines belong to no line, so they stay out of the comparison and the removal.
-    return selectCaretLine(block, range);
+    const line = selectCaretLine(block, range);
+    if (commit === 'space') {
+      line.setEnd(range.startContainer, range.startOffset);
+    }
+    return line;
   }
 
   const compared = block.ownerDocument.createRange();
@@ -215,10 +233,13 @@ export function createAutoformatEntries(ports: BlockCommandPorts): AutoformatEnt
     // A blockquote is made with an alert operation rather than a block conversion. With a block conversion, an
     // alert attribute left on the paragraph would take effect on the blockquote, and the look would disagree with
     // the marker typed.
-    createEntry('space', '>', { kind: 'alert', to: ALERT_STATE.none }),
-    ...ALERT_KINDS.map((kind) => createEntry('space', `>${kind}`, { kind: 'alert', to: kind })),
+    { ...createEntry('space', '>', { kind: 'alert', to: ALERT_STATE.none }), skipsInsideQuote: true },
+    ...ALERT_KINDS.map((kind) => ({
+      ...createEntry('space', `>${kind}`, { kind: 'alert', to: kind }),
+      skipsInsideQuote: true,
+    })),
     { ...createEntry('enter', '```', { kind: 'convert', to: BLOCK_KIND.codeBlock }), matchesQuoteLine: true },
-    createEntry('enter', '---', { kind: 'horizontalRule' }),
+    { ...createEntry('enter', '---', { kind: 'horizontalRule' }), matchesQuoteLine: true },
   ];
 }
 
@@ -261,8 +282,8 @@ export function applyAutoformat(
       keepEmptyLastLine(match.block, match.removal);
     }
     if (match.quoteLine) {
-      // The code block conversion of a bare blockquote works on the caret's line, so the caret stays where the line
-      // was.
+      // The operations matched on a line of a bare blockquote work on the caret's line, so the caret stays where the
+      // line was.
       placeCaret(match.removal.startContainer, match.removal.startOffset);
     } else {
       placeCaretAtStart(match.block);

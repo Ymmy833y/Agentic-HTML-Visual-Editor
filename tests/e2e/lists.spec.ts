@@ -339,6 +339,35 @@ test.describe('creating, unwrapping and switching lists', () => {
     expect([await readBodyHtml(page), await readCaret(page)]).toEqual(['\n<ul><li>abcd</li></ul>\n', ['abcd', 2]]);
   });
 
+  test('pressing bulleted list over two lines of a blockquote makes them two items of a list inside it, keeping the selection over the same string', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note">ab<br>cd<br>ef</blockquote>\n');
+    await selectRange(
+      page,
+      { selector: `${EDITOR_ROOT} blockquote`, childIndex: 0, offset: 1 },
+      { selector: `${EDITOR_ROOT} blockquote`, childIndex: 2, offset: 1 },
+    );
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bulletList);
+
+    expect([await readBodyHtml(page), await page.evaluate(() => window.getSelection()?.toString())]).toEqual([
+      '\n<blockquote data-alert="note"><ul><li>ab</li>\n<li>cd</li></ul>\n<p>ef</p></blockquote>\n',
+      'b\nc',
+    ]);
+  });
+
+  test('pressing bulleted list over a range from a line of a blockquote into the paragraph after it leaves the blockquote as it is', async ({ page }) => {
+    await openEditor(page, '\n<blockquote>ab<br>cd</blockquote>\n<p>ef</p>\n');
+    await selectRange(
+      page,
+      { selector: `${EDITOR_ROOT} blockquote`, childIndex: 2, offset: 1 },
+      { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 1 },
+    );
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.bulletList);
+
+    expect(await readBodyHtml(page)).toBe('\n<blockquote>ab<br>cd</blockquote>\n<ul><li>ef</li></ul>\n');
+  });
+
   test('pressing bulleted list in a bulleted list item turns the item back into a paragraph', async ({ page }) => {
     await openEditor(page, '\n<ul><li>abcd</li></ul>\n');
     await placeCaretInText(page, `${EDITOR_ROOT} li`, 2);
@@ -1079,6 +1108,16 @@ test.describe('markdown-style autoformat', () => {
     await page.keyboard.type('1. ');
 
     expect(await readBodyHtml(page)).toBe('\n<ul><li>ab</li></ul>\n<ol><li>cd</li></ol>\n');
+  });
+
+  test('typing "- " at the start of the second line of a blockquote turns that line into a bulleted list item inside the blockquote', async ({ page }) => {
+    await openEditor(page, '\n<blockquote>ab<br>cd<br>ef</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 2, offset: 0 });
+
+    await page.keyboard.type('- ');
+
+    expect(await readBodyHtml(page)).toBe('\n<blockquote><p>ab</p>\n<ul><li>cd</li></ul>\n<p>ef</p></blockquote>\n');
   });
 
   test('typing "- " in an item\'s own content or in the paragraph of an item whose line is a paragraph leaves it as plain text', async ({ page }) => {

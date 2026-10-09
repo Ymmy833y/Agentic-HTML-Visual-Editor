@@ -189,16 +189,18 @@ export function readMenuPopupItems(contents: HTMLElement): readonly HTMLElement[
 /**
  * Decides the item that receives focus when the popup opens.
  *
- * Focus goes to the first checked item, so that the choice can be made again starting from the item
- * that carries the mark for the current value. A mark can be on one kind item and one alert item
- * each, so inside a blockquote it lands on the kind item, which comes first.
+ * Focus goes to a checked item, so that the choice can be made again starting from the item that
+ * carries the mark for the current value. A mark can be on one kind item and one alert item each,
+ * and the alert items come after the kind items. Inside an alert blockquote the alert says more
+ * about where the caret is than the kind of the block holding it, so focus goes to the last
+ * checked item.
  *
  * @param items The menu items.
- * @returns The first item whose `aria-checked` is true, otherwise the first item. `undefined` when
+ * @returns The last item whose `aria-checked` is true, otherwise the first item. `undefined` when
  *   there are no items.
  */
 export function readInitialMenuItem(items: readonly HTMLElement[]): HTMLElement | undefined {
-  return items.find((item) => item.getAttribute('aria-checked') === 'true') ?? items[0];
+  return items.filter((item) => item.getAttribute('aria-checked') === 'true').at(-1) ?? items[0];
 }
 
 /**

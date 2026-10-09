@@ -210,6 +210,77 @@ describe('accepting a block operation', () => {
     ]);
   });
 
+  it('splits the lines of a bare blockquote and puts a horizontal rule after the caret line inside it', () => {
+    const root = mountRoot('<blockquote data-alert="note">ab<br>cd<br>ef</blockquote>');
+    const text = readChildText(readElement(root, 'blockquote'), 2);
+    select(createRange(text, 2, text, 2));
+    const { ports } = createPorts(root);
+
+    const changed = runBlockOperation(ports, { kind: 'horizontalRule' }, 'command');
+
+    expect([changed, root.innerHTML]).toEqual([
+      true,
+      '<blockquote data-alert="note"><p>ab</p>\n<p>cd</p>\n<hr>\n<p><br></p>\n<p>ef</p></blockquote>',
+    ]);
+  });
+
+  it('puts a table, a collapsible section and a diagram inside a bare blockquote rather than after it', () => {
+    const results = (['insertTable', 'insertDetails', 'insertDiagram'] as const).map((kind) => {
+      const root = mountRoot('<blockquote>ab</blockquote>');
+      const text = readChildText(readElement(root, 'blockquote'), 0);
+      select(createRange(text, 2, text, 2));
+      const { ports } = createPorts(root);
+      runBlockOperation(
+        ports,
+        kind === 'insertTable' ? { kind, rows: 1, columns: 1 } : { kind },
+        'command',
+      );
+      return root.querySelector(':scope > blockquote > p + :is(table, details, pre)') !== null;
+    });
+
+    expect(results).toEqual([true, true, true]);
+  });
+
+  it('turns the two lines a range covers inside a bare blockquote into two items of a list inside it', () => {
+    const root = mountRoot('<blockquote>ab<br>cd<br>ef</blockquote>');
+    const quote = readElement(root, 'blockquote');
+    select(createRange(readChildText(quote, 0), 1, readChildText(quote, 2), 1));
+    const { ports } = createPorts(root);
+
+    runBlockOperation(ports, { kind: 'toggleList', to: LIST_KIND.bullet }, 'command');
+
+    expect([root.innerHTML, window.getSelection()?.toString()]).toEqual([
+      '<blockquote><ul><li>ab</li>\n<li>cd</li></ul>\n<p>ef</p></blockquote>',
+      'b\nc',
+    ]);
+  });
+
+  it('leaves a bare blockquote as it is when a list is made from a range that runs past it', () => {
+    const root = mountRoot('<blockquote>ab<br>cd</blockquote>\n<p>ef</p>');
+    select(createRange(
+      readChildText(readElement(root, 'blockquote'), 2),
+      1,
+      readChildText(readElement(root, 'p'), 0),
+      1,
+    ));
+    const { ports } = createPorts(root);
+
+    runBlockOperation(ports, { kind: 'toggleList', to: LIST_KIND.bullet }, 'command');
+
+    expect(root.innerHTML).toBe('<blockquote>ab<br>cd</blockquote>\n<ul><li>ef</li></ul>');
+  });
+
+  it('leaves the lines of a bare blockquote unsplit when a list is toggled from it inside a list item', () => {
+    const root = mountRoot('<ul><li><blockquote>ab<br>cd</blockquote></li></ul>');
+    const text = readChildText(readElement(root, 'blockquote'), 2);
+    select(createRange(text, 1, text, 1));
+    const { ports } = createPorts(root);
+
+    runBlockOperation(ports, { kind: 'toggleList', to: LIST_KIND.bullet }, 'command');
+
+    expect(readElement(root, 'blockquote').innerHTML).toBe('ab<br>cd');
+  });
+
   it('opens and completes an alert operation as one edit attempt, the same way a kind conversion does', () => {
     const root = mountRoot('<p>ab</p>');
     selectText(root, 'p', 0, 2);
