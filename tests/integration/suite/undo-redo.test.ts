@@ -15,6 +15,7 @@ const SCRATCH_FILE_NAME = 'undo-redo-scratch.html';
 // Each case uses its own source file.
 const PROTECTION_APPLY_SCRATCH_FILE_NAME = 'undo-redo-protection-apply-scratch.html';
 const PROTECTION_REVERT_SCRATCH_FILE_NAME = 'undo-redo-protection-revert-scratch.html';
+const PROTECTION_DIRTY_HISTORY_SCRATCH_FILE_NAME = 'undo-redo-protection-dirty-history-scratch.html';
 // 0xFF never occurs in UTF-8, so a strict decoder rejects this content.
 const NOT_UTF8_BYTES = new Uint8Array([0xff, 0xfe, 0x00]);
 
@@ -39,6 +40,10 @@ interface SaveEntryCall {
 }
 
 interface ExtensionApi {
+  readBackupInspection(documentUri: string): {
+    readonly protectionStatus: string | undefined;
+    readonly protectionBackupUri: string | undefined;
+  } | undefined;
   readWebviewInspection(documentUri: string): { readonly messages: readonly RecordedMessage[] } | undefined;
   readDiagnosticInspection(): {
     readonly notifications: readonly string[];
@@ -510,6 +515,95 @@ describe('undo/redo history registration and command delegation', () => {
     assert.strictEqual(buffer.isDirty, false);
   });
 
+  it('runs standard undo/redo without changing the disk or unsaved edits in the text tab', async () => {
+    const uri = scratchUri();
+    await openWysiwyg(uri);
+    await injectEditFrom(uri, INITIAL_TEXT, EDITED_TEXT);
+    const editor = await vscode.window.showTextDocument(uri);
+    const pendingText = '<!-- unsaved text -->' + INITIAL_TEXT;
+    assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- unsaved text -->')));
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+
+    await runStandardHistoryCommand(uri, 'ahve.undo');
+    assert.strictEqual(findCustomTab(uri)?.isDirty, false);
+    await runStandardHistoryCommand(uri, 'ahve.redo');
+
+    assert.deepStrictEqual(await readHistoryCandidates(uri), [INITIAL_TEXT, EDITED_TEXT]);
+    assert.strictEqual(findCustomTab(uri)?.isDirty, true);
+    assert.strictEqual(editor.document.getText(), pendingText);
+    assert.strictEqual(editor.document.isDirty, true);
+    assert.strictEqual(await readFileText(uri), INITIAL_TEXT);
+    assert.ok(!(await readTypesSentToView(uri)).includes('historyProtectionActivated'));
+  });
+
+  it('keeps the save point consistent across undo/redo while the text tab has unsaved edits', async () => {
+    const uri = scratchUri();
+    await openWysiwyg(uri);
+    await injectEditFrom(uri, INITIAL_TEXT, EDITED_TEXT);
+    await vscode.commands.executeCommand('workbench.action.files.save');
+    const editor = await vscode.window.showTextDocument(uri);
+    await waitUntil(() => editor.document.getText() === EDITED_TEXT, 'the buffer followed the saved content');
+    assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- unsaved text -->')));
+    const pendingText = editor.document.getText();
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+
+    await runStandardHistoryCommand(uri, 'undo');
+    assert.strictEqual(findCustomTab(uri)?.isDirty, true);
+    await runStandardHistoryCommand(uri, 'redo');
+
+    assert.deepStrictEqual(await readHistoryCandidates(uri), [INITIAL_TEXT, EDITED_TEXT]);
+    assert.strictEqual(findCustomTab(uri)?.isDirty, false);
+    assert.strictEqual(editor.document.getText(), pendingText);
+    assert.strictEqual(editor.document.isDirty, true);
+    assert.strictEqual(await readFileText(uri), EDITED_TEXT);
+    assert.ok(!(await readTypesSentToView(uri)).includes('historyProtectionActivated'));
+  });
+
+  it('keeps a later disk change through undo/redo while the text tab is dirty', async () => {
+    const uri = await resetScratch(MERGE_BASE_TEXT);
+    await openWysiwyg(uri);
+    await injectEditFrom(uri, MERGE_BASE_TEXT, MERGE_VIEW_TEXT);
+    const editor = await vscode.window.showTextDocument(uri);
+    assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- unsaved text -->')));
+    const pendingText = editor.document.getText();
+    await writeFileText(uri, MERGE_SOURCE_TEXT);
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+
+    await runStandardHistoryCommand(uri, 'ahve.undo');
+    await runStandardHistoryCommand(uri, 'ahve.redo');
+
+    const merged = MERGE_SOURCE_TEXT.replace('<p>second</p>', '<p>SECOND</p>');
+    assert.deepStrictEqual(await readHistoryCandidates(uri), [MERGE_SOURCE_TEXT, merged]);
+    assert.strictEqual(editor.document.getText(), pendingText);
+    assert.strictEqual(editor.document.isDirty, true);
+    assert.strictEqual(await readFileText(uri), MERGE_SOURCE_TEXT);
+    assert.ok(!(await readTypesSentToView(uri)).includes('historyProtectionActivated'));
+  });
+
+  it('takes in the text tab save as an external change after undo returns to the save point', async () => {
+    const uri = scratchUri();
+    await openWysiwyg(uri);
+    await injectEditFrom(uri, INITIAL_TEXT, EDITED_TEXT);
+    const editor = await vscode.window.showTextDocument(uri);
+    assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- unsaved text -->')));
+    const pendingText = editor.document.getText();
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+    await runStandardHistoryCommand(uri, 'ahve.undo');
+    assert.strictEqual(findCustomTab(uri)?.isDirty, false);
+
+    assert.ok(await editor.document.save());
+    await waitUntil(async () => (await readRecordedMessages(uri)).some((recorded) =>
+      recorded.direction === 'toView'
+      && readMessageField(recorded.message, 'kind') === 'externalChange'
+      && readMessageText(recorded.message) === pendingText),
+    'the saved text reached the view as an external change');
+
+    assert.strictEqual(editor.document.isDirty, false);
+    assert.strictEqual(await readFileText(uri), pendingText);
+    assert.strictEqual(findCustomTab(uri)?.isDirty, false);
+    assert.ok(!(await readTypesSentToView(uri)).includes('historyProtectionActivated'));
+  });
+
   it('does not erase existing text history when the WYSIWYG entry and editor tabs are closed', async () => {
     const uri = scratchUri();
     const editor = await vscode.window.showTextDocument(uri);
@@ -586,6 +680,7 @@ describe('undo/redo application and the save boundary', () => {
     await deleteIfPresent(scratchUri());
     await deleteIfPresent(fixtureUri(PROTECTION_APPLY_SCRATCH_FILE_NAME));
     await deleteIfPresent(fixtureUri(PROTECTION_REVERT_SCRATCH_FILE_NAME));
+    await deleteIfPresent(fixtureUri(PROTECTION_DIRTY_HISTORY_SCRATCH_FILE_NAME));
   });
 
   it('returns the view content to the recorded before state when undo is driven', async () => {
@@ -692,5 +787,45 @@ describe('undo/redo application and the save boundary', () => {
       () => findCustomTab(uri)?.isDirty === false,
       'the failed revert completed without a history-less change event',
     );
+  });
+
+  it('preserves the old view in protection when history needs a disk source that is not UTF-8', async () => {
+    const uri = await resetNamedScratch(PROTECTION_DIRTY_HISTORY_SCRATCH_FILE_NAME);
+    await openWysiwyg(uri);
+    await injectEditFrom(uri, INITIAL_TEXT, EDITED_TEXT);
+    const editor = await vscode.window.showTextDocument(uri);
+    assert.ok(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), '<!-- unsaved text -->')));
+    const pendingText = editor.document.getText();
+    await vscode.workspace.fs.writeFile(uri, NOT_UTF8_BYTES);
+    await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE);
+    (await api()).clearDiagnosticInspection();
+
+    // A failed history application waits for recovery, so observe the verified backup instead of awaiting undo.
+    void Promise.resolve(vscode.commands.executeCommand('ahve.undo')).then(undefined, () => undefined);
+    await waitUntil(
+      async () => (await api()).readDiagnosticInspection().notifications.length > 0,
+      'the history application failure was reported',
+    );
+    // History enters protection after its error notification closes.
+    await vscode.commands.executeCommand('notifications.clearAll');
+    await waitUntil(async () =>
+      (await api()).readBackupInspection(uri.toString())?.protectionStatus === 'verified',
+    'the old content was verified in a protection backup');
+
+    const backupUri = (await api()).readBackupInspection(uri.toString())?.protectionBackupUri;
+    assert.ok(backupUri);
+    const backupDirectory = vscode.Uri.parse(backupUri);
+    const generation = (await vscode.workspace.fs.readDirectory(backupDirectory))
+      .find(([name]) => name.endsWith('.json'));
+    assert.ok(generation);
+    const backup = JSON.parse(await readFileText(vscode.Uri.joinPath(backupDirectory, generation[0]))) as {
+      fullText: string;
+    };
+    assert.strictEqual(backup.fullText, EDITED_TEXT);
+    assert.deepStrictEqual(await readHistoryCandidates(uri), []);
+    assert.ok((await readTypesSentToView(uri)).includes('historyProtectionActivated'));
+    assert.strictEqual(editor.document.getText(), pendingText);
+    assert.strictEqual(editor.document.isDirty, true);
+    assert.deepStrictEqual(Array.from(await vscode.workspace.fs.readFile(uri)), Array.from(NOT_UTF8_BYTES));
   });
 });
