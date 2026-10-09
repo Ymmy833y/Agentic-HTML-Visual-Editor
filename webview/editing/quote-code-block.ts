@@ -174,6 +174,81 @@ export function convertQuoteLines(plan: QuoteLinePlan): QuoteLinePoints {
 }
 
 /**
+ * Turns each line the selection covers into a paragraph of its own inside the blockquote, and the lines before and
+ * after them into a paragraph each.
+ *
+ * A block or list item can then be put next to the covered line, or made of it, inside the blockquote, by the same
+ * rules as outside one. The lines before and after keep the `br` elements between them, so lines that are not acted
+ * on look the same. The blockquote stays in place with its attributes, and the children move by reference.
+ *
+ * @param plan The plan made by `planQuoteLines` for the same tree.
+ * @returns Where the ends of the selection that were inside the blockquote go.
+ */
+export function splitQuoteLines(plan: QuoteLinePlan): QuoteLinePoints {
+  const { quote, lines, trailingBreak, first, last } = plan;
+  const document = quote.ownerDocument;
+  // Measured before the rewrite: the br elements between the covered lines leave the tree, and each one was counted
+  // as a character.
+  const lengths: number[] = [];
+  for (let index = first; index <= last; index += 1) {
+    lengths.push(countLine(quote, lines, index, trailingBreak));
+  }
+
+  const before = collectLines(lines, 0, first);
+  const after = collectLines(lines, last + 1, lines.length);
+  const leadingBreak = first > 0 ? lines[first - 1].lineBreak : undefined;
+  if (leadingBreak !== undefined) {
+    if (isBlankLine(lines[first - 1])) {
+      // A br at the end of a paragraph opens no line. Keeping this one lets the empty line before still show.
+      before.push(leadingBreak);
+    } else {
+      leadingBreak.remove();
+    }
+  }
+
+  const paragraphs: Element[] = [];
+  for (let index = first; index <= last; index += 1) {
+    const line = lines[index];
+    line.lineBreak?.remove();
+    const paragraph = document.createElement('p');
+    // Appended as they are, without trimming the whitespace at the edges, so the counts taken in the plan point at
+    // the same characters in the paragraph.
+    paragraph.append(...line.nodes);
+    if (index === lines.length - 1 && trailingBreak !== undefined) {
+      paragraph.append(trailingBreak);
+    } else if (isBlankLine(line)) {
+      // An empty line has no height as a paragraph of its own.
+      paragraph.append(document.createElement('br'));
+    }
+    paragraphs.push(paragraph);
+  }
+  if (trailingBreak !== undefined && last < lines.length - 1) {
+    after.push(trailingBreak);
+  }
+
+  const blocks: ChildNode[] = [
+    ...(before.length > 0 ? wrapInlineRuns(before, document) : []),
+    ...paragraphs,
+    ...(after.length > 0 ? wrapInlineRuns(after, document) : []),
+  ];
+  // What is left in the blockquote is only the whitespace and HTML comments after the trailing br, so the blocks go
+  // before it.
+  quote.prepend(...joinBlocks(blocks, document));
+
+  const start = plan.start.place === 'inside'
+    ? findSplitPosition(paragraphs, lengths, plan.start.count, 'start')
+    : undefined;
+  if (plan.end.place !== 'inside') {
+    return { start, end: undefined };
+  }
+  // A caret stays a caret. Resolving the same count from the other side could split it across a seam.
+  const end = plan.start.place === 'inside' && plan.start.count === plan.end.count
+    ? start
+    : findSplitPosition(paragraphs, lengths, plan.end.count, 'end');
+  return { start, end };
+}
+
+/**
  * Returns a new range over the content of the line holding the start of the range. Changes neither the tree nor the
  * selection.
  *
@@ -358,6 +433,57 @@ function findCodePosition(pre: Element, code: Element, count: number, side: 'sta
   }
   return findCountedPosition(code, count, side, QUOTE_LINE_COUNT)
     ?? { node: code, offset: side === 'start' ? 0 : code.childNodes.length };
+}
+
+/**
+ * Counts the characters of a line, the same way a plan counts the ends of the selection.
+ *
+ * @param quote The bare blockquote.
+ * @param lines The lines of the blockquote.
+ * @param index The index of the line.
+ * @param trailingBreak The `br` at the end of the content, which the plan leaves out of its counts.
+ * @returns The number of characters.
+ */
+function countLine(
+  quote: Element,
+  lines: readonly QuoteLine[],
+  index: number,
+  trailingBreak: Element | undefined,
+): number {
+  const start = readLineStart(quote, lines, index);
+  const last = lines[index].nodes.at(-1);
+  const end = last === undefined
+    ? start
+    : { node: quote, offset: [...quote.childNodes].indexOf(last) + 1 };
+  return countCharacters(quote, start, end, QUOTE_LINE_COUNT, trailingBreak);
+}
+
+/**
+ * Finds the position in the paragraphs made of the covered lines that a character count points at.
+ *
+ * The count runs from the start of the first covered line, with the `br` that separated two lines counted as one
+ * character. A count at the end of a line stays on that line, as the plan counts an end right before a `br`.
+ *
+ * @param paragraphs The paragraphs made of the covered lines, in document order.
+ * @param lengths The number of characters of each covered line.
+ * @param count The number of characters counted from the start of the first covered line.
+ * @param side Whether the position is for the start or the end of the selection.
+ * @returns The position.
+ */
+function findSplitPosition(
+  paragraphs: readonly Element[],
+  lengths: readonly number[],
+  count: number,
+  side: 'start' | 'end',
+): SelectionPoint {
+  let remaining = count;
+  for (const [index, paragraph] of paragraphs.entries()) {
+    if (remaining <= lengths[index] || index === paragraphs.length - 1) {
+      return findCountedPosition(paragraph, remaining, side, QUOTE_LINE_COUNT) ?? { node: paragraph, offset: 0 };
+    }
+    remaining -= lengths[index] + 1;
+  }
+  return { node: paragraphs[0], offset: 0 };
 }
 
 /**

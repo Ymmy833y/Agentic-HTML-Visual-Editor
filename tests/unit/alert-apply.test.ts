@@ -22,7 +22,7 @@ function applyTo(
   const root = createRoot(html);
   const progress: BlockRewriteProgress = { changed: false };
 
-  applyAlert([readElement(root, selector)], selection, progress);
+  applyAlert([readElement(root, selector)], selection, progress, root);
 
   return { html: root.innerHTML, changed: progress.changed };
 }
@@ -38,7 +38,7 @@ describe('applying an alert', () => {
     const quote = readElement(root, 'blockquote');
     const progress: BlockRewriteProgress = { changed: false };
 
-    applyAlert([quote], 'tip', progress);
+    applyAlert([quote], 'tip', progress, root);
 
     expect([root.innerHTML, readElement(root, 'blockquote') === quote])
       .toEqual(['<blockquote data-alert="tip">ab</blockquote>', true]);
@@ -79,7 +79,7 @@ describe('applying an alert', () => {
       .toEqual({ html: '<blockquote>ab</blockquote>', changed: false });
   });
 
-  it('rewrites no target that is not convertible and still processes the other targets in the same list', () => {
+  it('rewrites no target that is not convertible and outside a blockquote, and still processes the other targets in the same list', () => {
     const root = createRoot(
       '<ul><li>a</li></ul><table><tbody><tr><td>b</td></tr></tbody></table>'
       + '<blockquote><p>c</p></blockquote><p id="tail">d</p>',
@@ -88,20 +88,36 @@ describe('applying an alert', () => {
       .map((selector) => readElement(root, selector));
     const progress: BlockRewriteProgress = { changed: false };
 
-    applyAlert(targets, 'note', progress);
+    applyAlert(targets, 'note', progress, root);
 
     expect([root.innerHTML, progress.changed]).toEqual([
       '<ul><li>a</li></ul><table><tbody><tr><td>b</td></tr></tbody></table>'
-      + '<blockquote><p>c</p></blockquote><blockquote id="tail" data-alert="note">d</blockquote>',
+      + '<blockquote data-alert="note"><p>c</p></blockquote><blockquote id="tail" data-alert="note">d</blockquote>',
       true,
     ]);
   });
 
-  it('makes the paragraph itself a nested blockquote rather than its ancestor when a paragraph inside a blockquote is the target', () => {
-    expect(applyTo('<blockquote><p>ab</p></blockquote>', 'p', 'note')).toEqual({
-      html: '<blockquote><blockquote data-alert="note">ab</blockquote></blockquote>',
+  it('changes the alert of the blockquote around a paragraph inside it rather than nesting a new blockquote', () => {
+    expect(applyTo('<blockquote data-alert="note"><p>ab</p></blockquote>', 'p', 'tip')).toEqual({
+      html: '<blockquote data-alert="tip"><p>ab</p></blockquote>',
       changed: true,
     });
+  });
+
+  it('clears the alert of the blockquote around a paragraph inside it when none is applied', () => {
+    expect(applyTo('<blockquote data-alert="note"><p>ab</p></blockquote>', 'p', ALERT_STATE.none)).toEqual({
+      html: '<blockquote><p>ab</p></blockquote>',
+      changed: true,
+    });
+  });
+
+  it('acts on the blockquote around a list item, and once on a blockquote that two targets share', () => {
+    const root = createRoot('<blockquote><ul><li>a</li></ul><p>b</p></blockquote>');
+    const progress: BlockRewriteProgress = { changed: false };
+
+    applyAlert([readElement(root, 'li'), readElement(root, 'p')], 'caution', progress, root);
+
+    expect(root.innerHTML).toBe('<blockquote data-alert="caution"><ul><li>a</li></ul><p>b</p></blockquote>');
   });
 
   it('leaves the body text and the contents of a comment untouched when the attribute is added or removed', () => {
@@ -123,7 +139,7 @@ describe('applying an alert', () => {
     const progress: BlockRewriteProgress = { changed: false };
 
     // Exceptions are not caught here but left to the catch outside.
-    expect(() => applyAlert(quotes, 'note', progress)).toThrow();
+    expect(() => applyAlert(quotes, 'note', progress, root)).toThrow();
     expect([progress.changed, quotes[0].getAttribute('data-alert')]).toEqual([true, 'note']);
   });
 });

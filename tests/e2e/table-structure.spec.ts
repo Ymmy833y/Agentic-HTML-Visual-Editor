@@ -1127,6 +1127,29 @@ test.describe('insert table', () => {
     expect(await readBodyHtml(page)).toBe(saved);
   });
 
+  test('inserting on an empty line of a blockquote puts the table inside the blockquote before that line, which stays after the table', async ({ page }) => {
+    await openTableEditor(page, '\n<blockquote data-alert="note">ab<br><br>cd</blockquote>\n');
+    await page.evaluate((argument) => {
+      const quote = document.querySelector(argument.selector);
+      if (quote === null) {
+        throw new Error('blockquote not found');
+      }
+      document.getElementById(argument.rootId)?.focus();
+      const range = document.createRange();
+      range.setStart(quote, 2);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+    }, { selector: `${EDITOR_ROOT} blockquote`, rootId: EDITOR_ROOT_ELEMENT_ID });
+    await openPicker(page);
+
+    await pickerCell(page, 1, 1).click();
+
+    expect(await readBodyHtml(page)).toBe(
+      `\n<blockquote data-alert="note"><p>ab</p>\n\n${INSERTED_TABLE_1X1}\n<p><br></p>\n<p>cd</p></blockquote>\n`,
+    );
+  });
+
   test('inserting in a paragraph of a details body puts the table inside the body', async ({ page }) => {
     await openTableEditor(page, '\n<details open="">\n<summary>title</summary>\n<p>body</p>\n</details>\n');
     await placeCaretInText(page, `${EDITOR_ROOT} details > p`, 2);

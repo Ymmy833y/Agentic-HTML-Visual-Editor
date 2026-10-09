@@ -493,7 +493,7 @@ test.describe('matching markdown-style autoformat', () => {
       .toBe('\n<h2># a</h2>\n<ul><li># b</li></ul>\n<pre><code># c</code></pre>\n');
   });
 
-  test('typing "---" on a line of a bare blockquote and pressing Enter does not convert and inserts an in-block break', async ({ page }) => {
+  test('typing "---" on a line of a bare blockquote and pressing Enter inserts an hr inside the blockquote at that line, keeping the caret on the emptied line after it', async ({ page }) => {
     await openEditor(page, '\n<blockquote>ab</blockquote>\n');
     await focusEditor(page);
     await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote`, childIndex: 0, offset: 2 });
@@ -502,7 +502,19 @@ test.describe('matching markdown-style autoformat', () => {
     await page.keyboard.type('---');
     await page.keyboard.press('Enter');
 
-    expect(await readBodyHtml(page)).toBe('\n<blockquote>ab<br>---<br><br></blockquote>\n');
+    expect([await readBodyHtml(page), await isCaretInside(page, `${EDITOR_ROOT} blockquote > hr + p`)])
+      .toEqual(['\n<blockquote><p>ab</p>\n\n<hr>\n<p><br></p></blockquote>\n', true]);
+  });
+
+  test('typing ">tip " at the start of a paragraph of an alert blockquote holding paragraphs leaves it as text and keeps the alert', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note"><p>ab</p>\n<p>cd</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote p + p`, childIndex: 0, offset: 0 });
+
+    await page.keyboard.type('>tip ');
+
+    expect(await readBodyHtml(page))
+      .toBe('\n<blockquote data-alert="note"><p>ab</p>\n<p>&gt;tip cd</p></blockquote>\n');
   });
 
   test('typing a space after a bolded "#" does not convert and inserts the space', async ({ page }) => {

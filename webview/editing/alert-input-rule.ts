@@ -1,5 +1,7 @@
 import type { BlockCommandPorts } from './block-command';
 import type { BlockRewriteProgress } from './block-format';
+import { BLOCK_DELETE_INPUT_TYPES } from './block-input-rule';
+import { findQuoteLift, liftQuoteLine } from './blockquote-delete';
 import {
   exitBlockquote,
   exitQuoteParagraph,
@@ -52,4 +54,37 @@ export function registerAlertRules(session: EditingSession, ports: BlockCommandP
     return progress.changed ? 'edited' : 'consumed';
   };
   session.registerRule('insertParagraph', enterRule);
+}
+
+/**
+ * Registers the backward delete rule that takes the first line out of a blockquote with the input dispatcher.
+ *
+ * Call this before the block rules are registered. Rules are tried in the order they are registered, and the delete
+ * next to a horizontal rule or a diagram would otherwise take a delete at the start of a blockquote that follows one,
+ * leaving the blockquote in place on the first delete. The editing session is replaced whenever the document is
+ * replaced, so this is called again each time one is rebuilt.
+ *
+ * @param session The editing session.
+ * @param ports The block command ports.
+ */
+export function registerQuoteDeleteRules(session: EditingSession, ports: BlockCommandPorts): void {
+  const deleteRule: InputRule = ({ root, range }) => {
+    const lift = findQuoteLift(root, range);
+    if (lift === undefined) {
+      return 'pass';
+    }
+    // The same handling as the Enter rule: an exception is not let out of the attempt the input dispatcher opened.
+    const progress: BlockRewriteProgress = { changed: false };
+    try {
+      liftQuoteLine(lift, progress);
+    } catch (error) {
+      ports.reportDiagnostic(`Could not take the line out of the blockquote: ${String(error)}`);
+    }
+    return progress.changed ? 'edited' : 'consumed';
+  };
+  for (const [inputType, direction] of Object.entries(BLOCK_DELETE_INPUT_TYPES)) {
+    if (direction === 'backward') {
+      session.registerRule(inputType, deleteRule);
+    }
+  }
 }

@@ -155,4 +155,10 @@ describe('autoformat entries', () => {
       ['space', '1.', 'ol'],
     ]);
   });
+
+  it('the 3 entries also match on a line of a bare blockquote', () => {
+    const { ports } = createPorts(mountRoot(''));
+
+    expect(createListAutoformatEntries(ports).map((entry) => entry.matchesQuoteLine)).toEqual([true, true, true]);
+  });
 });

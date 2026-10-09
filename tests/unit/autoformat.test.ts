@@ -257,18 +257,59 @@ describe('Matching markers', () => {
       .toEqual(['```', true, true, '```']);
   });
 
-  it('on a line of a bare blockquote, matches neither --- with Enter nor # with a space', () => {
-    const table = createTable();
-    const rule = mountRoot('<blockquote>ab<br>---</blockquote>');
-    const ruleMatch = table.findMatch('enter', rule, caretAt(readChildText(readElement(rule, 'blockquote'), 2), 3));
-    const heading = mountRoot('<blockquote>ab<br>#</blockquote>');
-    const headingMatch = table.findMatch(
-      'space',
-      heading,
-      caretAt(readChildText(readElement(heading, 'blockquote'), 2), 1),
-    );
+  it("on Enter, matches the horizontal rule entry when the caret's line of a bare blockquote is ---, and the removal is the content of that line", () => {
+    const root = mountRoot('<blockquote>ab<br>---</blockquote>');
+    const quote = readElement(root, 'blockquote');
 
-    expect([ruleMatch, headingMatch]).toEqual([undefined, undefined]);
+    const match = requireMatch(createTable().findMatch('enter', root, caretAt(readChildText(quote, 2), 3)));
+
+    expect([match.entry.marker, match.quoteLine, serializeRange(match.removal)]).toEqual(['---', true, '---']);
+  });
+
+  it('on a line of a bare blockquote, matches neither # nor > with a space', () => {
+    const table = createTable();
+
+    const matched = ['#', '>'].map((marker) => {
+      const root = mountRoot(`<blockquote>ab<br>${marker}</blockquote>`);
+      return table.findMatch('space', root, caretAt(readChildText(readElement(root, 'blockquote'), 2), 1));
+    });
+
+    expect(matched).toEqual([undefined, undefined]);
+  });
+
+  it('in a paragraph or div inside a blockquote, matches neither > nor > with an alert kind with a space', () => {
+    const table = createTable();
+    const cases: [string, string, number][] = [
+      ['<blockquote><p>ab</p><p>&gt;</p></blockquote>', 'p + p', 1],
+      ['<blockquote data-alert="note"><p>&gt;note</p><p>ab</p></blockquote>', 'p', 5],
+      ['<blockquote data-alert="note"><div>&gt;tip</div></blockquote>', 'div', 4],
+    ];
+
+    const matched = cases.map(([html, selector, offset]) => {
+      const root = mountRoot(html);
+      return table.findMatch('space', root, caretAt(readChildText(readElement(root, selector), 0), offset));
+    });
+
+    expect(matched).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('in a paragraph inside a blockquote, still matches a heading marker with a space', () => {
+    const root = mountRoot('<blockquote data-alert="note"><p>#</p><p>ab</p></blockquote>');
+
+    const match = createTable().findMatch('space', root, caretAt(readChildText(readElement(root, 'p'), 0), 1));
+
+    expect(match?.entry.marker).toBe('#');
+  });
+
+  it('with a space on a line of a bare blockquote, compares and removes only from the start of that line to the caret', () => {
+    const root = mountRoot('<blockquote>ab<br>-cd</blockquote>');
+    const quote = readElement(root, 'blockquote');
+    const table = new AutoformatTable();
+    table.addEntry({ commit: 'space', marker: '-', matchesQuoteLine: true, run: () => true });
+
+    const match = requireMatch(table.findMatch('space', root, caretAt(readChildText(quote, 2), 1)));
+
+    expect([match.quoteLine, serializeRange(match.removal)]).toEqual([true, '-']);
   });
 
   it('does not match in text directly inside a div with a p child, because it is not a convertible block', () => {

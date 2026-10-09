@@ -438,6 +438,42 @@ test.describe('Reflecting onto the fixed toolbar', () => {
       .toEqual([BLOCK_KIND_MESSAGE_KEY.paragraph, []]);
   });
 
+  test('placing the caret in a paragraph of an alert blockquote holding paragraphs shows that alert kind as the label and marks it alone', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note"><p>abcd</p>\n<p>efgh</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote p`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.blockType);
+
+    expect([await readBlockTypeLabel(page), await readMarkedLabels(page)])
+      .toEqual([ALERT_MESSAGE_KEY.note, [ALERT_MESSAGE_KEY.note]]);
+  });
+
+  test('placing the caret in a list item of an alert blockquote shows that alert kind as the label and marks it alone', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="warning"><p>abcd</p>\n<ul><li>efgh</li></ul></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote li`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.blockType);
+
+    expect([await readBlockTypeLabel(page), await readMarkedLabels(page)])
+      .toEqual([ALERT_MESSAGE_KEY.warning, [ALERT_MESSAGE_KEY.warning]]);
+  });
+
+  test('placing the caret in a heading of an alert blockquote keeps the heading label and marks both the heading item and that alert kind', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note"><h2>abcd</h2>\n<p>efgh</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} blockquote h2`, childIndex: 0, offset: 2 });
+    await settleFollow(page);
+
+    await pressToolbarItem(page, TOOLBAR_SLOT.blockType);
+
+    expect([await readBlockTypeLabel(page), await readMarkedLabels(page)])
+      .toEqual([BLOCK_KIND_MESSAGE_KEY.heading2, [BLOCK_KIND_MESSAGE_KEY.heading2, ALERT_MESSAGE_KEY.note]]);
+  });
+
   test('placing the caret in a list item makes the block type label the paragraph message', async ({ page }) => {
     await openEditor(page, '\n<h2>abcd</h2>\n<ul><li>efgh</li></ul>\n');
     await focusEditor(page);

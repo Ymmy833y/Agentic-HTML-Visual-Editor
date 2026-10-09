@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { registerAlertRules } from '../../webview/editing/alert-input-rule';
+import { registerAlertRules, registerQuoteDeleteRules } from '../../webview/editing/alert-input-rule';
 import type { BlockCommandPorts } from '../../webview/editing/block-command';
 import type { BlockRewriteProgress } from '../../webview/editing/block-format';
 import { insertBreakInBlockquote } from '../../webview/editing/blockquote-enter';
@@ -143,5 +143,56 @@ describe('inserting an in-block break in a blockquote', () => {
     insertBreakInBlockquote(quotes[1], caretAt(quotes[1].firstChild ?? quotes[1], 1), progress);
 
     expect(quotes.map((quote) => quote.innerHTML)).toEqual(['ab<br><br>', 'c<br>d']);
+  });
+});
+
+/**
+ * Creates an editing session and takes out the backward delete rules that were registered.
+ *
+ * @param html The contents of the editor root.
+ * @returns The editor root, the list of registered input types, and the rules.
+ */
+function registerDeleteRules(html: string): { root: HTMLElement; inputTypes: string[]; rules: InputRule[] } {
+  const root = mountRoot(html);
+  const session = attachEditingCore(root, () => undefined, () => undefined, TRANSACTIONS);
+  const inputTypes: string[] = [];
+  const rules: InputRule[] = [];
+  vi.spyOn(session, 'registerRule').mockImplementation((inputType, rule) => {
+    inputTypes.push(inputType);
+    rules.push(rule);
+  });
+  registerQuoteDeleteRules(session, {
+    readEditorRoot: () => root,
+    isComposing: () => false,
+    isInputStopped: () => false,
+    runCommandEdit: (kind, command) => command(),
+    ensureTargetBlock: () => undefined,
+    reportDiagnostic: () => undefined,
+  });
+  return { root, inputTypes, rules };
+}
+
+describe('registering the backward delete rule for blockquotes', () => {
+  it('registers the rule for the character-wise and word-wise backward deletes only', () => {
+    expect(registerDeleteRules('<blockquote>ab</blockquote>').inputTypes)
+      .toEqual(['deleteContentBackward', 'deleteWordBackward']);
+  });
+
+  it('takes over a backward delete at the start of a bare blockquote and returns edited, turning it into a paragraph', () => {
+    const { root, rules } = registerDeleteRules('<p>ab</p>\n<blockquote>cd</blockquote>');
+    const text = readElement(root, 'blockquote').firstChild ?? root;
+
+    const result = runRule(rules[0], root, caretAt(text, 0));
+
+    expect([result, root.innerHTML]).toEqual(['edited', '<p>ab</p>\n<p>cd</p>']);
+  });
+
+  it('returns pass and leaves the tree unchanged partway through a blockquote', () => {
+    const { root, rules } = registerDeleteRules('<blockquote>cd</blockquote>');
+    const text = readElement(root, 'blockquote').firstChild ?? root;
+
+    const result = runRule(rules[0], root, caretAt(text, 1));
+
+    expect([result, root.innerHTML]).toEqual(['pass', '<blockquote>cd</blockquote>']);
   });
 });

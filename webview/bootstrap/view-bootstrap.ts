@@ -25,7 +25,7 @@ import { SerializationState } from '../document/serialization-state';
 import { loadDiagramRenderer } from '../diagram/diagram-runtime';
 import { DiagramView, createDiagramRuleSink } from '../diagram/diagram-view';
 import type { BodyOutput } from '../document/serialization-state';
-import { registerAlertRules } from '../editing/alert-input-rule';
+import { registerAlertRules, registerQuoteDeleteRules } from '../editing/alert-input-rule';
 import { AutoformatTable, createAutoformatEntries } from '../editing/autoformat';
 import { registerAutoformatRules } from '../editing/autoformat-input-rule';
 import { runBlockOperation } from '../editing/block-command';
@@ -560,6 +560,9 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   // Register again right after the editing session is rebuilt, because each document replacement loses
   // the input rules.
   registerFormatRules(nextEditingSession, formatCommandPorts);
+  // Rules are tried in the order they are registered. A backward delete at the start of a blockquote takes the line
+  // out of it before the delete next to a horizontal rule or a diagram can take that delete.
+  registerQuoteDeleteRules(nextEditingSession, blockCommandPorts);
   registerBlockRules(nextEditingSession, blockCommandPorts);
   // Rules are tried in the order they are registered. Autoformat comes before the blockquote rule, which would
   // otherwise turn the Enter after ``` on a line of a bare blockquote into a line break.

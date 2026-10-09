@@ -10,6 +10,7 @@ import { TOOLBAR_ELEMENT_ID } from '../../webview/ui/toolbar';
 import { TOOLBAR_SLOT } from '../../webview/ui/toolbar-slots';
 import {
   EDITOR_ROOT,
+  deleteWordBackward,
   focusEditor,
   openEditor,
   placeCaret,
@@ -300,6 +301,21 @@ test.describe('applying an alert', () => {
     await chooseAlertItem(page, QUOTE_ITEM_LABEL);
 
     expect(await readBodyHtml(page)).toBe(QUOTE_BODY);
+  });
+
+  test('changes the kind of an alert blockquote holding paragraphs without nesting when Tip is pressed in one of them, and clears it with the quote item', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note"><p>ab</p>\n<p>cd</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${QUOTE} p`, childIndex: 0, offset: 1 });
+
+    await chooseAlertItem(page, ALERT_MESSAGE_KEY.tip);
+    const afterTip = await readBodyHtml(page);
+    await chooseAlertItem(page, QUOTE_ITEM_LABEL);
+
+    expect([afterTip, await readBodyHtml(page)]).toEqual([
+      '\n<blockquote data-alert="tip"><p>ab</p>\n<p>cd</p></blockquote>\n',
+      '\n<blockquote><p>ab</p>\n<p>cd</p></blockquote>\n',
+    ]);
   });
 
   test('keeps the value in what gets saved when the quote item is pressed on a blockquote carrying an unknown value', async ({ page }) => {
@@ -641,5 +657,62 @@ test.describe('Enter in the trailing quote paragraph', () => {
 
     expect([await readBodyHtml(page), await isCaretInside(page, QUOTE)])
       .toEqual(['\n<blockquote><p><br></p>\n<p><br></p>\n<p>ab</p></blockquote>\n', true]);
+  });
+});
+
+test.describe('Backspace at the start of a blockquote', () => {
+  test('turns a bare alert blockquote after a paragraph into a paragraph, and merges it into the paragraph on the next Backspace', async ({ page }) => {
+    await openEditor(page, '\n<p>ab</p>\n<blockquote data-alert="note">cd</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: QUOTE, childIndex: 0, offset: 0 });
+
+    await page.keyboard.press('Backspace');
+    const afterFirst = await readBodyHtml(page);
+    await page.keyboard.press('Backspace');
+
+    expect([afterFirst, await readBodyHtml(page)])
+      .toEqual(['\n<p>ab</p>\n<p data-alert="note">cd</p>\n', '\n<p>abcd</p>\n']);
+  });
+
+  test('moves only the first paragraph of a blockquote holding paragraphs before it, leaving the rest with the alert', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="tip"><p>ab</p>\n<p>cd</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${QUOTE} p`, childIndex: 0, offset: 0 });
+
+    await page.keyboard.press('Backspace');
+
+    expect([await readBodyHtml(page), await isCaretInside(page, `${EDITOR_ROOT} > p`)])
+      .toEqual(['\n<p>ab</p>\n<blockquote data-alert="tip"><p>cd</p></blockquote>\n', true]);
+  });
+
+  test('removes a blockquote holding a single paragraph and leaves the paragraph on Ctrl+Backspace at its start', async ({ page }) => {
+    await openEditor(page, '\n<blockquote data-alert="note"><p>ab</p></blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${QUOTE} p`, childIndex: 0, offset: 0 });
+
+    await deleteWordBackward(page);
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab</p>\n');
+  });
+
+  test('keeps the HTML comment of a blockquote holding a single paragraph in what gets saved after Backspace at its start', async ({ page }) => {
+    await openEditor(page, '\n<blockquote>\n<p>ab</p>\n<!-- memo -->\n</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${QUOTE} p`, childIndex: 0, offset: 0 });
+
+    await page.keyboard.press('Backspace');
+
+    expect([await readCurrentForm(page), await isCaretInside(page, `${EDITOR_ROOT} > p`)])
+      .toEqual(['\n<p>ab</p>\n<!-- memo -->\n', true]);
+  });
+
+  test('turns a bare blockquote right after a horizontal rule into a paragraph before removing the rule', async ({ page }) => {
+    await openEditor(page, '\n<hr>\n<blockquote>ab</blockquote>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: QUOTE, childIndex: 0, offset: 0 });
+
+    await page.keyboard.press('Backspace');
+
+    expect(await readBodyHtml(page)).toBe('\n<hr>\n<p>ab</p>\n');
   });
 });

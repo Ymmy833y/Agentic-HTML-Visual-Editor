@@ -50,7 +50,8 @@ export function registerListShortcuts(receiver: ShortcutReceiver, ports: BlockCo
  *
  * They call create rather than toggle, so the result never disagrees with the marker typed. An entry's
  * operation is called inside the edit attempt the input dispatcher has opened, so it is called with the rule
- * trigger.
+ * trigger. They also match on a line of a bare blockquote, where the creation makes a list of that line inside the
+ * blockquote.
  *
  * @param ports The block command ports.
  * @returns The 3 entries.
@@ -59,6 +60,7 @@ export function createListAutoformatEntries(ports: BlockCommandPorts): Autoforma
   const createEntry = (marker: string, operation: ListOperation): AutoformatEntry => ({
     commit: 'space',
     marker,
+    matchesQuoteLine: true,
     run: () => runBlockOperation(ports, operation, 'rule'),
   });
 
