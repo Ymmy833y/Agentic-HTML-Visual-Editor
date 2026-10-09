@@ -4,12 +4,15 @@ import type { BlockRewriteProgress } from '../../webview/editing/block-format';
 import { resolveTableGrid } from '../../webview/editing/table-grid';
 import {
   MIN_COLUMN_WIDTH,
+  distributeColumnWidths,
   formatColumnWidth,
   prepareColumnElements,
   readColumnWidthLimits,
+  readColumnWidthsForInsert,
   readTableWidthUnit,
   setColumnWidth,
   toggleTableWidthUnit,
+  writeDistributedColumnWidths,
 } from '../../webview/editing/table-width';
 import type { TableColumnMeasure } from '../../webview/editing/table-width';
 import { createRoot, readElement } from './helpers/format-dom';
@@ -165,6 +168,31 @@ describe('the limits for a column\'s rendered width', () => {
     const measure: TableColumnMeasure = { boundaries: [0, 10, 210], widths: [10, 200], tableWidth: 210, availableWidth: 500 };
 
     expect(readColumnWidthLimits('pixel', measure, 0)?.min).toBe(10);
+  });
+});
+
+describe('sharing column widths with an added column', () => {
+  it('gives a column added at index 1 to widths 180, 210 and 210 the total divided by four, shrinking the others by the same proportion', () => {
+    expect(distributeColumnWidths([180, 210, 210], 1)).toEqual([135, 150, 157.5, 157.5]);
+  });
+
+  it('keeps the total of a pixel table when rounding, giving the added column the difference (76px, 76px, 76px, 75px for three 101px columns)', () => {
+    const table = createTable('<table><colgroup><col><col><col><col></colgroup>'
+      + '<tbody><tr><td>a</td><td>b</td><td>c</td><td>d</td></tr></tbody></table>');
+
+    writeDistributedColumnWidths(table, { unit: 'pixel', widths: [101, 101, 101] }, 3);
+
+    expect([...table.querySelectorAll('col')].map((col) => (col instanceof HTMLElement ? col.style.width : '')))
+      .toEqual(['76px', '76px', '76px', '75px']);
+  });
+
+  it('reads no widths for a table whose cols have no width, nor for a table that is not rendered', () => {
+    const tables = [
+      createTable(`<table><colgroup><col><col></colgroup>${TWO_COLUMN_BODY}</table>`),
+      createTable(`<table><colgroup><col style="width: 30%"><col style="width: 70%"></colgroup>${TWO_COLUMN_BODY}</table>`),
+    ];
+
+    expect(tables.map((table) => readColumnWidthsForInsert(resolveTableGrid(table)))).toEqual([undefined, undefined]);
   });
 });
 

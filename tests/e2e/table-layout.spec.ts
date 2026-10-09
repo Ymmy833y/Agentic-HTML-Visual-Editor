@@ -52,6 +52,18 @@ const PERCENT_BODY = '\n<table>\n<colgroup><col style="width: 25%"><col style="w
 const PIXEL_BODY = '\n<table style="width: auto">\n<colgroup><col style="width: 100px"><col style="width: 150px"></colgroup>\n'
   + '<tbody>\n<tr><td id="a">ab</td><td id="b">cd</td></tr>\n</tbody>\n</table>\n';
 
+/**
+ * Builds a body with just a 1-row table whose cols carry the given widths.
+ *
+ * @param widths The style width of each col.
+ * @returns The body.
+ */
+function widthsBody(widths: readonly string[]): string {
+  const cols = widths.map((width) => `<col style="width: ${width}">`).join('');
+  return `\n<table>\n<colgroup>${cols}</colgroup>\n`
+    + '<tbody>\n<tr><td id="a">ab</td><td id="b">cd</td><td id="c">ef</td></tr>\n</tbody>\n</table>\n';
+}
+
 /** A table with a header section and a body section. A range that spans sections cannot be merged. */
 const SECTIONED_BODY = '\n<table>\n<thead>\n<tr><th id="h1">h</th><th id="h2">i</th></tr>\n</thead>\n'
   + '<tbody>\n<tr><td id="a">ab</td><td id="b">cd</td></tr>\n</tbody>\n</table>\n';
@@ -1438,6 +1450,65 @@ test.describe('running an item', () => {
     await menuItem(page, 'Insert Column Right').click();
 
     expect(await readRowTexts(page, TABLE)).toEqual([['ab', 'cd', '', 'ef'], ['gh', 'ij', '', 'kl']]);
+  });
+
+  test('gives a column added to a 30%, 35% and 35% table its share of the width, shrinking the others in proportion, without changing the table width', async ({ page }) => {
+    await openLayoutEditor(page, widthsBody(['30%', '35%', '35%']));
+    const before = await readRect(page, TABLE);
+    await placeCaretInText(page, '#c', 1);
+    await openMenuByKey(page);
+
+    await menuItem(page, 'Insert Column Right').click();
+
+    const after = await readRect(page, TABLE);
+    expect([await readColumnValues(page, TABLE), Math.abs(after.width - before.width) <= 1])
+      .toEqual([['22.5%', '26.25%', '26.25%', '25%'], true]);
+  });
+
+  test('gives a column added to a 100px and 150px table its share of the width in px, without changing the table width', async ({ page }) => {
+    await openLayoutEditor(page, PIXEL_BODY);
+    const before = await readRect(page, TABLE);
+    await placeCaretInText(page, '#a', 1);
+    await openMenuByKey(page);
+
+    await menuItem(page, 'Insert Column Left').click();
+
+    const after = await readRect(page, TABLE);
+    expect([await readColumnValues(page, TABLE), Math.abs(after.width - before.width) <= 1])
+      .toEqual([['83px', '67px', '100px'], true]);
+  });
+
+  test('shares the rendered widths when the written widths do not fill the table, giving every column 25% in a table of three 25% columns', async ({ page }) => {
+    await openLayoutEditor(page, widthsBody(['25%', '25%', '25%']));
+    await placeCaretInText(page, '#a', 1);
+
+    await runTableCommand(page, { kind: 'insertColumn', direction: 'right' }, '#a');
+
+    expect(await readColumnValues(page, TABLE)).toEqual(['25%', '25%', '25%', '25%']);
+  });
+
+  test('leaves every col without a width when a column is added to a table whose cols have no width', async ({ page }) => {
+    await openLayoutEditor(page, '\n<table>\n<colgroup><col><col><col></colgroup>\n'
+      + '<tbody>\n<tr><td id="a">ab</td><td id="b">cd</td><td id="c">ef</td></tr>\n</tbody>\n</table>\n');
+    await placeCaretInText(page, '#a', 1);
+
+    await runTableCommand(page, { kind: 'insertColumn', direction: 'right' }, '#a');
+
+    expect(await readColumnValues(page, TABLE)).toEqual(['', '', '', '']);
+  });
+
+  test('returns both the added column and the shared widths to before the addition with one undo', async ({ page }) => {
+    const body = widthsBody(['30%', '35%', '35%']);
+    await openLayoutEditor(page, body);
+    await placeCaretInText(page, '#a', 1);
+
+    await runTableCommand(page, { kind: 'insertColumn', direction: 'right' }, '#a');
+    await flushEditTransactions(page, 'layout-insert-column');
+
+    const transactions = await readTransactions(page);
+    expect(transactions.map((transaction) => transaction.before.text)).toEqual([`${PROLOGUE}${body}${EPILOGUE}`]);
+    await applyUndo(page, transactions[0]);
+    await expect.poll(() => readBodyHtml(page)).toBe(body);
   });
 
   test('removes the reference cell\'s row when Delete Row is run', async ({ page }) => {

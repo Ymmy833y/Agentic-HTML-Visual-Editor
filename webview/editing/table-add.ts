@@ -47,16 +47,18 @@ export function insertTableRow(
  *   reinterpreted by writing direction.
  * @param progress The holder of whether the tree was changed. Set to true right before the tree is first
  *   changed.
+ * @returns The index of the added column, so that column widths can be shared with it. `undefined` when the
+ *   reference cell is not on the grid and nothing was added.
  */
 export function insertTableColumn(
   grid: TableGrid,
   cell: Element,
   direction: 'left' | 'right',
   progress: BlockRewriteProgress,
-): void {
+): number | undefined {
   const origin = findGridCell(grid, cell);
   if (origin === undefined) {
-    return;
+    return undefined;
   }
   const boundary = direction === 'left' ? origin.column : origin.column + origin.columnSpan;
   const document = grid.table.ownerDocument;
@@ -94,6 +96,7 @@ export function insertTableColumn(
     placeCellAtBoundary(grid.rows[addition.row].element, ownCells[addition.row], boundary, addition.cell);
   }
   insertColumnElement(grid.table, boundary);
+  return boundary;
 }
 
 /**
