@@ -1861,7 +1861,7 @@ export class SaveCoordinator {
   }
 
   /**
-   * Reads the file on disk as the current source, for a revert while the text buffer holds unsaved edits.
+   * Reads the file on disk for Revert or history application while the text buffer holds unsaved edits.
    *
    * The disk already holds the last write, so no wait for the buffer to follow it is needed.
    *
@@ -1872,7 +1872,7 @@ export class SaveCoordinator {
     try {
       raw = await this.host.readFile(this.documentUri);
     } catch (error) {
-      return { kind: 'unreadable', cause: `Could not read the file on disk for the revert: ${String(error)}` };
+      return { kind: 'unreadable', cause: `Could not read the file on disk: ${String(error)}` };
     }
     return { kind: 'resolved', text: normalizeLineEndings(raw), lineEnding: this.updateLineEnding(raw) };
   }
@@ -1908,10 +1908,15 @@ export class SaveCoordinator {
     }
     const viewText = output.text;
 
-    const resolution = await this.resolveCurrentSource('save');
+    let resolution = await this.resolveCurrentSource('save');
+    if (resolution.kind === 'dirty') {
+      // History changes only the view. Reading the disk leaves unsaved text buffer edits in their own editor.
+      resolution = await this.readSourceFromDisk();
+    }
     if (resolution.kind !== 'resolved') {
+      const reason = resolution.kind === 'unreadable' ? resolution.cause : resolution.kind;
       settle(this.failHistoryApply(
-        `Could not resolve the current source while applying history: ${resolution.kind}`,
+        `Could not resolve the current source while applying history: ${reason}`,
       ));
       return;
     }

@@ -1039,6 +1039,27 @@ describe('text buffer while waiting for buffer follow', () => {
 
     expect(harness.syncState.writeReconcile).toBeUndefined();
   });
+
+  it('applies history from disk and keeps the write reconcile when the buffer becomes dirty while waiting', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    const reconcile = harness.syncState.writeReconcile;
+
+    const applying = harness.coordinator.applyHistoryTransition('undo', {
+      before: { text: DISK_TEXT, selection: null },
+      after: { text: VIEW_TEXT, selection: null },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    harness.setBuffer(EXTERNAL_TEXT, true);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect(await applying).toEqual({ kind: 'applied', text: DISK_TEXT });
+    expect(harness.appliedOfKind('editHistory')).toEqual([DISK_TEXT]);
+    expect(harness.syncState.writeReconcile).toEqual(reconcile);
+    expect(harness.syncState.syncBase).toBe(VIEW_TEXT);
+    expect(harness.written).toHaveLength(1);
+  });
 });
 
 // A write empties the file before writing the content, so a buffer reloaded in between holds only the start of it.
@@ -2145,6 +2166,67 @@ describe('connection to history', () => {
 
     expect(result).toEqual({ kind: 'applied', text: BASE_TEXT });
     expect(harness.state.lastKnownContent).toBe(BASE_TEXT);
+  });
+
+  it.each([
+    ['undo', VIEW_EDITED_TEXT, BASE_TEXT],
+    ['redo', BASE_TEXT, VIEW_EDITED_TEXT],
+  ] as const)('applies %s from disk without mixing in unsaved text buffer edits or writing', async (
+    direction, currentView, expected,
+  ) => {
+    const harness = createHarness();
+    harness.syncState.initialize(BASE_TEXT);
+    harness.setFileText(BASE_TEXT);
+    harness.setBuffer(SOURCE_EDITED_TEXT, true);
+    harness.setViewText(currentView);
+
+    const result = await harness.coordinator.applyHistoryTransition(direction, {
+      before: { text: BASE_TEXT, selection: null },
+      after: { text: VIEW_EDITED_TEXT, selection: null },
+    });
+
+    expect(result).toEqual({ kind: 'applied', text: expected });
+    expect(harness.appliedOfKind('editHistory')).toEqual([expected]);
+    expect(harness.state.lastKnownContent).toBe(expected);
+    expect([harness.written, harness.notifications, harness.dirtyNotices]).toEqual([[], [], []]);
+    expect(harness.syncState.syncBase).toBe(BASE_TEXT);
+  });
+
+  it('normalizes a CRLF disk source for history and retains its line ending while the buffer is dirty', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(BASE_TEXT);
+    harness.setFileText(asCrlf(SOURCE_EDITED_TEXT));
+    harness.setBuffer(EXTERNAL_TEXT, true);
+    harness.setViewText(VIEW_EDITED_TEXT);
+
+    const result = await harness.coordinator.applyHistoryTransition('undo', {
+      before: { text: BASE_TEXT, selection: null },
+      after: { text: VIEW_EDITED_TEXT, selection: null },
+    });
+
+    expect(result).toEqual({ kind: 'applied', text: SOURCE_EDITED_TEXT });
+    expect(harness.appliedOfKind('editHistory')).toEqual([SOURCE_EDITED_TEXT]);
+    expect(harness.state.lineEnding).toBe('crlf');
+  });
+
+  it('keeps old content and sync state without sending a history candidate when the dirty buffer requires an unreadable disk source', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(BASE_TEXT);
+    harness.setViewText(VIEW_EDITED_TEXT);
+    harness.state.retainUnsavedContent(VIEW_EDITED_TEXT);
+    harness.setBuffer(SOURCE_EDITED_TEXT, true);
+    harness.setFileReadable(false);
+
+    const result = await harness.coordinator.applyHistoryTransition('undo', {
+      before: { text: BASE_TEXT, selection: null },
+      after: { text: VIEW_EDITED_TEXT, selection: null },
+    });
+
+    expect(result).toMatchObject({ kind: 'failed', liveText: VIEW_EDITED_TEXT });
+    expect(result.kind === 'failed' && result.reason).toContain('The file could not be read');
+    expect([harness.appliedOfKind('editHistory'), harness.written]).toEqual([[], []]);
+    expect(harness.state.lastKnownContent).toBe(VIEW_EDITED_TEXT);
+    expect(harness.syncState.syncBase).toBe(BASE_TEXT);
   });
 
   it('sends no request and leaves the sync state unchanged when source resolution fails', async () => {
