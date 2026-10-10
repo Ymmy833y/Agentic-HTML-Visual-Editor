@@ -1,6 +1,6 @@
 # Formatting
 
-How to write text, blocks, collapsible sections, and alerts for Agentic HTML Visual Editor, and which styles survive a paste.
+How to write text, blocks, links, images, collapsible sections, and alerts for Agentic HTML Visual Editor, and how content is pasted or exported as PDF.
 
 ## Text and blocks
 
@@ -41,13 +41,29 @@ A table puts each row on a line of its own. Column widths go on `col` elements. 
 </table>
 ```
 
-The editor decides which row is a header row from its cells, not from its section, and it inserts a table in this form. When a person turns a header row off, the editor changes only the cells and leaves the row in its section, so a row in a `thead` becomes a row of `td` cells that stays in the `thead`.
+The editor decides which row is a header row from its cells, not from its section, and it inserts a table in this form. A header toggle changes cell tags and scopes without moving the row between sections. Keep an existing `thead` when editing a document.
 
-An image is an `img` with `src` and `alt`. To size it, set `width` and `height` in `style`:
+An image is an `img` with `src` and `alt`. To size it, set `width` and, when needed, `height` in `style`, using `px` or `%`. Leave height unset to keep the image's proportions:
 
 ```html
 <p><img src="./images/flow.png" alt="Request flow" style="width: 320px;"></p>
+<p><img src="./images/overview.png" alt="System overview" style="width: 75%;"></p>
 ```
+
+Local image paths are relative to the HTML file and must stay within its workspace folder, or its own folder when it is outside a workspace. The editor preserves the written `src` on save. `http:`, `https:`, and image `data:` URLs can also be displayed; local `srcset` paths are not resolved for display.
+
+## Links (`a`)
+
+Write links as `a` elements with `href`. A person follows a link with Ctrl+click, or Cmd+click on macOS; a plain click lets them edit its text.
+
+| Example | Where the editor looks |
+| --- | --- |
+| `href="./checklist.html"` | First from the HTML file's folder. If the file is missing there and the document is in a workspace, from its workspace folder. |
+| `href="/docs/checklist.html"` | From the workspace folder that contains the HTML file. This requires an open workspace folder. |
+
+File links must stay within that workspace folder, or within the HTML file's folder when it is outside a workspace. A leading `/` means the workspace folder, not the file system root. This rule applies to links; use document-relative paths for local image `src` values.
+
+In PDFs, `http:`, `https:`, `mailto:`, and links to included document anchors remain clickable. File links use the same lookup and scope rules and are written relative to the PDF's folder. Missing files and targets that cannot be represented by a relative path are left unlinked.
 
 ## Collapsible sections and alerts
 
@@ -63,21 +79,33 @@ A collapsible section is a `details` element with a `summary` as its first child
 An alert is a `blockquote` with a `data-alert` attribute. There are five kinds:
 
 ```html
-<blockquote data-alert="note">Background that the reader should know.</blockquote>
-<blockquote data-alert="tip">A way to do the task more easily.</blockquote>
-<blockquote data-alert="important">Something the reader must not miss.</blockquote>
-<blockquote data-alert="warning">Something that needs care.</blockquote>
-<blockquote data-alert="caution">A risk of a harmful outcome.</blockquote>
+<blockquote data-alert="note">
+<p>Background that the reader should know.</p>
+</blockquote>
+<blockquote data-alert="tip">
+<p>A way to do the task more easily.</p>
+</blockquote>
+<blockquote data-alert="important">
+<p>Something the reader must not miss.</p>
+</blockquote>
+<blockquote data-alert="warning">
+<p>Something that needs care.</p>
+</blockquote>
+<blockquote data-alert="caution">
+<p>A risk of a harmful outcome.</p>
+</blockquote>
 ```
 
-Write the value exactly as one of `note`, `tip`, `important`, `warning`, and `caution`. A `blockquote` without the attribute is an ordinary quotation.
+Write the value exactly as one of `note`, `tip`, `important`, `warning`, and `caution`. A `blockquote` without the attribute is an ordinary quotation. Both ordinary quotations and alerts can contain several paragraphs or other blocks.
 
 ## Styles and paste
 
 When HTML is pasted into the editor, the editor prunes it before it inserts it:
 
+- Forbidden tags and their contents, event handler attributes, and dangerous URL attributes are removed. This differs from opening a file, where forbidden tags prevent opening and dangerous attributes are kept inactive for saving.
+- Comment annotations are unwrapped, keeping their annotated text and discarding their bodies and replies.
 - `style` keeps only the declarations in the table below. Every other declaration is dropped.
-- Bold, italic, and strikethrough declarations (`font-weight` of 600 or more, `font-style: italic`, and `text-decoration: line-through`) become `strong`, `em`, and `s` around the content, so the formatting survives as elements.
+- Bold declarations (`font-weight` of 600 or more, `bold`, or `bolder`), italic or oblique `font-style`, and a `text-decoration` or `text-decoration-line` containing `line-through` become `strong`, `em`, and `s`. Existing formatting is not wrapped again, and formatting elements are not added inside code blocks or non-HTML content such as SVG and MathML.
 - An opaque black `color` and a transparent `background-color` are dropped, even though the properties are in the table.
 - `font`, `basefont`, `big`, `tt`, and `center` are removed together with their attributes, and their content stays. `strike` becomes `s`.
 - `class` is dropped. The two exceptions mark a Mermaid diagram: `mermaid` on a `pre`, and `language-mermaid` on a `code` directly inside a `pre`.
@@ -95,3 +123,7 @@ When HTML is pasted into the editor, the editor prunes it before it inserts it:
 The pruning happens on paste only. A `style` or a `class` that you write in the file is not removed when the document is opened.
 
 Even so, keep `style` to the declarations in the table, and do not use `class` for styling. Content that a person copies and pastes inside the editor goes through the same pruning, so anything else is lost as soon as it is moved.
+
+## PDF output
+
+PDF export captures the current document, including unsaved edits, as A4 page images in a light theme. Accept or reject all change marks before exporting; comment bodies and replies are omitted.

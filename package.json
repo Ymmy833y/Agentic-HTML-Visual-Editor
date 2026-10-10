@@ -2,7 +2,7 @@
   "name": "agentic-html-visual-editor",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "keywords": [
     "wysiwyg",
     "html",
@@ -87,7 +87,11 @@
       {
         "viewType": "ahve.documentEditor",
         "displayName": "%editor.html.displayName%",
-        "selector": [{ "filenamePattern": "*.ahve-editor" }],
+        "selector": [
+          {
+            "filenamePattern": "*.ahve-editor"
+          }
+        ],
         "priority": "option"
       }
     ],

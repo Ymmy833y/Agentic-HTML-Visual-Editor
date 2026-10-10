@@ -40,7 +40,7 @@ A block element cannot be wrapped in `ins` or `del`: a paragraph, a heading, a l
 </ul>
 ```
 
-The whole element is the change. Write an element that carries the kind for a paragraph or a row you added or removed, and `ins` or `del` for a phrase inside one you kept. Marks do not nest here either: inside an element that carries the kind, write no `ins` or `del` and no other element with the kind. Do not put `data-change` on an inline element.
+The whole element is the change. Use `data-change` for a paragraph or a row you added or removed, and `ins` or `del` for a phrase inside one you kept. Marks do not nest here either: inside an element with `data-change`, write no `ins` or `del` and no other element with `data-change`. Do not put `data-change` on an inline element.
 
 Two kinds of elements never carry the kind:
 
@@ -51,10 +51,12 @@ Two kinds of elements never carry the kind:
 
 - Clicking a mark opens a popup with its kind, its author and its time, and the two decisions. Accepting an insertion keeps the content and removes the mark; accepting a deletion removes the content. Rejecting does the opposite. On an element that carries the kind, keeping it removes the three attributes and taking it out removes the whole element.
 - A deletion followed at once by an insertion from the same author is one replacement. Clicking either half opens one popup named Replacement, accepting keeps the insertion and removes the deletion, and rejecting keeps the deletion and removes the insertion. Two elements that carry the kinds pair the same way.
+- An inline mark pairs only with another inline mark; an element with `data-change` pairs only with another such element. A phrase and a whole block are separate decisions.
 - The sidebar lists every mark of the document in order, a replacement as one entry, and two buttons above the list accept or reject them all at once.
 - A decision is an ordinary edit: the person can undo it, and it reaches the file when they save. After that, the HTML holds no trace of the mark. To learn what was decided, read the file again.
 - Taking a mark out takes everything inside it along, comments included. Put a comment about a change outside the mark, not inside it. A list or a table left without items or rows goes too.
 - Clicking inside the annotated text of a comment opens the comment's thread, even inside a mark. A mark inside a comment is reached from the sidebar.
 - When the person edited the same lines in the editor while you wrote the marks, saving asks the person to choose, for each conflict, whether to keep the file's version, the editor's version, or both, as it does for any change that collides. The lines they choose stay as they are, marks included. Marks get no special treatment there.
+- PDF export is refused while any change marks remain. The person must accept or reject them before exporting.
 
 `scripts/list_comments.py` lists comments only. It does not list marks.
