@@ -26,6 +26,7 @@ export const HOST_TO_VIEW_MESSAGE_TYPE = {
   copySucceeded: 'copySucceeded',
   codeBlockCopySucceeded: 'codeBlockCopySucceeded',
   presentConflicts: 'presentConflicts',
+  requestPdfExport: 'requestPdfExport',
 } as const;
 
 /** Types of messages sent from the view to the host. */
@@ -52,6 +53,8 @@ export const VIEW_TO_HOST_MESSAGE_TYPE = {
   codeBlockCopyRequested: 'codeBlockCopyRequested',
   sidebarLayoutChanged: 'sidebarLayoutChanged',
   conflictsResolved: 'conflictsResolved',
+  pdfExportResponse: 'pdfExportResponse',
+  pdfExportRequested: 'pdfExportRequested',
 } as const;
 
 /** A message indicating that the view is ready to receive messages. */
@@ -458,6 +461,86 @@ export interface CopyHtmlResponseMessage extends ResponseMessage {
 }
 
 /**
+ * Host → view request for the document drawn as page images for "Export as PDF".
+ *
+ * Carries no options. The paper, the colors and what is left out are fixed by the view, so the PDF does not depend on
+ * which entry point asked for it.
+ */
+export interface RequestPdfExportMessage extends RequestMessage {
+  readonly type: typeof HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport;
+}
+
+/**
+ * Where a link on a page image leads.
+ *
+ * Only a link inside the document is resolved by the view, because only the view has the laid-out tree. Every other
+ * link is carried as written: where it opens depends on where the PDF is saved, which only the host learns.
+ */
+export type PdfPageLinkTarget =
+  /** The `href` of the link with surrounding whitespace removed. */
+  | { readonly kind: 'href'; readonly href: string }
+  /** A page of the PDF and the height on that page in the pixels of its image. */
+  | { readonly kind: 'page'; readonly pageIndex: number; readonly y: number };
+
+/** A link on one page, measured from the top-left corner of the page image in its pixels. */
+export interface PdfPageLink {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly target: PdfPageLinkTarget;
+}
+
+/** One page drawn as a JPEG image, with the links on it. */
+export interface PdfPageImage {
+  /**
+   * The bytes of the JPEG file encoded as base64. Every other message is a plain JSON-shaped value, and keeping this
+   * one the same lets the message records and the test stubs handle it without a binary path.
+   */
+  readonly jpeg: string;
+  /** Width of the image in pixels. */
+  readonly width: number;
+  /** Height of the image in pixels. */
+  readonly height: number;
+  /** The links on the page, in the pixels of the image. */
+  readonly links: readonly PdfPageLink[];
+}
+
+/** Reasons the view declines to draw the PDF. The values themselves are transmitted. */
+export const PDF_EXPORT_REFUSAL = {
+  /** The document still has change marks waiting to be accepted or rejected. */
+  changeMarks: 'changeMarks',
+} as const;
+
+/** A reason the view declines to draw the PDF. */
+export type PdfExportRefusal = (typeof PDF_EXPORT_REFUSAL)[keyof typeof PDF_EXPORT_REFUSAL];
+
+/** Response to a request PDF export message. */
+export interface PdfExportResponseMessage extends ResponseMessage {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.pdfExportResponse;
+  /**
+   * The pages in order. The host builds the PDF from them once the user has chosen where to save it. When the pages
+   * cannot be drawn, `null` is still sent back so that this can be told apart from a timeout with no response.
+   */
+  readonly pages: readonly PdfPageImage[] | null;
+  /**
+   * Why the view declined to draw the PDF, or `null` when it did not decline. A declined export is a state of the
+   * document the user can change, so the host reports it apart from a failure.
+   */
+  readonly refusal: PdfExportRefusal | null;
+}
+
+/**
+ * View → host message without a response that carries a press of the toolbar's export button.
+ *
+ * Carries no content. What to export is decided by the session of the panel that receives it, so no value the view
+ * sends can change the target, and the PDF is drawn from a request PDF export message as for the command.
+ */
+export interface PdfExportRequestedMessage {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.pdfExportRequested;
+}
+
+/**
  * Host → view message carrying only the signal that a "Copy as HTML" started from the toolbar wrote the clipboard.
  *
  * Only the host knows whether the write succeeded, so the copy button waits for this instead of showing success when
@@ -559,7 +642,8 @@ export type HostToViewMessage =
   | RequestCopyHtmlMessage
   | CopySucceededMessage
   | CodeBlockCopySucceededMessage
-  | PresentConflictsMessage;
+  | PresentConflictsMessage
+  | RequestPdfExportMessage;
 
 /**
  * Messages the view can send to the host.
@@ -585,4 +669,6 @@ export type ViewToHostMessage =
   | CopyHtmlResponseMessage
   | CodeBlockCopyRequestedMessage
   | SidebarLayoutChangedMessage
-  | ConflictsResolvedMessage;
+  | ConflictsResolvedMessage
+  | PdfExportResponseMessage
+  | PdfExportRequestedMessage;

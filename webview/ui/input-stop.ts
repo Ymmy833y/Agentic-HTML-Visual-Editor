@@ -15,6 +15,7 @@ export const INPUT_STOP_REASON = {
   conflictResolution: 'conflictResolution',
   restoreIncomplete: 'restoreIncomplete',
   historyProtected: 'historyProtected',
+  pdfExport: 'pdfExport',
   actionDialog: 'actionDialog',
 } as const;
 

@@ -265,6 +265,31 @@ export class DiagramView {
   }
 
   /**
+   * Draws a source with the given theme, for a use other than the diagrams on screen.
+   *
+   * It waits in the same queue as the drawings on screen. Mermaid keeps its configuration, the theme included, between
+   * calls and the sandbox is emptied after each drawing, so two drawings at once could take each other's theme or lose
+   * their layout. The result is not kept: the kept results are keyed for the screen and bounded by what the tree needs.
+   *
+   * @param source The Mermaid source.
+   * @param theme The theme to draw with.
+   * @returns The result. Never rejects; a renderer that cannot be loaded gives a failure.
+   */
+  drawWithTheme(source: string, theme: DiagramTheme): Promise<DiagramResult> {
+    const drawn = this.queue.then(async () => {
+      const renderer = await this.readRenderer();
+      if (renderer === undefined) {
+        return DIAGRAM_FAILURE;
+      }
+      const id = `ahve-diagram-${String(this.nextRenderId)}`;
+      this.nextRenderId += 1;
+      return renderDiagram(renderer, source, theme, id, this.readSandbox());
+    });
+    this.queue = drawn.then(() => undefined, () => undefined);
+    return drawn.catch(() => DIAGRAM_FAILURE);
+  }
+
+  /**
    * Puts the kept results on every diagram source block and draws the sources that have none yet.
    *
    * A block whose source has no result yet keeps the marks it has, so an edited diagram keeps showing the previous

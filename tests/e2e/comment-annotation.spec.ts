@@ -520,8 +520,9 @@ test.describe('Creating comments', () => {
     await openCommentEditor(page, '<p>abcd</p>');
     await selectRange(page, at(`${EDITOR_ROOT} p`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
     await page.keyboard.press('Alt+F10');
-    // Moving left once from the first item wraps around to the opposite end (the copy button at the end), and moving
-    // once more reaches the comment button.
+    // Moving left once from the first item wraps around to the opposite end (the export button at the end), and moving
+    // twice more, past the copy button, reaches the comment button.
+    await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator(COMMENT_ITEM)).toBeFocused();
@@ -1643,7 +1644,8 @@ test.describe('Popup appearance and key handling', () => {
     await applyTheme(page, THEMES[2].variables);
     await placeCaretAt(page, at(COMMENT, 0, 2));
     await page.keyboard.press('Alt+F10');
-    // Wrap around to the copy button at the end, then move back one to the comment button.
+    // Wrap around to the export button at the end, then move back past the copy button to the comment button.
+    await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator(COMMENT_ITEM)).toBeFocused();

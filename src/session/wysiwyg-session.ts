@@ -3,6 +3,7 @@ import type * as vscode from 'vscode';
 import type { ViewToHostMessage } from '../../common/index';
 import type { CopyHtmlRequester } from '../clipboard/copy-as-html';
 import type { HtmlCustomDocument } from '../editor/html-custom-document';
+import type { PdfExportRequester } from '../export/export-pdf';
 import type { SaveCoordinator } from '../save/save-coordinator';
 import type { EditTransactionBridge } from '../history/edit-transaction-bridge';
 import type { EditHistoryCoordinator } from '../history/edit-history-coordinator';
@@ -43,6 +44,10 @@ export class WysiwygSession {
   // Copy HTML requester that asks this tab's view for HTML for "Copy as HTML". Disposed and released when the panel
   // is disposed.
   private requester: CopyHtmlRequester | undefined;
+
+  // PDF export requester that asks this tab's view to draw the PDF for "Export as PDF". Disposed and released when the
+  // panel is disposed.
+  private exportRequester: PdfExportRequester | undefined;
 
   constructor(
     readonly document: HtmlCustomDocument,
@@ -140,6 +145,23 @@ export class WysiwygSession {
   }
 
   /**
+   * Takes custody of this tab's PDF export requester.
+   *
+   * Only one is held, and a later one replaces it. Holding two would leave it undecided which one an arriving PDF
+   * export response should go to.
+   *
+   * @param requester The PDF export requester to hand over.
+   */
+  setPdfExportRequester(requester: PdfExportRequester): void {
+    this.exportRequester = requester;
+  }
+
+  /** The PDF export requester held, or `undefined` when there is none. The command looks it up on every export. */
+  get pdfExportRequester(): PdfExportRequester | undefined {
+    return this.exportRequester;
+  }
+
+  /**
    * Runs the same view message dispatcher without going through the view.
    *
    * The extension host cannot generate keystrokes in the webview, so integration tests use this entry
@@ -183,6 +205,8 @@ export class WysiwygSession {
     // Even when the tab is closed mid copy, leave no promise waiting for a copy HTML response.
     this.requester?.dispose();
     this.requester = undefined;
+    this.exportRequester?.dispose();
+    this.exportRequester = undefined;
 
     const subscriptions = this.subscriptions.splice(0);
     for (const subscription of subscriptions) {

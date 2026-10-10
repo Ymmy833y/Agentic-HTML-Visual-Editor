@@ -24,6 +24,7 @@ export const TOOLBAR_SLOT = {
   diagram: 'diagram',
   comment: 'comment',
   copy: 'copy',
+  pdfExport: 'pdfExport',
   // A place where only the E2E probe items register; production feature units never register here. Even after every
   // slot is filled with production items, this lets the behavior of buttons and popups whose content is not a list
   // be verified independently of production items.
@@ -62,7 +63,8 @@ export const TOOLBAR_SLOT_GROUPS: readonly (readonly ToolbarSlot[])[] = [
   [TOOLBAR_SLOT.table],
   [TOOLBAR_SLOT.diagram],
   [TOOLBAR_SLOT.comment],
-  [TOOLBAR_SLOT.copy],
+  // Both take the document out of the editor, so they share a group.
+  [TOOLBAR_SLOT.copy, TOOLBAR_SLOT.pdfExport],
   // The probe slot goes last so that End reaches it. Nothing is placed there in production, so no extra separator
   // appears either.
   [TOOLBAR_SLOT.probe],

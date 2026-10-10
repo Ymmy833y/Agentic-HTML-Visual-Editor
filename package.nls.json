@@ -9,5 +9,6 @@
   "command.openInWysiwygEditor.title": "Open in WYSIWYG",
   "command.openInHtmlEditor.title": "Open in HTML",
   "command.copyAsHtml.title": "Copy as HTML",
+  "command.exportAsPdf.title": "Export as PDF",
   "command.category": "Visual Editor"
 }

@@ -178,6 +178,24 @@ describe('English message resource', () => {
     ]).toEqual([4, true]);
   });
 
+  it('gives the eight Export as PDF keys a message in the English resource', () => {
+    const keys = [
+      'toolbar.exportAsPdf',
+      'exportPdf.progress',
+      'exportPdf.noTarget.message',
+      'exportPdf.failed.message',
+      'exportPdf.changeMarks.message',
+      'exportPdf.exported',
+      'exportPdf.saveDialog.title',
+      'exportPdf.saveDialog.filter',
+    ];
+
+    expect([
+      MESSAGE_KEYS.filter((key) => keys.includes(key)).length,
+      keys.every((key) => typeof Reflect.get(englishMessages, key) === 'string'),
+    ]).toEqual([8, true]);
+  });
+
   it('has English messages for the 9 in-document search keys', () => {
     const keys = [
       'search.name',

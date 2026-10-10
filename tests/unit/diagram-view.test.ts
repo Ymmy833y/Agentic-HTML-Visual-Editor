@@ -175,6 +175,24 @@ describe('drawing diagram source blocks', () => {
   });
 });
 
+describe('drawing with a given theme', () => {
+  it('returns the drawing in that theme and leaves the drawing the screen keeps as it was', async () => {
+    const { root, view, drawn } = createHarness('<pre class="mermaid">flowchart TD</pre>');
+    view.handleMountCompleted(SESSION);
+    await vi.waitFor(() => expect(readMark(root, DIAGRAM_MARK_NAME)).not.toBeNull());
+    const token = readMark(root, DIAGRAM_MARK_NAME);
+
+    const result = await view.drawWithTheme('flowchart TD', 'dark');
+    view.handleMountCompleted(SESSION);
+
+    expect([result.kind, drawn, readMark(root, DIAGRAM_MARK_NAME) === token]).toEqual([
+      'image',
+      ['default:flowchart TD', 'dark:flowchart TD'],
+      true,
+    ]);
+  });
+});
+
 describe('following the selection', () => {
   afterEach(() => {
     vi.useRealTimers();

@@ -56,11 +56,42 @@ function createDependencies(
     readSaveEntryInspection: () => ({ calls: [] }),
     clearSaveEntryInspection: () => undefined,
     backupAccess: () => undefined,
+    exportPdfForTest: () => Promise.resolve(false),
     ...overrides,
   };
 }
 
 describe('test support API', () => {
+  it('passes an export to the export entry point with a canonical-form URI when enabled', async () => {
+    const exports: string[][] = [];
+    const api = createTestSupportApi(createDependencies({
+      normalizeDocumentUri: () => 'file:///normalized.html',
+      exportPdfForTest: (documentUri, destinationUri) => {
+        exports.push([documentUri, destinationUri]);
+        return Promise.resolve(true);
+      },
+    }));
+
+    const exported = await api.exportPdfForTest('FILE:///normalized.html', 'file:///out.pdf');
+
+    expect([exported, exports]).toEqual([true, [['file:///normalized.html', 'file:///out.pdf']]]);
+  });
+
+  it('returns false without running the export when disabled', async () => {
+    let exports = 0;
+    const api = createTestSupportApi(createDependencies({
+      enabled: false,
+      exportPdfForTest: () => {
+        exports += 1;
+        return Promise.resolve(true);
+      },
+    }));
+
+    const exported = await api.exportPdfForTest('file:///document.html', 'file:///out.pdf');
+
+    expect([exported, exports]).toEqual([false, 0]);
+  });
+
   it('returns the session inspection as-is when enabled', () => {
     const api = createTestSupportApi(createDependencies());
 

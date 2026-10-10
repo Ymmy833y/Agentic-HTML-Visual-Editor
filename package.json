@@ -66,6 +66,11 @@
         "command": "ahve.copyAsHtml",
         "title": "%command.copyAsHtml.title%",
         "category": "%command.category%"
+      },
+      {
+        "command": "ahve.exportAsPdf",
+        "title": "%command.exportAsPdf.title%",
+        "category": "%command.category%"
       }
     ],
     "customEditors": [
@@ -126,6 +131,10 @@
         },
         {
           "command": "ahve.copyAsHtml",
+          "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
+        },
+        {
+          "command": "ahve.exportAsPdf",
           "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
         }
       ]
@@ -203,6 +212,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "html2canvas-pro": "2.5.2",
     "mermaid": "11.17.2",
     "node-diff3": "3.2.1"
   },

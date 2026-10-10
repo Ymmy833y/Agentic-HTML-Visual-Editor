@@ -8,6 +8,7 @@ import {
   LINK_OPEN_FAILURE,
   formatLinkOpenFailure,
   openRelativeLink,
+  resolveLinkTarget,
 } from '../../src/link/relative-link-opener';
 import type {
   LinkFailureReporter,
@@ -502,5 +503,59 @@ describe('the diagnostic record of a link open failure', () => {
     const line = formatLinkOpenFailure(LINK_OPEN_FAILURE.openFailed, IN_SCOPE_HREF, 'cannot open\n  details');
 
     expect([line.includes('\n'), line.includes('"cannot open\\n  details"')]).toEqual([false, true]);
+  });
+});
+
+describe('deciding the target of a link without opening it', () => {
+  it('returns the target path of a file without an opening operation', async () => {
+    const harness = createHarness();
+
+    const resolution = await resolveLinkTarget(IN_SCOPE_HREF, harness.host);
+
+    expect([resolution, harness.trace.some((call) => call.startsWith('openLinkTarget'))]).toEqual([
+      { resolved: true, targetPath: IN_SCOPE_TARGET },
+      false,
+    ]);
+  });
+
+  it('returns the target read from the scope root when the document-relative target is not found', async () => {
+    const harness = createHarness({ checks: new Map([[IN_SCOPE_TARGET, { kind: 'notFound' }]]) });
+
+    expect(await resolveLinkTarget(IN_SCOPE_HREF, harness.host)).toEqual({
+      resolved: true,
+      targetPath: SCOPE_ROOT_TARGET,
+    });
+  });
+
+  it('returns no workspace folder for a root-relative href of a document outside every folder, without checking the target', async () => {
+    const harness = createHarness({ inWorkspaceFolder: false });
+
+    const resolution = await resolveLinkTarget(ROOT_RELATIVE_HREF, harness.host);
+
+    expect([resolution, harness.trace.some((call) => call.startsWith('checkLinkTarget'))]).toEqual([
+      { resolved: false, failure: LINK_OPEN_FAILURE.noWorkspaceFolder },
+      false,
+    ]);
+  });
+
+  it('returns outside scope for a target outside the scope root, without checking the target', async () => {
+    const harness = createHarness();
+
+    const resolution = await resolveLinkTarget(OUTSIDE_SCOPE_HREF, harness.host);
+
+    expect([resolution, harness.trace.some((call) => call.startsWith('checkLinkTarget'))]).toEqual([
+      { resolved: false, failure: LINK_OPEN_FAILURE.outsideScope },
+      false,
+    ]);
+  });
+
+  it('returns an unexpected error with its cause instead of throwing when a port throws', async () => {
+    const harness = createHarness({ scopeError: new Error('the workspace is gone') });
+
+    expect(await resolveLinkTarget(IN_SCOPE_HREF, harness.host)).toEqual({
+      resolved: false,
+      failure: LINK_OPEN_FAILURE.unexpectedError,
+      cause: 'Error: the workspace is gone',
+    });
   });
 });

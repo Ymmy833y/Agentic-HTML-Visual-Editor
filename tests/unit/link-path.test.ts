@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countPathDepth,
   isPathWithinScope,
+  readHrefSuffix,
   resolveScopeRootTargetPath,
   resolveTargetPath,
   toPathSegments,
@@ -163,5 +164,15 @@ describe('path-depth counting', () => {
       countPathDepth('/ws//docs'),
       countPathDepth('/'),
     ]).toEqual([2, 2, 2, 0]);
+  });
+});
+
+describe('the query and fragment of an href', () => {
+  it('returns everything from the first question mark or number sign as written', () => {
+    expect(readHrefSuffix(' a.html?q=1#sec ')).toBe('?q=1#sec');
+  });
+
+  it('returns an empty string for an href with neither', () => {
+    expect(readHrefSuffix('docs/a.html')).toBe('');
   });
 });

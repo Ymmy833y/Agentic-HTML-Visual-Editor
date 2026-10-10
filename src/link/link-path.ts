@@ -78,6 +78,20 @@ export function resolveScopeRootTargetPath(
 }
 
 /**
+ * Returns the part of an href from its first `?` or `#` onward, as written.
+ *
+ * It is cut at the same place resolution cuts the path off, so the path and the rest add back up to the href.
+ *
+ * @param href An href; it may include leading and trailing whitespace.
+ * @returns The query and fragment as written, or an empty string when the href has neither.
+ */
+export function readHrefSuffix(href: string): string {
+  const trimmed = trimHref(href);
+  const start = trimmed.search(PATH_TERMINATOR_PATTERN);
+  return start === -1 ? '' : trimmed.slice(start);
+}
+
+/**
  * Resolves a relative file href against base directory segments.
  *
  * @param href The href received in the request; it may include leading and trailing whitespace.

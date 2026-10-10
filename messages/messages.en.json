@@ -227,5 +227,13 @@
   "conflictResolution.waiting.message": "Saving {name} is waiting for you to choose what to keep for each conflict in the visual editor.",
   "conflictResolution.showConflicts": "Show Conflicts",
   "conflictResolution.canceled.message": "{name} was not saved, so the visual editor still has unsaved edits. You can keep editing or close it without saving.",
-  "conflictResolution.closeWithoutSaving": "Close Without Saving"
+  "conflictResolution.closeWithoutSaving": "Close Without Saving",
+  "exportPdf.progress": "Exporting to PDF...",
+  "exportPdf.noTarget.message": "Nothing was exported because no visual editor is active.",
+  "exportPdf.failed.message": "The document could not be exported to PDF, so no file was written.",
+  "exportPdf.changeMarks.message": "The document was not exported to PDF because it has changes waiting to be accepted or rejected.",
+  "toolbar.exportAsPdf": "Export as PDF",
+  "exportPdf.exported": "Exported to PDF",
+  "exportPdf.saveDialog.title": "Export as PDF",
+  "exportPdf.saveDialog.filter": "PDF"
 }
