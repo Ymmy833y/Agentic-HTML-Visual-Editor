@@ -5,7 +5,7 @@ import { PRESSED_FORMAT_SLOTS } from './toolbar-state';
 import { TOOLBAR_SLOT } from './toolbar-slots';
 import type { ToolbarSlot } from './toolbar-slots';
 import { TOOLBAR_ELEMENT_ID, applyPressedAttributes, createItemIcon } from './toolbar';
-import type { RegisteredToolbarItem } from './toolbar';
+import type { RegisteredToolbarItem, ToolbarItemState } from './toolbar';
 import type { TooltipController } from './tooltip';
 
 /** ID of the component's element. Kept in line with the stylesheet's spelling. */
@@ -69,6 +69,9 @@ export interface FloatingMenuPorts {
    */
   readItem(slot: ToolbarSlot): RegisteredToolbarItem | undefined;
 
+  /** Reads the current display state of the fixed toolbar item, without taking its operation. */
+  readItemState(slot: ToolbarSlot): ToolbarItemState | undefined;
+
   /**
    * Requests activation of the given slot. The receiver checks input stop, disabled, and composition.
    *
@@ -130,6 +133,12 @@ export class FloatingMenu {
    */
   applyState(state: CaretState): void {
     this.buildItems();
+
+    for (const [slot, button] of this.buttons) {
+      const disabled = this.ports.readItemState(slot)?.disabled === true;
+      button.setAttribute('aria-disabled', String(disabled));
+      button.toggleAttribute('data-disabled', disabled);
+    }
 
     // The pressed state is copied whether shown or hidden, so that the next time it becomes visible
     // it reflects the current selection.

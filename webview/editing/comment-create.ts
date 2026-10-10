@@ -69,6 +69,39 @@ interface LiftPoint {
   readonly side: 'before' | 'after';
 }
 
+/** The selection-dependent action, shared by activation and the disabled-state query. */
+type CommentItemTarget =
+  | { readonly kind: 'open'; readonly comment: Element }
+  | { readonly kind: 'create'; readonly creation: CommentCreation };
+
+/**
+ * Returns whether the comment button can open a thread or create an annotation. Does not generate an ID or start an edit.
+ *
+ * @param ports The current editor root and open comment.
+ * @returns Whether an action is available for the current selection.
+ */
+export function canRunCommentItem(ports: Pick<CommentItemPorts, 'readEditorRoot' | 'readOpenComment'>): boolean {
+  const root = ports.readEditorRoot();
+  return root !== undefined && readCommentItemTarget(root, ports.readOpenComment()) !== undefined;
+}
+
+/** Resolves the action in the same priority order for display and activation, without changing the tree or selection. */
+function readCommentItemTarget(root: Element, open: Element | undefined): CommentItemTarget | undefined {
+  if (open !== undefined) {
+    return { kind: 'open', comment: open };
+  }
+  const range = readSelectionRange(root);
+  if (range === undefined) {
+    return undefined;
+  }
+  const existing = findCommentAt(range.startContainer, root, 'innermost');
+  if (existing !== undefined) {
+    return { kind: 'open', comment: existing };
+  }
+  const creation = readCommentCreation(root, range);
+  return creation === undefined ? undefined : { kind: 'create', creation };
+}
+
 /**
  * The operation of the comment button. Opens an existing comment, or wraps the range in a new comment and then opens it.
  *
@@ -85,27 +118,12 @@ export function runCommentItem(ports: CommentItemPorts): void {
     return;
   }
 
-  const open = ports.readOpenComment();
-  if (open !== undefined) {
-    ports.openComment(open);
+  const target = readCommentItemTarget(root, ports.readOpenComment());
+  if (target === undefined) {
     return;
   }
-
-  const range = readSelectionRange(root);
-  if (range === undefined) {
-    return;
-  }
-  const existing = findCommentAt(range.startContainer, root, 'innermost');
-  if (existing !== undefined) {
-    ports.openComment(existing);
-    return;
-  }
-
-  if (range.collapsed) {
-    return;
-  }
-  const creation = readCommentCreation(root, range);
-  if (creation === undefined) {
+  if (target.kind === 'open') {
+    ports.openComment(target.comment);
     return;
   }
 
@@ -120,7 +138,7 @@ export function runCommentItem(ports: CommentItemPorts): void {
   ports.runCommandEdit(COMMENT_EDIT_KIND, () => {
     const progress: BlockRewriteProgress = { changed: false };
     try {
-      created = rewrite(ports, root, creation, id, progress);
+      created = rewrite(ports, root, target.creation, id, progress);
     } catch (error) {
       // Throwing would close the attempt as aborted, and the changed tree would not reach the change tracker. Close what changed as completed.
       ports.reportDiagnostic(`Could not finish creating the comment: ${String(error)}`);
@@ -158,7 +176,18 @@ export function readCommentCreation(root: Element, range: Range): CommentCreatio
   }
 
   const parent = readCommonParent(range);
-  if (parent === undefined || !hasOnlyPhrasingContent(range, parent) || findCommentsInRange(root, range).length > 0) {
+  // Ancestors are outside the common parent's subtree. Check them separately so a small selection does not scan
+  // every comment in the document, while still rejecting ranges inside an existing annotation.
+  if (parent === undefined) {
+    return undefined;
+  }
+  for (let ancestor: Element | null = parent; ancestor !== null && ancestor !== root; ancestor = ancestor.parentElement) {
+    if (ancestor.localName === COMMENT_TAG_NAME.comment) {
+      return undefined;
+    }
+  }
+  if (!hasOnlyPhrasingContent(range, parent)
+    || findCommentsInRange(parent, range).length > 0) {
     return undefined;
   }
 

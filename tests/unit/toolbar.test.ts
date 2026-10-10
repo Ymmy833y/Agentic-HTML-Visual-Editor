@@ -135,6 +135,20 @@ describe('registering into the toolbar', () => {
 });
 
 describe('the state of an item', () => {
+  it('returns the latest display state as a copy and returns undefined for an unregistered slot', () => {
+    const harness = createHarness();
+    harness.toolbar?.register(TOOLBAR_SLOT.comment, button(() => undefined));
+    harness.toolbar?.updateItemState(TOOLBAR_SLOT.comment, { disabled: true });
+    const state = harness.toolbar?.readItemState(TOOLBAR_SLOT.comment);
+    expect(state?.disabled).toBe(true);
+    Object.assign(state ?? {}, { disabled: false });
+    expect(harness.toolbar?.readItemState(TOOLBAR_SLOT.comment)?.disabled).toBe(true);
+
+    harness.toolbar?.updateItemState(TOOLBAR_SLOT.comment, { disabled: false });
+
+    expect(harness.toolbar?.readItemState(TOOLBAR_SLOT.comment)?.disabled).toBe(false);
+    expect(harness.toolbar?.readItemState(TOOLBAR_SLOT.bold)).toBeUndefined();
+  });
   beforeEach(() => {
     document.body.replaceChildren();
   });
