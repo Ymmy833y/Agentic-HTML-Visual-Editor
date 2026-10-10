@@ -48,6 +48,15 @@ describe('the set of input stop reasons', () => {
     expect(root.contentEditable).toBe('false');
   });
 
+  it('makes the editor root non-editable while the reason of a PDF export is added', () => {
+    const harness = createHarness();
+    const root = harness.mount();
+
+    harness.controller.add(INPUT_STOP_REASON.pdfExport);
+
+    expect(root.contentEditable).toBe('false');
+  });
+
   it('stays non-editable when two reasons are added and one is removed', () => {
     const harness = createHarness();
     const root = harness.mount();

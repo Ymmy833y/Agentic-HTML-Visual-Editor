@@ -600,7 +600,7 @@ test.describe('moving within the item bars', () => {
       visited.push(await readFocusedSlot(view));
     }
 
-    expect(visited).toEqual([TOOLBAR_SLOT.save, TOOLBAR_SLOT.sidebar, TOOLBAR_SLOT.copy, TOOLBAR_SLOT.sidebar]);
+    expect(visited).toEqual([TOOLBAR_SLOT.save, TOOLBAR_SLOT.sidebar, TOOLBAR_SLOT.pdfExport, TOOLBAR_SLOT.sidebar]);
   });
 
   test('Home and End on the fixed toolbar move to the first and last items', async ({ page }) => {
@@ -614,7 +614,7 @@ test.describe('moving within the item bars', () => {
     const end = await readFocusedSlot(view);
     await page.keyboard.press('Home');
 
-    expect([end, await readFocusedSlot(view)]).toEqual([TOOLBAR_SLOT.copy, TOOLBAR_SLOT.sidebar]);
+    expect([end, await readFocusedSlot(view)]).toEqual([TOOLBAR_SLOT.pdfExport, TOOLBAR_SLOT.sidebar]);
   });
 
   test('after moving with Right, Tab out to the editor root and Shift+Tab back returns focus to the item moved to', async ({ page }) => {

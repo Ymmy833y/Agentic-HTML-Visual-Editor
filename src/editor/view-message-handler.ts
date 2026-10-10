@@ -9,6 +9,7 @@ import type {
   CopyHtmlResponseMessage,
   HostToViewMessage,
   InitializeMessage,
+  PdfExportResponseMessage,
   ResponseMessage,
   RestoreAction,
   SidebarLayoutChange,
@@ -126,6 +127,21 @@ export interface ViewMessageContext {
    *   request id and the content.
    */
   receiveCopyHtmlResponse(response: CopyHtmlResponseMessage): void;
+
+  /**
+   * Hands a PDF export response to that tab's PDF export requester.
+   *
+   * @param response The PDF export response received from the view. The requester that receives it checks the
+   *   request id and the content.
+   */
+  receivePdfExportResponse(response: PdfExportResponseMessage): void;
+
+  /**
+   * Receives a press of the toolbar's export button.
+   *
+   * Takes no arguments. Whoever builds this receiver has already bound the target to the sender's document.
+   */
+  receivePdfExportRequest(): void;
 
   /**
    * Receives a code block copy request from a code block's copy button.
@@ -303,6 +319,16 @@ export async function handleViewMessage(
       // Do not check the content here. The waiting requester decides both whether the response matches a pending
       // request and whether html is a value within the contract.
       context.receiveCopyHtmlResponse(message);
+      return;
+    case VIEW_TO_HOST_MESSAGE_TYPE.pdfExportRequested:
+      // Read nothing but the type. What to export is decided by the document of the receiving panel, and no value the
+      // view sends can change it.
+      context.receivePdfExportRequest();
+      return;
+    case VIEW_TO_HOST_MESSAGE_TYPE.pdfExportResponse:
+      // Do not check the content here. The waiting requester decides both whether the response matches a pending
+      // request and whether pages is a value within the contract.
+      context.receivePdfExportResponse(message);
       return;
     case VIEW_TO_HOST_MESSAGE_TYPE.codeBlockCopyRequested: {
       // The type requires a string, but the view can send any value at runtime. Writing a non-string value would put

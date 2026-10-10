@@ -36,6 +36,9 @@ function createWebviewOptions(isDevelopment) {
     format: 'iife',
     sourcemap: isDevelopment,
     minify: !isDevelopment,
+    // The PDF export gives the document's stylesheets to its copy as text, so a stylesheet imported from code is that
+    // text. The view itself still loads the bundled stylesheet through a link.
+    loader: { '.css': 'text' },
     logLevel: 'info',
   };
 }
@@ -53,6 +56,7 @@ function createE2eProbeOptions() {
     target: 'es2022',
     format: 'iife',
     sourcemap: true,
+    loader: { '.css': 'text' },
     logLevel: 'info',
   };
 }

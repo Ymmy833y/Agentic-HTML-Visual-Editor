@@ -6,11 +6,13 @@
 
 import {
   createBodyOutput,
+  createPdfPagePorts,
   documentReplacementPorts,
   readAutoformatTable,
   readBlockTypeMenu,
   readCellMergeState,
   readEditingSession,
+  readEditorRoot,
   readShortcutReceiver,
   readToolbar,
   readViewShell,
@@ -26,6 +28,8 @@ import type { CellMergeState } from '../../../webview/editing/cell-range';
 import type { FormatOperation } from '../../../webview/editing/format-command';
 import type { BodyOutput } from '../../../webview/document/serialization-state';
 import type { EditingSession } from '../../../webview/editing/editing-session';
+import { measurePdfLayout } from '../../../webview/export/pdf-pages';
+import type { PdfLayout } from '../../../webview/export/pdf-pages';
 import type { ShortcutReceiver } from '../../../webview/editing/shortcut-receiver';
 import type { TableOperation } from '../../../webview/editing/table-command';
 import { replaceDocumentPreservingSelection } from '../../../webview/selection/document-replacement';
@@ -68,6 +72,9 @@ declare global {
     // possible only by enabling or disabling its item, so the ends of the range and whether they can be merged are read
     // from here.
     __cellMergeStateProbe?: (cell: Element) => CellMergeState;
+    // A PDF export answers with the page images but not with the layout it chooses, so the layout is read through the
+    // same ports from here.
+    __pdfLayoutProbe?: () => Promise<PdfLayout | undefined>;
   }
 }
 
@@ -84,6 +91,10 @@ window.__shortcutReceiverProbe = readShortcutReceiver;
 window.__autoformatTableProbe = readAutoformatTable;
 window.__tableCommandProbe = runTableCommand;
 window.__cellMergeStateProbe = readCellMergeState;
+window.__pdfLayoutProbe = async () => {
+  const root = readEditorRoot();
+  return root === undefined ? undefined : measurePdfLayout(root, createPdfPagePorts());
+};
 window.__documentReplacementProbe = (text) =>
   // Replace document takes its ports as an argument. Bundle and pass the same ones the product uses.
   // The very ports the product uses are passed, so that the targets notified of a completed

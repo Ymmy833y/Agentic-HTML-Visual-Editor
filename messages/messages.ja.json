@@ -227,5 +227,13 @@
   "conflictResolution.waiting.message": "ビジュアルエディターで競合ごとに残す内容を選ぶまで、{name} の保存は待っています。",
   "conflictResolution.showConflicts": "競合を表示",
   "conflictResolution.canceled.message": "{name} は保存されていないため、ビジュアルエディターには未保存の編集が残っています。編集を続けるか、保存せずに閉じることができます。",
-  "conflictResolution.closeWithoutSaving": "保存せずに閉じる"
+  "conflictResolution.closeWithoutSaving": "保存せずに閉じる",
+  "exportPdf.progress": "PDF に書き出しています...",
+  "exportPdf.noTarget.message": "アクティブなビジュアルエディターがないため、何も書き出しませんでした。",
+  "exportPdf.failed.message": "文書を PDF に書き出せなかったため、ファイルは書いていません。",
+  "exportPdf.changeMarks.message": "承認・却下を待つ変更があるため、文書を PDF に書き出しませんでした。",
+  "toolbar.exportAsPdf": "PDF に書き出す",
+  "exportPdf.exported": "PDF に書き出しました",
+  "exportPdf.saveDialog.title": "PDF に書き出す",
+  "exportPdf.saveDialog.filter": "PDF"
 }

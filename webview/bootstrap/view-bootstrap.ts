@@ -23,6 +23,7 @@ import { mountBody } from '../document/document-mount';
 import { sanitizeBody } from '../document/document-sanitizer';
 import { SerializationState } from '../document/serialization-state';
 import { loadDiagramRenderer } from '../diagram/diagram-runtime';
+import { DIAGRAM_FAILURE } from '../diagram/diagram-render';
 import { DiagramView, createDiagramRuleSink } from '../diagram/diagram-view';
 import type { BodyOutput } from '../document/serialization-state';
 import { registerAlertRules, registerQuoteDeleteRules } from '../editing/alert-input-rule';
@@ -76,6 +77,9 @@ import { registerTabFallback } from '../editing/tab-fallback';
 import { attachTableVerticalKeys, registerTableShortcuts } from '../editing/table-navigation';
 import { readTableWidthUnit } from '../editing/table-width';
 import { replaceTexts } from '../editing/text-replace';
+import { PdfExportResponder } from '../export/pdf-export-response';
+import { loadPdfCanvasRenderer } from '../export/pdf-pages';
+import type { PdfPagePorts } from '../export/pdf-pages';
 import { readEmbeddedCatalog } from '../i18n/embedded-catalog';
 import { createHostChannel } from '../messaging/host-channel';
 import type { HostChannel, WebviewWindow } from '../messaging/host-channel';
@@ -117,6 +121,7 @@ import type { CommentPopupTrigger } from '../ui/comment-popup-trigger';
 import { attachCommentThread } from '../ui/comment-thread';
 import type { CommentThread } from '../ui/comment-thread';
 import { CopiedIcon, registerCopyButton, requestCopy } from '../ui/copy-button';
+import { registerPdfExportButton, requestPdfExport } from '../ui/pdf-export-button';
 import { registerDetailsButton } from '../ui/details-button';
 import { registerDiagramButton } from '../ui/diagram-button';
 import { attachDiagramClick, openDiagramDialog } from '../ui/diagram-dialog';
@@ -218,6 +223,14 @@ let saveRoundTrip: SaveRoundTrip | undefined;
 // Created on the first presentation of conflicts and held for the lifetime of the view. A presentation arrives only
 // during a save round trip, which needs a mounted document.
 let conflictResolution: ConflictResolution | undefined;
+
+// Created on the first PDF export request and held for the lifetime of the view, so that requests are answered one at a
+// time.
+let pdfExportResponder: PdfExportResponder | undefined;
+
+// How many times the document has been replaced since the view started. A PDF export compares it before and after
+// drawing, because the editing it stops does not include a replacement from the host.
+let documentReplacements = 0;
 
 // Create exactly one document apply after the initial mount succeeds; do not recreate it on replacement. If the
 // object retaining each request id's outcome changed on every replacement, retries could not return the same outcome.
@@ -420,6 +433,48 @@ function readConflictResolution(view: Window, channel: HostChannel): ConflictRes
   });
   conflictResolution = created;
   return created;
+}
+
+/**
+ * Returns the responder to PDF export requests, creating it on the first call.
+ *
+ * @param view The view window.
+ * @param channel The host channel.
+ */
+function readPdfExportResponder(view: Window, channel: HostChannel): PdfExportResponder {
+  const existing = pdfExportResponder;
+  if (existing !== undefined) {
+    return existing;
+  }
+  const overlay = readShell(view).overlay;
+  const created = new PdfExportResponder({
+    ...createPdfPagePorts(),
+    readEditorRoot,
+    readReplacementCount: () => documentReplacements,
+    stopInput: () => overlay.present(INPUT_STOP_REASON.pdfExport, BLANK_OVERLAY_CONTENT),
+    resumeInput: () => {
+      overlay.dismiss(INPUT_STOP_REASON.pdfExport);
+    },
+    post: (response) => channel.post(response),
+    reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+  });
+  pdfExportResponder = created;
+  return created;
+}
+
+/**
+ * Returns the ports that draw the document as PDF pages.
+ *
+ * The E2E entry point draws through the same ports, so it sees the same diagrams as an export does.
+ *
+ * @returns The ports.
+ */
+export function createPdfPagePorts(): PdfPagePorts {
+  return {
+    loadRenderer: loadPdfCanvasRenderer,
+    // The diagram view exists from the first mount on, and there is nothing to export before it.
+    drawLightDiagram: (source) => diagramView?.drawWithTheme(source, 'default') ?? Promise.resolve(DIAGRAM_FAILURE),
+  };
 }
 
 /**
@@ -827,6 +882,7 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     registerCommentButton(attached, () => runCommentItem(commentItemPorts));
     registerCopyButton(attached, () => requestCopy(channel, (detail) => postDiagnostic(channel, detail)));
     copiedIcon = new CopiedIcon(attached, view);
+    registerPdfExportButton(attached, () => requestPdfExport(channel, (detail) => postDiagnostic(channel, detail)));
 
     // The popup and the shortcut receiver are created later in this mount, and a replacement swaps the editing session,
     // so the ports hold no values and read them on every call.
@@ -1523,6 +1579,10 @@ async function handleHostMessage(
       }
       return;
     }
+    case HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport:
+      // Not awaited: drawing takes long, and the messages behind it, such as a save, must still be handled.
+      void readPdfExportResponder(view, channel).respond(message.requestId);
+      return;
     case HOST_TO_VIEW_MESSAGE_TYPE.requestCopyHtml: {
       // Before mounting and for an unopenable document there is no editor root, so respond that the HTML cannot be
       // created. Without a response, the host would wait until the timeout before notifying the failure.
@@ -1687,10 +1747,11 @@ export const documentReplacementPorts: DocumentReplacementPorts = {
   readEditorRoot,
   replaceDocument,
   createBodyOutput,
-  // The completion of a replacement is reported to the action dialog presenter and the editor return.
-  // A captured selection is in the coordinates of the old tree, so it must not overwrite the
+  // The completion of a replacement is counted for the PDF export and reported to the action dialog presenter and the
+  // editor return. A captured selection is in the coordinates of the old tree, so it must not overwrite the
   // selection placed by the replacement. Stopping the editor root again is done by the mount side.
   notifyDocumentReplaced: () => {
+    documentReplacements += 1;
     shell?.actionDialog.handleDocumentReplaced();
     shell?.editorReturn.handleDocumentReplaced();
   },

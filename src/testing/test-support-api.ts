@@ -76,6 +76,7 @@ export interface TestSupportApi {
   saveTextEditorThenViewForTest(documentUri: string): Promise<boolean>;
   showConflictsForTest(documentUri: string): boolean;
   closeWithoutSavingForTest(documentUri: string): Promise<boolean>;
+  exportPdfForTest(documentUri: string, destinationUri: string): Promise<boolean>;
 }
 
 /** The minimal shape of a session that the test drive hooks may touch. */
@@ -110,6 +111,13 @@ export interface TestSupportDependencies {
    * used, so tests cannot inject a backup path of their own.
    */
   readonly backupAccess: () => BackupTestAccess | undefined;
+  /**
+   * Exports the document of the session to the destination through the production export path, answering the save
+   * dialog with the destination instead of showing it.
+   *
+   * The dialog is a native window that a test cannot answer, and every other step stays the one the command takes.
+   */
+  readonly exportPdfForTest: (documentUri: string, destinationUri: string) => Promise<boolean>;
 }
 
 /** The copy returned when inspection is disabled: no registrations and no active target. */
@@ -240,6 +248,12 @@ export function createTestSupportApi(dependencies: TestSupportDependencies): Tes
       return await dependencies.backupAccess()?.closeWithoutSavingForTest(
         dependencies.normalizeDocumentUri(documentUri),
       ) ?? false;
+    },
+    exportPdfForTest: async (documentUri, destinationUri) => {
+      if (!enabled) {
+        return false;
+      }
+      return dependencies.exportPdfForTest(dependencies.normalizeDocumentUri(documentUri), destinationUri);
     },
   };
 }

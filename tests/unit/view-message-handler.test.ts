@@ -6,6 +6,7 @@ import type {
   CopyHtmlResponseMessage,
   HostToViewMessage,
   InitializeMessage,
+  PdfExportResponseMessage,
   ResponseMessage,
   RestoreAction,
   SidebarLayoutChange,
@@ -58,6 +59,10 @@ interface Harness {
   readonly copyRequestCalls: unknown[][];
   /** The responses passed to the copy HTML response receiver, in the order received. */
   readonly copyHtmlResponses: CopyHtmlResponseMessage[];
+  /** The PDF export responses passed to the receiver, in the order received. */
+  readonly pdfExportResponses: PdfExportResponseMessage[];
+  /** The number of times the PDF export request receiver was called. */
+  readonly readPdfExportRequestCount: () => number;
   /** The arguments passed each time the code block copy request receiver was called. */
   readonly codeBlockCopyCalls: unknown[][];
   /** The sidebar layout changes passed to the receiver, in the order received. */
@@ -87,6 +92,8 @@ function createHarness(unreadable = false): Harness {
   const relativeLinkCalls: unknown[][] = [];
   const copyRequestCalls: unknown[][] = [];
   const copyHtmlResponses: CopyHtmlResponseMessage[] = [];
+  const pdfExportResponses: PdfExportResponseMessage[] = [];
+  let pdfExportRequestCount = 0;
   const codeBlockCopyCalls: unknown[][] = [];
   const sidebarLayouts: SidebarLayoutChange[] = [];
   const reporter = new ErrorReporter(
@@ -118,6 +125,8 @@ function createHarness(unreadable = false): Harness {
     relativeLinkCalls,
     copyRequestCalls,
     copyHtmlResponses,
+    pdfExportResponses,
+    readPdfExportRequestCount: () => pdfExportRequestCount,
     codeBlockCopyCalls,
     sidebarLayouts,
     context: {
@@ -159,6 +168,10 @@ function createHarness(unreadable = false): Harness {
         copyRequestCalls.push(args);
       },
       receiveCopyHtmlResponse: (response) => copyHtmlResponses.push(response),
+      receivePdfExportResponse: (response) => pdfExportResponses.push(response),
+      receivePdfExportRequest: () => {
+        pdfExportRequestCount += 1;
+      },
       receiveCodeBlockCopyRequest: (...args: unknown[]) => {
         codeBlockCopyCalls.push(args);
       },
@@ -540,6 +553,36 @@ describe('the Copy as HTML messages', () => {
     expect([
       harness.copyHtmlResponses.length,
       harness.copyHtmlResponses[0] === response,
+      harness.reporter.readInspection().logLines,
+    ]).toEqual([1, true, []]);
+  });
+});
+
+describe('the PDF export request from the toolbar', () => {
+  it('calls the receiver exactly once and logs nothing', async () => {
+    const harness = createHarness();
+
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.pdfExportRequested }, harness.context);
+
+    expect([harness.readPdfExportRequestCount(), harness.reporter.readInspection().logLines]).toEqual([1, []]);
+  });
+});
+
+describe('the PDF export response', () => {
+  it('passes a PDF export response to the receiver as is and logs nothing', async () => {
+    const harness = createHarness();
+    const response: PdfExportResponseMessage = {
+      type: VIEW_TO_HOST_MESSAGE_TYPE.pdfExportResponse,
+      requestId: '1',
+      pages: [{ jpeg: '/9j/2Q==', width: 1, height: 1, links: [] }],
+      refusal: null,
+    };
+
+    await handleViewMessage(response, harness.context);
+
+    expect([
+      harness.pdfExportResponses.length,
+      harness.pdfExportResponses[0] === response,
       harness.reporter.readInspection().logLines,
     ]).toEqual([1, true, []]);
   });

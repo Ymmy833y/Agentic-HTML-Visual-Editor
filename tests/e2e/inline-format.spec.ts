@@ -192,6 +192,7 @@ test.describe('registering the format entry points', () => {
       TOOLBAR_SLOT.diagram,
       TOOLBAR_SLOT.comment,
       TOOLBAR_SLOT.copy,
+      TOOLBAR_SLOT.pdfExport,
     ]);
   });
 

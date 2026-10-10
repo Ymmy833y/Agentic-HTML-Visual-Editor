@@ -11,6 +11,7 @@ export {
   DOCUMENT_APPLY_KIND,
   DOCUMENT_APPLY_OUTCOME,
   HOST_TO_VIEW_MESSAGE_TYPE,
+  PDF_EXPORT_REFUSAL,
   RESTORE_ACTION,
   RESTORE_FAILURE_CAUSE,
   VIEW_TO_HOST_MESSAGE_TYPE,
@@ -36,6 +37,12 @@ export type {
   HistoryProtectionActivatedMessage,
   HostToViewMessage,
   InitializeMessage,
+  PdfExportRefusal,
+  PdfExportRequestedMessage,
+  PdfExportResponseMessage,
+  PdfPageImage,
+  PdfPageLink,
+  PdfPageLinkTarget,
   PresentConflictsMessage,
   RelativeLinkRequestedMessage,
   ReplaceDocumentMessage,
@@ -44,6 +51,7 @@ export type {
   RequestEditTransactionFlushMessage,
   RequestBodyOutputMessage,
   RequestCopyHtmlMessage,
+  RequestPdfExportMessage,
   RestoreAction,
   RestoreActionSelectedMessage,
   RestoreCompletedMessage,
@@ -163,6 +171,13 @@ export type {
   RestoreProgress,
 } from './backup/restore-mount';
 export { isRelativeFileHref, isRootRelativeFileHref, trimHref } from './link/relative-href';
+export {
+  CONTENT_HEIGHT_PT,
+  CONTENT_WIDTH_PT,
+  PAGE_HEIGHT_PT,
+  PAGE_MARGIN_PT,
+  PAGE_WIDTH_PT,
+} from './export/pdf-page';
 export { createLineMapping, mapToDisk } from './text/line-mapping';
 export type { LineMapping, LineMappingSegment } from './text/line-mapping';
 export { buildBodyOutput } from './text/body-output';

@@ -22,6 +22,8 @@ import type {
   ViewToHostMessage,
 } from '../../common/index';
 import { CopyHtmlRequester, copyCodeBlockText, copySenderAsHtml } from '../clipboard/copy-as-html';
+import { PdfExportRequester, exportSenderAsPdf } from '../export/export-pdf';
+import type { ExportPdfPorts } from '../export/export-pdf';
 import type { CopyAsHtmlPorts } from '../clipboard/copy-as-html';
 import type { ErrorReporter } from '../diagnostics/error-reporter';
 import type { ResolvedMessages } from '../i18n/message-resource-loader';
@@ -219,6 +221,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     private readonly saveEntryRecorder: SaveEntryRecorder,
     private readonly editorSwitcher: EditorSwitcher,
     private readonly copyAsHtmlPorts: CopyAsHtmlPorts,
+    private readonly exportPdfPorts: ExportPdfPorts,
     private readonly protectionParentUri: vscode.Uri,
     private readonly testMode: boolean,
     private readonly sidebarLayoutStore: SidebarLayoutStore,
@@ -257,6 +260,8 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
    *   dialog. The same single instance as the commands use.
    * @param copyAsHtmlPorts Ports that "Copy as HTML" uses to write and show the result. Receives the same single set
    *   as the command and uses it only for the toolbar path.
+   * @param exportPdfPorts Ports that "Export as PDF" uses for progress, the dialog, the write and the result. Receives
+   *   the same single set as the command and uses it only for the toolbar path.
    * @param onRegistered A function that receives the restricted backup access for integration tests when
    *   registration completes.
    * @returns A `Disposable` that unregisters the editor.
@@ -270,6 +275,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     saveEntryRecorder: SaveEntryRecorder,
     editorSwitcher: EditorSwitcher,
     copyAsHtmlPorts: CopyAsHtmlPorts,
+    exportPdfPorts: ExportPdfPorts,
     onRegistered?: (access: BackupTestAccess) => void,
   ): vscode.Disposable {
     // Protection backups outlive the extension. Without a workspace, they go in the global storage.
@@ -282,6 +288,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       saveEntryRecorder,
       editorSwitcher,
       copyAsHtmlPorts,
+      exportPdfPorts,
       vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, PROTECTION_BACKUP_FOLDER),
       context.extensionMode === vscode.ExtensionMode.Test,
       new SidebarLayoutStore(context.globalState),
@@ -431,6 +438,10 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     // Hand the copy HTML requester to the session before subscribing to messages as well. In the reverse order, a
     // copy HTML response arriving in between would have nowhere to go.
     session.setCopyHtmlRequester(new CopyHtmlRequester(
+      (message) => this.postToView(document, webview, message),
+      this.errorReporter,
+    ));
+    session.setPdfExportRequester(new PdfExportRequester(
       (message) => this.postToView(document, webview, message),
       this.errorReporter,
     ));
@@ -1604,6 +1615,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     const transactionBridge = session?.editTransactionBridge;
     const historyCoordinator = session?.editHistoryCoordinator;
     const copyHtmlRequester = session?.copyHtmlRequester;
+    const pdfExportRequester = session?.pdfExportRequester;
     // Relative-link resolution and the code block copy do not use the save coordinator, so they are not swallowed when
     // no session exists. Recording here would leave a failure-looking line even for a request that did its job.
     const needsSaveCoordinator = message.type !== VIEW_TO_HOST_MESSAGE_TYPE.relativeLinkRequested
@@ -1627,6 +1639,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
         transactionBridge?.notifyViewRestarted();
         historyCoordinator?.notifyViewRestarted();
         copyHtmlRequester?.notifyViewRestarted();
+        pdfExportRequester?.notifyViewRestarted();
         this.ownersOf(document).restore.notifyViewRestarted();
       },
       receiveRestoreAction: (action: RestoreAction) => {
@@ -1654,6 +1667,19 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
           return;
         }
         copyHtmlRequester.settle(response);
+      },
+      // Bound to the sender's document, so no value the view sends can change what is exported.
+      receivePdfExportRequest: () => {
+        void exportSenderAsPdf(this.findSessionOf(document), document.sourceUri.toString(), this.exportPdfPorts);
+      },
+      receivePdfExportResponse: (response) => {
+        if (pdfExportRequester === undefined) {
+          this.errorReporter.reportInternalError(
+            `Dropped a PDF export response for a document with no requester: ${document.sourceUri.toString()}`,
+          );
+          return;
+        }
+        pdfExportRequester.settle(response);
       },
       // Bound to the panel that received the message, so the success message returns to the pressed button.
       receiveCodeBlockCopyRequest: (text) => this.receiveCodeBlockCopyRequest(document, webview, text),

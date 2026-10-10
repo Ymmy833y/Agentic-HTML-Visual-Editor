@@ -228,6 +228,14 @@ export const MESSAGE_KEYS = [
   'conflictResolution.showConflicts',
   'conflictResolution.canceled.message',
   'conflictResolution.closeWithoutSaving',
+  'exportPdf.progress',
+  'exportPdf.noTarget.message',
+  'exportPdf.failed.message',
+  'exportPdf.changeMarks.message',
+  'toolbar.exportAsPdf',
+  'exportPdf.exported',
+  'exportPdf.saveDialog.title',
+  'exportPdf.saveDialog.filter',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

@@ -16,3 +16,4 @@ tests/integration/fixtures/backup-recovery-*.html
 tests/integration/fixtures/link-resolve-*
 tests/integration/fixtures/save-sync\[1\].html
 tests/integration/fixtures/save-sync1.html
+tests/integration/fixtures/pdf-export-out/

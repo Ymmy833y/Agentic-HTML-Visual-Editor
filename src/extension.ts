@@ -9,6 +9,8 @@ import { EditorSwitcher } from './editor/editor-switch';
 import { createEditorSwitchHost } from './editor/editor-switch-host';
 import { HtmlCustomEditorProvider } from './editor/html-custom-editor-provider';
 import { registerOpenEditorCommands } from './editor/open-editor-commands';
+import { exportSessionAsPdf } from './export/export-pdf';
+import { createExportPdfPorts, registerExportAsPdfCommand } from './export/export-pdf-command';
 import { registerSplitNotice } from './editor/split-notice';
 import { registerHistoryCommands } from './history/history-commands';
 import { loadMessages } from './i18n/message-resource-loader';
@@ -76,6 +78,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   // Register before activate completes so that the first execution is not lost even when this command triggers
   // activation.
   context.subscriptions.push(registerCopyAsHtmlCommand(sessionRegistry, copyAsHtmlPorts));
+  // One set of ports for the command and the toolbar path, so the file is written from one place.
+  const exportPdfPorts = createExportPdfPorts(errorReporter, localizer);
+  context.subscriptions.push(registerExportAsPdfCommand(sessionRegistry, exportPdfPorts));
   context.subscriptions.push(registerSplitNotice(errorReporter));
   // Receive the restricted backup access only when registration completes. This keeps the test support API from
   // owning a backup path of its own, so it goes through the production entry points.
@@ -90,6 +95,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
       saveEntryRecorder,
       editorSwitcher,
       copyAsHtmlPorts,
+      exportPdfPorts,
       (access) => {
         backupAccess = access;
       },
@@ -107,6 +113,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
     readSaveEntryInspection: () => saveEntryRecorder.read(),
     clearSaveEntryInspection: () => saveEntryRecorder.clear(),
     backupAccess: () => backupAccess,
+    exportPdfForTest: async (documentUri, destinationUri) => {
+      const session = sessionRegistry.findSession(documentUri);
+      if (session === undefined) {
+        return false;
+      }
+      return exportSessionAsPdf(session, {
+        ...exportPdfPorts,
+        showSaveDialog: () => Promise.resolve(vscode.Uri.parse(destinationUri)),
+      });
+    },
   });
 
   return {
