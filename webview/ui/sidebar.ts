@@ -161,6 +161,12 @@ export interface SidebarPorts {
   /** Returns focus and the selection captured on leaving the editor root to the editor root. */
   returnToEditor(): void;
 
+  /** Registers a tooltip message that is shown only while its condition holds. */
+  registerTooltip(target: Element, label: string, shouldShow: () => boolean): void;
+
+  /** Hides the shared tooltip and cancels a pending message. */
+  hideTooltip(): void;
+
   /**
    * Records one diagnostic line for maintainers. Not used to notify the user.
    *
@@ -302,6 +308,7 @@ export class Sidebar {
    */
   close(): void {
     this.endResize();
+    this.ports.hideTooltip();
     this.opened = false;
     this.element.hidden = true;
     this.view.document.documentElement.removeAttribute(SIDEBAR_OPEN_ATTRIBUTE);
@@ -843,6 +850,13 @@ export function attachSidebar(
   tabList.setAttribute('role', 'tablist');
   tabList.setAttribute('aria-label', localizer.getMessage('sidebar.name'));
   const tabs = new Map<SidebarTab, HTMLButtonElement>();
+  // Observe the labels rather than repeat the stylesheet's width threshold. Their size changes when
+  // the container query brings their names back on screen, including after a font size change.
+  const labelObserver = new ResizeObserver((entries) => {
+    if (entries.some((entry) => view.getComputedStyle(entry.target).position !== 'absolute')) {
+      ports.hideTooltip();
+    }
+  });
   for (const tab of SIDEBAR_TABS) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -854,6 +868,9 @@ export function attachSidebar(
     const label = document.createElement('span');
     label.textContent = localizer.getMessage(TAB_MESSAGE_KEY[tab]);
     button.append(createItemIcon(document, TAB_ICON_PATH[tab]), label);
+    ports.registerTooltip(button, label.textContent, () =>
+      !element.hidden && view.getComputedStyle(label).position === 'absolute');
+    labelObserver.observe(label);
     tabs.set(tab, button);
     tabList.append(button);
   }

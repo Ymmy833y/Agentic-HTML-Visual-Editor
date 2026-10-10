@@ -39,6 +39,8 @@ export class TooltipController {
   // Held weakly, so that messages of elements discarded by a tree replacement are not retained.
   private readonly labels = new WeakMap<Element, string>();
 
+  private readonly conditions = new WeakMap<Element, () => boolean>();
+
   private resolver: TooltipResolver | undefined;
 
   private timer: number | undefined;
@@ -76,7 +78,7 @@ export class TooltipController {
     const label = this.labels.get(target);
     // Whether focus came from the keyboard is decided by the same browser rule as the focus ring. A
     // pointer press, which shows no ring, shows no tooltip either.
-    if (label === undefined || !target.matches(':focus-visible')) {
+    if (label === undefined || this.conditions.get(target)?.() === false || !target.matches(':focus-visible')) {
       return;
     }
     // Only one tooltip is ever shown, so one shown by the pointer is also hidden before waiting again.
@@ -129,13 +131,19 @@ export class TooltipController {
    *
    * @param target The UI component that has the message.
    * @param label The resolved message. An empty one is never shown.
+   * @param shouldShow An optional condition checked when triggered and again after the delay.
    */
-  registerTarget(target: Element, label: string): void {
+  registerTarget(target: Element, label: string, shouldShow?: () => boolean): void {
     if (label.length === 0) {
       return;
     }
     // No `title` is set, or the browser's built-in display would overlap this one.
     this.labels.set(target, label);
+    if (shouldShow === undefined) {
+      this.conditions.delete(target);
+    } else {
+      this.conditions.set(target, shouldShow);
+    }
   }
 
   /**
@@ -171,6 +179,11 @@ export class TooltipController {
     this.current = target;
     this.timer = this.view.setTimeout(() => {
       this.timer = undefined;
+      // A responsive label can become visible while the tooltip is still waiting.
+      if (this.conditions.get(target.owner)?.() === false) {
+        this.hide();
+        return;
+      }
       this.show(target.owner, target.label);
     }, TOOLTIP_DELAY_MS);
   }
@@ -237,6 +250,9 @@ export class TooltipController {
     for (let element: Element | null = target; element !== null; element = element.parentElement) {
       const label = this.labels.get(element);
       if (label !== undefined) {
+        if (this.conditions.get(element)?.() === false) {
+          return undefined;
+        }
         return { owner: element, label };
       }
     }
