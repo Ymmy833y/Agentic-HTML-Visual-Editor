@@ -10,7 +10,7 @@ import {
   readFloatingMenuPlacement,
 } from '../../webview/ui/floating-menu';
 import type { FloatingMenu } from '../../webview/ui/floating-menu';
-import type { RegisteredToolbarItem } from '../../webview/ui/toolbar';
+import type { RegisteredToolbarItem, ToolbarItemState } from '../../webview/ui/toolbar';
 import { TOOLBAR_SLOT, TOOLBAR_SLOT_GROUPS } from '../../webview/ui/toolbar-slots';
 import type { ToolbarSlot } from '../../webview/ui/toolbar-slots';
 import { TooltipController } from '../../webview/ui/tooltip';
@@ -39,6 +39,7 @@ interface Harness {
 function createHarness(
   registered: ReadonlySet<ToolbarSlot> = new Set(),
   notifyHiddenWithFocus: () => void = () => undefined,
+  readItemState: (slot: ToolbarSlot) => ToolbarItemState | undefined = () => undefined,
 ): Harness {
   document.body.replaceChildren();
   const root = document.createElement('div');
@@ -48,6 +49,7 @@ function createHarness(
   const menu = attachFloatingMenu(window, {
     readEditorRoot: () => root,
     readItem: (slot) => (registered.has(slot) ? ITEM : undefined),
+    readItemState,
     activateSlot: () => undefined,
     localizer: createLocalizer({}),
     tooltip: new TooltipController(window),
@@ -135,6 +137,20 @@ describe('Attaching and showing the floating menu', () => {
     const harness = createHarness();
 
     expect([harness.root.contains(harness.element), harness.element.hidden]).toEqual([false, true]);
+  });
+
+  it('updates disabled attributes on the same button when the fixed item state changes', () => {
+    let disabled = true;
+    const harness = createHarness(new Set([TOOLBAR_SLOT.comment]), () => undefined, () => ({ disabled }));
+    harness.menu.applyState(NO_CARET_STATE);
+    const button = harness.element.querySelector('button');
+    expect([button?.getAttribute('aria-disabled'), button?.hasAttribute('data-disabled')]).toEqual(['true', true]);
+
+    disabled = false;
+    harness.menu.applyState(NO_CARET_STATE);
+
+    expect([harness.element.querySelector('button'), button?.getAttribute('aria-disabled'), button?.hasAttribute('data-disabled')])
+      .toEqual([button, 'false', false]);
   });
 
   it('calling the close port while hidden throws nothing and stays hidden', () => {

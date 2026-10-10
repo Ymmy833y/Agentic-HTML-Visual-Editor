@@ -39,7 +39,7 @@ import type { ClipboardCopyPorts } from '../editing/clipboard-copy';
 import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
 import { resolveAllChanges, resolveChange } from '../editing/change-resolve';
 import type { ChangeResolvePorts } from '../editing/change-resolve';
-import { runCommentItem } from '../editing/comment-create';
+import { canRunCommentItem, runCommentItem } from '../editing/comment-create';
 import type { CommentItemPorts } from '../editing/comment-create';
 import { registerCommentCompositionHook } from '../editing/comment-guard-rule';
 import { registerCommentSideKeys } from '../editing/comment-side';
@@ -871,6 +871,7 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     const floating = attachFloatingMenu(view, {
       readEditorRoot,
       readItem: (slot) => attached.readItem(slot),
+      readItemState: (slot) => attached.readItemState(slot),
       activateSlot: (slot) => attached.activateSlot(slot),
       localizer,
       tooltip: viewShell.tooltip,
@@ -881,10 +882,10 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     const follow = new CaretFollow(view, {
       readEditorRoot,
       readPendingFormats: () => pendingFormat.read(),
-      reflect: (state) => reflectToolbarState(
-        { toolbar: attached, blockTypeMenu: menu, localizer },
-        state,
-      ),
+      reflect: (state) => {
+        reflectToolbarState({ toolbar: attached, blockTypeMenu: menu, localizer }, state);
+        attached.updateItemState(TOOLBAR_SLOT.comment, { disabled: !canRunCommentItem(commentItemPorts) });
+      },
       applyMenuState: (state) => floating.applyState(state),
       updateMenuPosition: () => floating.updatePosition(),
       isMenuVisible: () => floating.visible,
@@ -966,6 +967,7 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     hasShortcut: (event) => receiver.hasShortcut(event),
     requestReturn: (selection) => viewShell.editorReturn.requestReturn(selection),
     deferReturn: (selection) => viewShell.editorReturn.deferReturn(selection),
+    notifyStateChanged: () => caretFollow?.evaluate(),
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   });
   commentPopup = popup;

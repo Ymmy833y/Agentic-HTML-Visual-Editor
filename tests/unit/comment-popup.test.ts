@@ -18,6 +18,7 @@ interface PortOverrides {
   readonly isInputStopped?: () => boolean;
   readonly isInItemBar?: (node: Node | null) => boolean;
   readonly hasShortcut?: (event: KeyboardEvent) => boolean;
+  readonly notifyStateChanged?: () => void;
 }
 
 /** The attached popup, and a record of port calls. */
@@ -50,6 +51,7 @@ function createPopup(html: string, overrides: PortOverrides = {}): PopupHarness 
     hasViewFocus: () => true,
     isInItemBar: overrides.isInItemBar ?? (() => false),
     hasShortcut: overrides.hasShortcut ?? (() => false),
+    notifyStateChanged: overrides.notifyStateChanged,
     requestReturn: (selection) => {
       calls.push('return');
       selections.push(selection);
@@ -151,6 +153,20 @@ const COMMENT = '<p>x<comment id="c-1">ab<comment-body>note</comment-body></comm
 // Two comments one after the other. Used to check switching.
 const TWO_COMMENTS = '<p>x<comment id="c-1">ab<comment-body>one</comment-body></comment>y'
   + '<comment id="c-2">cd<comment-body>two</comment-body></comment>z</p>';
+
+describe('Popup state notifications', () => {
+  it('notifies after opening and closing with the current open comment readable', () => {
+    const states: (Element | undefined)[] = [];
+    const harness = createPopup(COMMENT, { notifyStateChanged: () => states.push(harness.popup.readOpenComment()) });
+    const comment = readElement(harness.root, 'comment');
+    giveRect(comment);
+
+    harness.popup.open(comment, false);
+    harness.popup.close({ kind: 'escape' });
+
+    expect(states).toEqual([comment, undefined]);
+  });
+});
 
 describe('Popup placement', () => {
   const area = { left: 0, top: 0, right: 800, bottom: 600 };

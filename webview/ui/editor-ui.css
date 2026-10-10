@@ -143,13 +143,13 @@
 /* An item under the pointer gets a tile and the full text color, so that it reads as something that can be pressed. A
    disabled item does not react, and a pressed item keeps its tint. Pressing dips the item a little. */
 #editor-toolbar [data-slot] > button:not([data-disabled], [data-pressed]):hover,
-#editor-floating-menu button:not([data-pressed]):hover {
+#editor-floating-menu button:not([data-disabled], [data-pressed]):hover {
   color: var(--ahve-fg);
   background: var(--bar-hover);
 }
 
 #editor-toolbar [data-slot] > button:not([data-disabled]):active,
-#editor-floating-menu button:active {
+#editor-floating-menu button:not([data-disabled]):active {
   background: var(--bar-press);
   transform: scale(0.94);
 }
@@ -179,13 +179,15 @@
 
 /* Disabled is shown by fading the contents. High contrast themes also draw a dashed border (the rules at the end of
    this file), since fading alone would not tell it apart from an enabled item there. */
-#editor-toolbar button[data-disabled] {
+#editor-toolbar button[data-disabled],
+#editor-floating-menu button[data-disabled] {
   cursor: default;
 }
 
 /* The disabled fading applies only to the item's contents (the icon and the item label). Applying
    it to the button itself would also fade the focus ring and make it hard to see. */
-#editor-toolbar button[data-disabled] > * {
+#editor-toolbar button[data-disabled] > *,
+#editor-floating-menu button[data-disabled] > * {
   opacity: 0.5;
 }
 
@@ -2442,7 +2444,7 @@ body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialo
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar [data-slot] > button:not([data-disabled], [data-pressed]):hover,
-:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button:not([data-pressed]):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button:not([data-disabled], [data-pressed]):hover,
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .block-type-menu button:not([data-marked]):hover {
   border-color: var(--ahve-border);
 }
@@ -2469,6 +2471,7 @@ body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialo
 }
 
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar button[data-disabled],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button[data-disabled],
 :is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-table-menu button[aria-disabled="true"] {
   border-style: dashed;
   border-color: var(--ahve-border);

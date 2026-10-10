@@ -90,6 +90,27 @@ afterEach(() => {
 });
 
 describe('Conditions for creation', () => {
+  it('rejects a range whose common parent lies inside an existing annotation', () => {
+    const root = mountRoot('<p><comment id="c"><strong>abcd</strong></comment></p>');
+    const text = readChildText(readElement(root, 'strong'), 0);
+
+    expect(readCommentCreation(root, createRange(text, 1, text, 3))).toBeUndefined();
+  });
+
+  it('rejects a range inside a hidden entry of an existing annotation', () => {
+    const root = mountRoot('<p><comment id="c">ab<comment-body>note</comment-body></comment></p>');
+    const text = readChildText(readElement(root, 'comment-body'), 0);
+
+    expect(readCommentCreation(root, createRange(text, 1, text, 3))).toBeUndefined();
+  });
+
+  it('rejects an existing annotation enclosed by the range under its common parent', () => {
+    const root = mountRoot('<p>ab<comment id="c">cd</comment>ef</p>');
+    const paragraph = readElement(root, 'p');
+
+    expect(readCommentCreation(root, createRange(readChildText(paragraph, 0), 1, readChildText(paragraph, 2), 1)))
+      .toBeUndefined();
+  });
   it('a range within one paragraph creates inside the block', () => {
     const root = mountRoot('<p>abcd</p>');
     const text = readChildText(readElement(root, 'p'), 0);

@@ -78,6 +78,9 @@ export interface CommentPopupPorts {
    */
   deferReturn(selection: EncodedSelection | undefined): void;
 
+  /** Notifies after opening or closing, including any selection return, so item availability can be read again. */
+  notifyStateChanged?(): void;
+
   /**
    * Leaves one diagnostic line for maintainers. Not used to notify users.
    *
@@ -264,6 +267,7 @@ export class CommentPopup {
         // it taken back here.
         this.content?.handleOpened(comment, preferReply);
       }
+      this.notifyStateChanged();
     } catch (error) {
       this.fail('open', error);
     }
@@ -405,44 +409,57 @@ export class CommentPopup {
     if (state === undefined) {
       return;
     }
-    // Hiding also removes focus, so read whether it was inside before hiding.
-    const active = this.view.document.activeElement;
-    const focusedInside = active !== null && this.element.contains(active);
-    // Clear the state first, so the editor root's focusin caused by the return is not counted as entering the editor root by other means.
-    this.state = undefined;
-    this.moveOpenMark(undefined);
-    this.element.hidden = true;
-    this.entries.replaceChildren();
-    // Notify after clearing the state, so that the notification of the edit in which the content committed its inputs
-    // does not redraw the closed comment.
-    this.notifyDeparted(closure);
-    if (!focusedInside) {
-      return;
-    }
+    try {
+      // Hiding also removes focus, so read whether it was inside before hiding.
+      const active = this.view.document.activeElement;
+      const focusedInside = active !== null && this.element.contains(active);
+      // Clear the state first, so the editor root's focusin caused by the return is not counted as entering the editor root by other means.
+      this.state = undefined;
+      this.moveOpenMark(undefined);
+      this.element.hidden = true;
+      this.entries.replaceChildren();
+      // Notify after clearing the state, so that the notification of the edit in which the content committed its inputs
+      // does not redraw the closed comment.
+      this.notifyDeparted(closure);
+      if (!focusedInside) {
+        return;
+      }
 
-    let returnRange: Range | undefined;
-    switch (closure.kind) {
-      case 'escape':
-        returnRange = state.returnRange;
-        break;
-      case 'press':
-        if (!this.ports.isInItemBar(closure.target)) {
-          return;
-        }
-        returnRange = state.returnRange;
-        break;
-      default:
-        returnRange = undefined;
+      let returnRange: Range | undefined;
+      switch (closure.kind) {
+        case 'escape':
+          returnRange = state.returnRange;
+          break;
+        case 'press':
+          if (!this.ports.isInItemBar(closure.target)) {
+            return;
+          }
+          returnRange = state.returnRange;
+          break;
+        default:
+          returnRange = undefined;
+      }
+      // Encode after notifying the content, so that the writes of inputs committed on the close notification are also
+      // reflected in the coordinates of the return position.
+      const selection = returnRange === undefined ? undefined : captureRange(this.root, returnRange)?.selection;
+      // While editing is disabled or the view does not have focus, a return request does nothing, so hand it to the deferral
+      // and return when that ends.
+      if (!this.ports.isInputStopped() && this.ports.hasViewFocus()) {
+        this.ports.requestReturn(selection);
+      } else {
+        this.ports.deferReturn(selection);
+      }
+    } finally {
+      this.notifyStateChanged();
     }
-    // Encode after notifying the content, so that the writes of inputs committed on the close notification are also
-    // reflected in the coordinates of the return position.
-    const selection = returnRange === undefined ? undefined : captureRange(this.root, returnRange)?.selection;
-    // While editing is disabled or the view does not have focus, a return request does nothing, so hand it to the deferral
-    // and return when that ends.
-    if (!this.ports.isInputStopped() && this.ports.hasViewFocus()) {
-      this.ports.requestReturn(selection);
-    } else {
-      this.ports.deferReturn(selection);
+  }
+
+  /** A display update must not interrupt popup cleanup or change whether opening succeeded. */
+  private notifyStateChanged(): void {
+    try {
+      this.ports.notifyStateChanged?.();
+    } catch (error) {
+      this.ports.reportDiagnostic(`Could not notify the comment popup state: ${String(error)}`);
     }
   }
 

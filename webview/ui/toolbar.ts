@@ -355,6 +355,17 @@ export class Toolbar {
   }
 
   /**
+   * Returns a copy of the current display state, without exposing the item's operation or mutable stored state.
+   *
+   * @param slot The slot to query.
+   * @returns The state, or `undefined` for an unregistered slot.
+   */
+  readItemState(slot: ToolbarSlot): ToolbarItemState | undefined {
+    const entry = this.entries.get(slot);
+    return entry === undefined ? undefined : { ...entry.state };
+  }
+
+  /**
    * Activates the item in the given slot. Does nothing for an unregistered slot.
    *
    * The toolbar activation checks input stop, disabled, and composition. Adding checks here would

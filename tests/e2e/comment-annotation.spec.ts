@@ -548,7 +548,9 @@ test.describe('Creating comments', () => {
     await selectRange(page, at(`${EDITOR_ROOT} p:nth-of-type(1)`, 0, 1), at(`${EDITOR_ROOT} p:nth-of-type(2)`, 0, 1));
     const before = [await readBodyHtml(page), await readSelectionEnds(page)];
 
-    await page.locator(COMMENT_ITEM).click();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await page.locator(COMMENT_ITEM).click({ force: true });
 
     expect([await readBodyHtml(page), await readSelectionEnds(page)]).toEqual(before);
   });
@@ -558,7 +560,9 @@ test.describe('Creating comments', () => {
     const before = await readBodyHtml(page);
     await selectRange(page, at(`${EDITOR_ROOT} p`, 0, 1), at(COMMENT, 0, 1));
 
-    await page.locator(COMMENT_ITEM).click();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await page.locator(COMMENT_ITEM).click({ force: true });
 
     expect(await readBodyHtml(page)).toBe(before);
   });
@@ -568,10 +572,133 @@ test.describe('Creating comments', () => {
     const before = await readBodyHtml(page);
     await placeCaretAt(page, at(`${EDITOR_ROOT} p`, 0, 1));
 
-    await page.locator(COMMENT_ITEM).click();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await page.locator(COMMENT_ITEM).click({ force: true });
 
     await expect(page.locator(POPUP)).toBeHidden();
     expect(await readBodyHtml(page)).toBe(before);
+  });
+
+  test('a range from a heading into a paragraph disables both comment buttons', async ({ page }) => {
+    await openCommentEditor(page, '<h2>Heading</h2><p>Paragraph</p>');
+    await selectRange(page, at(`${EDITOR_ROOT} h2`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('selecting an eligible range again enables both buttons and allows creation', async ({ page }) => {
+    await openCommentEditor(page, '<h2>Heading</h2><p>Paragraph</p>');
+    await selectRange(page, at(`${EDITOR_ROOT} h2`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await selectRange(page, at(`${EDITOR_ROOT} p`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await page.locator(FLOATING_COMMENT_ITEM).click();
+    await expect(page.locator(COMMENT)).toHaveText('ar');
+  });
+
+  test('a range containing only whitespace disables both comment buttons', async ({ page }) => {
+    await openCommentEditor(page, '<p>a   b</p>');
+    await selectRange(page, at(`${EDITOR_ROOT} p`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 4));
+
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a range with an unsplittable edge disables both comment buttons', async ({ page }) => {
+    await openCommentEditor(page, '<p>a<u>bc</u>de</p>');
+    await selectRange(page, at(`${EDITOR_ROOT} u`, 0, 1), at(`${EDITOR_ROOT} p`, 2, 1));
+
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('a range starting inside a comment stays enabled even when it spans blocks', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await selectRange(page, at(COMMENT, 0, 1), at(`${EDITOR_ROOT} p:nth-of-type(2)`, 0, 3));
+
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await page.locator(FLOATING_COMMENT_ITEM).click();
+    await expect(page.locator(POPUP)).toBeVisible();
+    await expect(page.locator(COMMENT)).toHaveCount(1);
+  });
+
+  test('closing an open popup disables the button for an unchanged caret outside comments', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await page.locator(COMMENT).click();
+    await placeCaretAt(page, at(`${EDITOR_ROOT} p:nth-of-type(2)`, 0, 2), false);
+    await expect(page.locator(POPUP)).toBeVisible();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('deleting a comment disables the comment button at the remaining caret', async ({ page }) => {
+    await openCommentEditor(page, '<p>x<comment id="c-1">abcd<comment-body data-author="human">note</comment-body></comment>y</p>');
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await page.locator(COMMENT_ITEM).click();
+
+    await page.locator(`${POPUP} button[aria-label="${englishMessages['commentThread.deleteComment']}"]`).click();
+
+    await expect(page.locator(COMMENT)).toHaveCount(0);
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('replacement removing the open comment refreshes button availability', async ({ page }) => {
+    await openCommentEditor(page, BODY_WITH_COMMENT);
+    await placeCaretAt(page, at(COMMENT, 0, 2));
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await page.locator(COMMENT_ITEM).click();
+
+    expect(await replaceDocument(page, '<p>replaced</p>')).toBe(true);
+
+    await expect(page.locator(POPUP)).toBeHidden();
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    await selectRange(page, at(`${EDITOR_ROOT} p`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+    await expect(page.locator(COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  for (const theme of ['vscode-light', 'vscode-high-contrast', 'vscode-high-contrast-light']) {
+    test(`disabled comment buttons keep their appearance under the pointer in ${theme}`, async ({ page }) => {
+      await openCommentEditor(page, '<h2>Heading</h2><p>Paragraph</p>');
+      await page.evaluate((name) => { document.body.className = name; }, theme);
+      await selectRange(page, at(`${EDITOR_ROOT} h2`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+      await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+
+      for (const selector of [COMMENT_ITEM, FLOATING_COMMENT_ITEM]) {
+        const before = await readComputed(page, selector, ['background-color', 'border-color', 'border-style']);
+        await page.locator(selector).hover();
+        expect(await readComputed(page, selector, ['background-color', 'border-color', 'border-style'])).toEqual(before);
+        expect(await readComputed(page, `${selector} > svg`, ['opacity'])).toEqual(['0.5']);
+        if (theme !== 'vscode-light') {
+          expect(before[2]).toBe('dashed');
+        }
+      }
+    });
+  }
+
+  test('disabled comment buttons ignore pointer and keyboard activation', async ({ page }) => {
+    await openCommentEditor(page, '<h2>Heading</h2><p>Paragraph</p>');
+    await selectRange(page, at(`${EDITOR_ROOT} h2`, 0, 1), at(`${EDITOR_ROOT} p`, 0, 3));
+    await expect(page.locator(FLOATING_COMMENT_ITEM)).toHaveAttribute('aria-disabled', 'true');
+    const before = await readBodyHtml(page);
+
+    await page.locator(FLOATING_COMMENT_ITEM).click({ force: true });
+    await page.locator(FLOATING_COMMENT_ITEM).focus();
+    await page.keyboard.press('Enter');
+    await page.locator(COMMENT_ITEM).focus();
+    await page.keyboard.press('Space');
+
+    expect(await readBodyHtml(page)).toBe(before);
+    await expect(page.locator(POPUP)).toBeHidden();
   });
 
   test('for a range starting in the middle of bold text, the bold is split at the start and the comment wraps only the selected text', async ({ page }) => {
