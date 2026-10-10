@@ -1,155 +1,76 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { insertFragmentAtCursor } from '../../webview/features/clipboard/insert';
-import { caretAtEnd, caretAtStart, clearDom, makeRoot } from './helpers/selection';
+import { describe, expect, it } from 'vitest';
 
-afterEach(clearDom);
+import { parseInertFragment } from '../../webview/document/inert-fragment';
+import { convertToInlineCode, normalizePasteBlocks } from '../../webview/editing/paste-insert';
 
-function fragment(html: string): DocumentFragment {
-  const template = document.createElement('template');
-  template.innerHTML = html;
-  return template.content;
+/**
+ * Converts a fragment to HTML. Does not change the fragment.
+ *
+ * @param fragment The fragment.
+ * @returns The HTML of the fragment's contents.
+ */
+function serialize(fragment: DocumentFragment): string {
+  const container = fragment.ownerDocument.createElement('div');
+  container.append(fragment.cloneNode(true));
+  return container.innerHTML;
 }
 
-describe('insertFragmentAtCursor', () => {
-  it('replaces a backward paragraph selection without leaving its end block', () => {
-    const root = makeRoot('<h2>Heading2</h2><p>This is sample text.</p>');
-    const paragraph = root.querySelector('p')!;
-    const paragraphIndex = Array.from(root.childNodes).indexOf(paragraph);
-    const range = document.createRange();
-    range.setStart(root, paragraphIndex);
-    range.setEnd(paragraph.firstChild!, paragraph.textContent.length);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
+/**
+ * Turns body HTML into an inert fragment, normalizes its blocks, and converts it back to HTML.
+ *
+ * @param html The body HTML.
+ * @returns The HTML of the normalized fragment.
+ */
+function normalize(html: string): string {
+  const fragment = parseInertFragment(html, document);
+  normalizePasteBlocks(fragment);
+  return serialize(fragment);
+}
 
-    insertFragmentAtCursor(root, fragment('<p>This is sample text.</p>'));
+/**
+ * Turns body HTML into an inert fragment, converts it to inline code, and converts it back to HTML.
+ *
+ * @param html The body HTML.
+ * @returns The HTML of the converted fragment.
+ */
+function toInlineCode(html: string): string {
+  const fragment = parseInertFragment(html, document);
+  convertToInlineCode(fragment);
+  return serialize(fragment);
+}
 
-    expect(root.innerHTML).toBe(
-      '<h2>Heading2</h2><p>This is sample text.</p>',
-    );
+describe('normalizing blocks', () => {
+  it('top-level a<p>b</p>c wraps a and c each in a paragraph and drops whitespace-only runs', () => {
+    expect(normalize('a<p>b</p>c<hr>\n ')).toBe('<p>a</p><p>b</p><p>c</p><hr>');
   });
 
-  it('replaces a paragraph selection whose end boundary is outside the paragraph', () => {
-    const root = makeRoot('<h2>Heading</h2><p>This is sample text.</p>');
-    const paragraph = root.querySelector('p')!;
-    const range = document.createRange();
-    range.setStart(paragraph.firstChild!, 0);
-    range.setEndAfter(paragraph);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    insertFragmentAtCursor(root, fragment('<p>This is sample text.</p>'));
-
-    expect(root.innerHTML).toBe(
-      '<h2>Heading</h2><p>This is sample text.</p>',
-    );
+  it('a top-level run of li is wrapped in ul', () => {
+    expect(normalize('<li>a</li>\n<li>b</li>')).toBe('<ul>\n<li>a</li>\n<li>b</li>\n</ul>');
   });
 
-  it('inserts a copied paragraph beside the caret paragraph instead of nesting it', () => {
-    const root = makeRoot('<h2>Heading</h2><p>This is sample text.</p>');
-    caretAtEnd(root.querySelector('p')!);
-
-    insertFragmentAtCursor(root, fragment('<p>This is sample text.</p>'));
-
-    expect(root.innerHTML).toBe(
-      '<h2>Heading</h2><p>This is sample text.</p><p>This is sample text.</p>',
-    );
-    expect(root.querySelector('p p')).toBeNull();
+  it('an indented list gets one line break before each li and at the end of ul', () => {
+    expect(normalize('<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>')).toBe('<ul>\n<li>a</li>\n<li>b</li>\n</ul>');
   });
 
-  it('keeps inline clipboard content inside the caret paragraph', () => {
-    const root = makeRoot('<p>before</p>');
-    caretAtEnd(root.querySelector('p')!);
-
-    insertFragmentAtCursor(root, fragment('<strong>after</strong>'));
-
-    expect(root.innerHTML).toBe('<p>before<strong>after</strong></p>');
+  it('whitespace inside pre and among tr children is unchanged', () => {
+    expect(normalize('<pre>  a\n  <b>b</b>\n</pre><table><tbody><tr> <td>x</td> </tr></tbody></table>'))
+      .toBe('<pre>  a\n  <b>b</b>\n</pre><table>\n<tbody>\n<tr> <td>x</td> </tr>\n</tbody>\n</table>');
   });
 
-  it('removes the empty inline wrapper left when splitting at a styled paragraph start', () => {
-    const root = makeRoot(
-      '<p><span style="font-size: 1.25em; font-weight: 600;">Level 3 heading</span></p>',
-    );
-    const headingText = root.querySelector('span')!.firstChild!;
-    const selection = window.getSelection()!;
-    const range = document.createRange();
-    range.setStart(headingText, 0);
-    range.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(range);
+  it('a top-level font is wrapped in a paragraph together with the surrounding inline content', () => {
+    expect(normalize('a<font color="#ff0000">b</font>c<p>d</p>')).toBe('<p>a<font color="#ff0000">b</font>c</p><p>d</p>');
+  });
 
-    insertFragmentAtCursor(root, fragment('<p>This is sample text.</p>'));
+  it('a paragraph containing ruby gets no line breaks inside ruby', () => {
+    const html = '<p>a<ruby>kan<rp>(</rp><rt>ji</rt><rp>)</rp></ruby>b</p>';
 
-    expect(root.innerHTML).toBe(
-      '<p>This is sample text.</p>' +
-        '<p><span style="font-size: 1.25em; font-weight: 600;">Level 3 heading</span></p>',
-    );
+    expect(normalize(html)).toBe(html);
   });
 });
 
-// A fresh .html opened straight in the WYSIWYG view has no block for the
-// insertion to anchor to, so inline clipboard content landed directly under the
-// root. Typing, Enter and IME composition all materialize the canonical
-// paragraph first (see core/editor-core); paste is the remaining entry point,
-// and without it the document's initial shape depended on which one the user
-// happened to use.
-describe('insertFragmentAtCursor — an effectively empty document', () => {
-  it('wraps pasted inline content in a paragraph', () => {
-    const root = makeRoot('');
-    caretAtStart(root);
-
-    insertFragmentAtCursor(root, fragment('pasted'));
-
-    expect(root.innerHTML).toBe('<p>pasted</p>');
-  });
-
-  it('does not leave the paragraph placeholder beside the pasted text', () => {
-    const root = makeRoot('');
-    caretAtStart(root);
-
-    insertFragmentAtCursor(root, fragment('<strong>bold</strong>'));
-
-    expect(root.innerHTML).toBe('<p><strong>bold</strong></p>');
-    expect(root.querySelector('br')).toBeNull();
-  });
-
-  it('leaves no empty paragraph behind when the clipboard carries blocks', () => {
-    const root = makeRoot('');
-    caretAtStart(root);
-
-    insertFragmentAtCursor(root, fragment('<h2>Heading</h2><p>body</p>'));
-
-    expect(root.innerHTML).toBe('<h2>Heading</h2><p>body</p>');
-  });
-
-  it('treats a whitespace-and-break document as empty too', () => {
-    const root = makeRoot('<br>');
-    caretAtStart(root);
-
-    insertFragmentAtCursor(root, fragment('pasted'));
-
-    expect(root.innerHTML).toBe('<p>pasted</p>');
-  });
-
-  it('leaves an existing bare root-level run alone', () => {
-    // Bare runs in an existing document are a supported shape; pasting into one
-    // must not rewrite it into a paragraph.
-    const root = makeRoot('hello');
-    caretAtEnd(root.firstChild!);
-
-    insertFragmentAtCursor(root, fragment(' there'));
-
-    expect(root.innerHTML).toBe('hello there');
-  });
-
-  it('leaves a document holding an image to the ordinary path', () => {
-    const root = makeRoot('<img src="a.png" alt="a">');
-    caretAtStart(root);
-
-    insertFragmentAtCursor(root, fragment('pasted'));
-
-    expect(root.querySelector('p')).toBeNull();
-    expect(root.querySelector('img')).not.toBeNull();
+describe('converting to inline code', () => {
+  it('<pre><code>x</code></pre> becomes that code, and a pre without code ending in a line break becomes a new code without the line break', () => {
+    expect([toInlineCode('<pre><code class="k">x</code></pre>'), toInlineCode('\n<pre>a <b>b</b>\n</pre>\n')])
+      .toEqual(['<code class="k">x</code>', '<code>a <b>b</b></code>']);
   });
 });

@@ -1,0 +1,2630 @@
+/* Styles for editor UI elements created by the extension, scoped separately from default document styles. */
+
+/* The toolbar and the floating menu share one look, so they share these tokens: soft tints of the text color for
+   hairlines and hover fills, and tints of the accent for an item that is on. The tints are translucent, so they sit
+   equally well on the glass of the strip and over the body. High contrast themes swap them for borders (the rules at
+   the end of this file). */
+#editor-toolbar,
+#editor-floating-menu {
+  --bar-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --bar-hover: color-mix(in srgb, var(--ahve-fg) 8%, transparent);
+  --bar-press: color-mix(in srgb, var(--ahve-fg) 14%, transparent);
+  --bar-on: color-mix(in srgb, var(--ahve-accent) 15%, transparent);
+  --bar-on-hover: color-mix(in srgb, var(--ahve-accent) 24%, transparent);
+  --bar-on-ring: color-mix(in srgb, var(--ahve-accent) 45%, transparent);
+  --bar-icon: color-mix(in srgb, var(--ahve-fg) 84%, var(--ahve-bg));
+  --bar-rest: color-mix(in srgb, var(--ahve-fg) 5%, transparent);
+  --bar-radius: 0.6em;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The fixed toolbar. The ID matches the constant in toolbar.ts.
+   It sits at the top of the body and stays there while scrolling. When there is not enough width it
+   wraps: with horizontal scrolling, reaching a hidden button would require an action that gets in
+   the way of reading and writing the body.
+   The strip is frosted glass: the body blurs as it scrolls underneath. Its popups are opaque instead, because a
+   filtered element is a backdrop root and a popup inside it could not blur what lies beyond the strip. */
+#editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3em 0.15em;
+  padding: 0.4em 0.75em;
+  background: color-mix(in srgb, var(--ahve-bg) 84%, transparent);
+  border-bottom: 1px solid var(--bar-hairline);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+}
+
+/* Where the browser supports it, the strip starts flat and lifts off the body with a soft shadow as the body scrolls
+   under it. The animation is driven by the scroll position, so it runs no script and moves nothing. */
+@keyframes toolbar-lift {
+  from {
+    box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0);
+  }
+
+  to {
+    box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  #editor-toolbar {
+    animation: toolbar-lift linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 3em;
+  }
+}
+
+/* The fade shared by the surfaces that appear on demand. Only the opacity changes: a movement would make the
+   placement measured on opening differ from the drawn one. */
+@keyframes bar-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The container for one item. The popup and the indicator go inside it, so it is the positioning
+   reference. */
+#editor-toolbar [data-slot] {
+  position: relative;
+  display: inline-flex;
+}
+
+#editor-toolbar button,
+#editor-floating-menu button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* One item, on the strip and in the floating menu alike. Quiet until the pointer arrives: the icon is a shade softer
+   than the text, and a rounded tile fades in under the pointer. The transparent border reserves the space the high
+   contrast themes draw their borders in. The rules are limited to the items themselves, so the buttons of the popups
+   that hang from the strip keep the looks they set for themselves. */
+#editor-toolbar [data-slot] > button,
+#editor-floating-menu button {
+  gap: 0.35em;
+  box-sizing: border-box;
+  min-width: 2.15em;
+  height: 2.15em;
+  padding: 0 0.4em;
+  color: var(--bar-icon);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--bar-radius);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 90ms ease;
+}
+
+/* The icons are drawn a little smaller than their 24 unit box and a little heavier, so they stay crisp at this size. The
+   size is relative, so it follows the user's font size setting. */
+#editor-toolbar [data-slot] > button > svg,
+#editor-floating-menu button > svg {
+  flex: none;
+  width: 1.4em;
+  height: 1.4em;
+  stroke-width: 1.65;
+}
+
+/* The current block kind's label shown on the block type item, laid out to the left of the chevron (the icon)
+   without wrapping. The strip's own wrapping is unchanged. The minimum width is set to fit the longest block kind
+   label. If the label's length changed the item's width, every time the caret moved to a block of a different kind
+   the items to its right would shift sideways, and at widths where the strip wraps the body would shift up and down
+   as well. The item reads as a select: a soft tile at rest, the label in the full text color and a quieter chevron.
+   The rules sit before the pointer and pressed rules below, which win over the tile. */
+#editor-toolbar .toolbar-label {
+  order: -1;
+  min-width: 6em;
+  margin-right: 0.1em;
+  color: var(--ahve-fg);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+#editor-toolbar [data-slot] > button:has(> .toolbar-label) {
+  padding: 0 0.45em 0 0.8em;
+  background: var(--bar-rest);
+}
+
+#editor-toolbar [data-slot] > button:has(> .toolbar-label) > svg {
+  width: 1.15em;
+  height: 1.15em;
+  opacity: 0.7;
+}
+
+/* An item under the pointer gets a tile and the full text color, so that it reads as something that can be pressed. A
+   disabled item does not react, and a pressed item keeps its tint. Pressing dips the item a little. */
+#editor-toolbar [data-slot] > button:not([data-disabled], [data-pressed]):hover,
+#editor-floating-menu button:not([data-disabled], [data-pressed]):hover {
+  color: var(--ahve-fg);
+  background: var(--bar-hover);
+}
+
+#editor-toolbar [data-slot] > button:not([data-disabled]):active,
+#editor-floating-menu button:not([data-disabled]):active {
+  background: var(--bar-press);
+  transform: scale(0.94);
+}
+
+/* An item whose popup is open keeps the pressed tile while the popup is up, also under the pointer. */
+#editor-toolbar [data-slot] > button[aria-expanded="true"],
+#editor-toolbar [data-slot] > button[aria-expanded="true"]:hover {
+  color: var(--ahve-fg);
+  background: var(--bar-press);
+}
+
+/* An item that is on is tinted with the accent, with the icon in the accent color and a fine ring in the same hue.
+   High contrast themes show it with a border instead (the rules at the end of this file). */
+#editor-toolbar [data-slot] > button[data-pressed],
+#editor-floating-menu button[data-pressed] {
+  color: var(--ahve-accent);
+  background: var(--bar-on);
+  box-shadow: inset 0 0 0 1px var(--bar-on-ring);
+}
+
+#editor-toolbar [data-slot] > button[data-pressed]:hover,
+#editor-floating-menu button[data-pressed]:hover,
+#editor-toolbar [data-slot] > button[data-pressed]:active,
+#editor-floating-menu button[data-pressed]:active {
+  background: var(--bar-on-hover);
+}
+
+/* Disabled is shown by fading the contents. High contrast themes also draw a dashed border (the rules at the end of
+   this file), since fading alone would not tell it apart from an enabled item there. */
+#editor-toolbar button[data-disabled],
+#editor-floating-menu button[data-disabled] {
+  cursor: default;
+}
+
+/* The disabled fading applies only to the item's contents (the icon and the item label). Applying
+   it to the button itself would also fade the focus ring and make it hard to see. */
+#editor-toolbar button[data-disabled] > *,
+#editor-floating-menu button[data-disabled] > * {
+  opacity: 0.5;
+}
+
+/* The dirty indicator. It is shown by the presence or absence of the dot rather than by a difference in color alone.
+   The ring in the strip's color cuts it out of the icon behind it. It takes no presses, so pressing on it still
+   presses the item beneath. */
+#editor-toolbar .toolbar-indicator {
+  position: absolute;
+  top: 0.25em;
+  right: 0.25em;
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--ahve-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.16em var(--ahve-bg);
+  pointer-events: none;
+}
+
+/* The block type menu. It floats relative to the container of the toolbar item. Laying it out inside the bar
+   itself would change the toolbar's height on every press and shift the body below it. It is a card like the table
+   picker and the comment popup: a faint tint from the accent at the top, a hairline edge and layered shadows. Its
+   colors come from theme tokens, so it stays readable over the body under all three themes. */
+#editor-toolbar .block-type-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  margin-top: 0.4em;
+  padding: 0.35em;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ahve-accent) 6%, var(--ahve-bg)), var(--ahve-bg) 6em);
+  border: 1px solid var(--bar-hairline);
+  border-radius: 0.95em;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  animation: bar-fade-in 140ms ease-out;
+}
+
+/* The kind items and the items added through the port for additions stay stacked vertically in separate groups. A
+   hairline and a little space mark where the second group starts. */
+#editor-toolbar .block-type-menu [role="group"] {
+  display: flex;
+  flex-direction: column;
+}
+
+#editor-toolbar .block-type-menu [role="group"] + [role="group"] {
+  margin-top: 0.3em;
+  padding-top: 0.3em;
+  border-top: 1px solid var(--bar-hairline);
+}
+
+/* The items inside are chosen by their labels rather than by icons, so they are aligned to the start of the line
+   instead of centered. The mark of the current item sits at the far end, so the labels line up whatever the mark. */
+#editor-toolbar .block-type-menu button {
+  position: relative;
+  gap: 1.2em;
+  box-sizing: border-box;
+  min-width: 11em;
+  height: 2.15em;
+  padding: 0 0.8em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--bar-radius);
+  font: inherit;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+#editor-toolbar .block-type-menu button:hover {
+  background: var(--bar-hover);
+}
+
+/* The menu mark on popup items matching the current kind and alert. Shown with an accent tint, bold text and a check
+   at the end of the line. High contrast themes add the accent border (the rules at the end of this file), since the
+   background difference can vanish there. */
+#editor-toolbar .block-type-menu button[data-marked] {
+  color: var(--ahve-accent);
+  background: var(--bar-on);
+  font-weight: 600;
+}
+
+#editor-toolbar .block-type-menu button[data-marked]:hover {
+  background: var(--bar-on-hover);
+}
+
+#editor-toolbar .block-type-menu button[data-marked]::after {
+  content: "";
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin-left: auto;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Each alert item carries a bar in the alert's own color at its start, the same bar the rendered alert has. The alert
+   items are the second group, in the order note, tip, important, warning, caution. */
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button::before {
+  content: "";
+  position: absolute;
+  top: 0.5em;
+  bottom: 0.5em;
+  left: 0.3em;
+  width: 3px;
+  background: var(--alert-color, transparent);
+  border-radius: 2px;
+}
+
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button:nth-child(1) {
+  --alert-color: var(--ahve-alert-note);
+}
+
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button:nth-child(2) {
+  --alert-color: var(--ahve-alert-tip);
+}
+
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button:nth-child(3) {
+  --alert-color: var(--ahve-alert-important);
+}
+
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button:nth-child(4) {
+  --alert-color: var(--ahve-alert-warning);
+}
+
+#editor-toolbar .block-type-menu [role="group"]:nth-child(2) button:nth-child(5) {
+  --alert-color: var(--ahve-alert-caution);
+}
+
+/* The table picker. Like the block type menu, it hangs from the item's container and does not change
+   the height of the strip. Background and border lines come from theme tokens, so its edge stays
+   visible over the body. The container is only as wide as the item, so without widening it to the
+   contents the input fields and the insert button would wrap word by word. */
+#editor-toolbar .table-picker {
+  --table-picker-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --table-picker-soft: color-mix(in srgb, var(--ahve-fg) 7%, transparent);
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85em;
+  min-width: max-content;
+  margin-top: 0.35em;
+  padding: 0.95em;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ahve-accent) 7%, var(--ahve-bg)), var(--ahve-bg) 6em);
+  border: 1px solid var(--table-picker-hairline);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  animation: table-picker-in 140ms ease-out;
+}
+
+/* Only the opacity fades in, like the comment popup: a movement would make the placement measured on opening differ
+   from the drawn one. */
+@keyframes table-picker-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #editor-toolbar .table-picker {
+    animation: none;
+  }
+}
+
+/* Lays the grid cells out 10 × 10. The grid holds no text besides the grid cells, so the line height
+   is zero. Grid cells are sized in relative units that follow the user's font size. */
+#editor-toolbar .table-picker [role="grid"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22em;
+  padding: 0.3em;
+  line-height: 0;
+  background: var(--table-picker-soft);
+  border-radius: 10px;
+}
+
+#editor-toolbar .table-picker [role="row"] {
+  display: flex;
+  gap: 0.22em;
+}
+
+/* Grid cells that are not chosen are soft rounded tiles with a faint outline. High contrast themes draw them dashed
+   instead (the rules at the end of this file). */
+#editor-toolbar .table-picker [role="gridcell"] {
+  flex: none;
+  box-sizing: border-box;
+  width: 1.3em;
+  height: 1.3em;
+  background: var(--ahve-bg);
+  border: 1px solid var(--table-picker-hairline);
+  border-radius: 4px;
+  transition: background-color 90ms ease, border-color 90ms ease;
+}
+
+/* Chosen grid cells fill with the accent, so the chosen rectangle reads as one block that grows from the top left.
+   In high contrast themes the unchosen cells are dashed, so the kind of line tells the two apart as well. */
+#editor-toolbar .table-picker [role="gridcell"][aria-selected="true"] {
+  background: color-mix(in srgb, var(--ahve-accent) 34%, var(--ahve-bg));
+  border-color: color-mix(in srgb, var(--ahve-accent) 75%, transparent);
+}
+
+/* The size display: a centered pill with fixed digits width. Its height is fixed, and the line height equals it, so
+   that the popup does not jump when the first size is chosen and the text appears. */
+#editor-toolbar .table-picker > div:nth-child(2) {
+  align-self: center;
+  box-sizing: border-box;
+  min-width: 5em;
+  height: 1.7em;
+  padding: 0 0.9em;
+  line-height: 1.7em;
+  color: var(--ahve-accent);
+  background: color-mix(in srgb, var(--ahve-accent) 12%, transparent);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* The input row: labels stacked over the fields, the insert button at the right. A hairline separates it from the
+   grid. */
+#editor-toolbar .table-picker > div:last-child {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6em;
+  padding-top: 0.85em;
+  border-top: 1px solid var(--table-picker-hairline);
+}
+
+#editor-toolbar .table-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  color: var(--ahve-muted);
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+/* The input fields take VS Code's input field colors, with no fixed colors spelled out. */
+#editor-toolbar .table-picker input {
+  box-sizing: border-box;
+  width: 4.2em;
+  height: 2.1em;
+  padding: 0 0.5em;
+  color: var(--ahve-input-fg);
+  background: var(--ahve-input-bg);
+  border: 1px solid var(--ahve-input-border, var(--table-picker-hairline));
+  border-radius: 8px;
+  font: inherit;
+  font-size: 1.17em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: border-color 120ms ease;
+}
+
+#editor-toolbar .table-picker input:focus {
+  border-color: var(--ahve-accent);
+}
+
+/* The insert button. It takes the primary button colors and sits at the right end of the row. Its high contrast
+   variant lives with those of the other text buttons at the end of this file. */
+#editor-toolbar .table-picker button {
+  align-self: flex-end;
+  height: 2.1em;
+  margin-left: auto;
+  padding: 0 1.2em;
+  color: var(--ahve-button-fg);
+  background: var(--ahve-button-bg);
+  border: 1px solid var(--ahve-button-border);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+#editor-toolbar .table-picker button:hover {
+  background: var(--ahve-button-hover-bg);
+  box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--ahve-button-bg) 60%, transparent);
+}
+
+/* The grid, the input fields and the insert button show the same focus ring as the toolbar items. The input fields
+   also turn their border to the accent, but the ring stays: the color change alone would not be the ring. */
+#editor-toolbar .table-picker :focus-visible {
+  outline: 2px solid var(--ahve-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The grid's ring hugs its frame instead, so it does not float off the rounded corner. */
+#editor-toolbar .table-picker [role="grid"]:focus-visible {
+  outline-offset: 0;
+}
+
+/* The separator between groups. It appears only between groups that have registrations. Most groups hold a single
+   item, so a line between every pair would fence the strip in: a separator is only a little extra space, and a short
+   hairline is drawn where one kind of work ends and the next begins (before the block type, the link and the comment
+   item). The slot that follows the separator tells which one it is. */
+#editor-toolbar .toolbar-separator {
+  align-self: center;
+  width: 0;
+  height: 1.3em;
+  margin: 0 0.15em;
+}
+
+#editor-toolbar .toolbar-separator:has(+ [data-slot="blockType"]),
+#editor-toolbar .toolbar-separator:has(+ [data-slot="link"]),
+#editor-toolbar .toolbar-separator:has(+ [data-slot="comment"]) {
+  width: 1px;
+  margin: 0 0.5em;
+  background: var(--bar-hairline);
+  border-radius: 1px;
+}
+
+/* The floating menu. The ID matches the constant in floating-menu.ts.
+   Positioned by coordinates, so it does not affect the body's flow. It is a small glass capsule: the body shows
+   through it, blurred, with a hairline edge and layered shadows like the other cards. The colors come from the same
+   theme tokens as the strip so that it stays readable over the body. It stacks above the body and below the strip.
+   Stacking it above the strip would hide popups hanging from the strip, leaving the user unable to press a surface
+   they opened themselves. The radius is the item radius plus the padding, so the corners are concentric. */
+#editor-floating-menu {
+  position: fixed;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.15em;
+  padding: 0.3em;
+  color: var(--ahve-fg);
+  background: color-mix(in srgb, var(--ahve-bg) 78%, transparent);
+  border: 1px solid var(--bar-hairline);
+  border-radius: 0.95em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  animation: bar-fade-in 120ms ease-out;
+}
+
+/* The flex layout rule outranks the hidden attribute, so it is overridden here. Without this the menu would never hide. */
+#editor-floating-menu[hidden] {
+  display: none;
+}
+
+/* The items are the same as the fixed toolbar's (the rules above), so the same operation does not look different on
+   the two surfaces. A hairline sets the link and the comment apart from the text styles before them. */
+#editor-floating-menu button[data-slot="link"] {
+  position: relative;
+  margin-left: 0.5em;
+}
+
+#editor-floating-menu button[data-slot="link"]::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  bottom: 0.55em;
+  left: -0.35em;
+  width: 1px;
+  background: var(--bar-hairline);
+}
+
+/* The table context menu. The ID matches the constant in table-menu.ts.
+   It is placed in document coordinates, so it keeps its position relative to the table when scrolled while open. It is
+   stacked above the body and below the strip, the overlay and the dialog.
+   The background and the border are taken from theme tokens, so that in any of the three themes it does not become
+   unreadable where it overlaps the body. */
+#editor-table-menu {
+  position: absolute;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+  padding: 0.25em;
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
+  border-radius: 6px;
+  box-shadow: var(--ahve-shadow-medium);
+}
+
+/* Items are chosen by their text, so they are left-aligned and do not wrap. They have a transparent border, and the
+   dashed border of a disabled item in high contrast themes is drawn in the same place, so all items are the same
+   size. */
+#editor-table-menu button {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0.25em 0.5em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25em;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* An enabled item under the pointer gets a background, so that it reads as something that can be pressed. */
+#editor-table-menu button:not([aria-disabled="true"]):hover {
+  background: var(--ahve-code-bg);
+}
+
+/* Disabled is shown by the muted text color. High contrast themes also draw a dashed border (the rules at the end of
+   this file), since a difference in color alone cannot be told apart there (the same as a disabled toolbar item). */
+#editor-table-menu button[aria-disabled="true"] {
+  color: var(--ahve-muted);
+  cursor: default;
+}
+
+#editor-table-menu [role="separator"] {
+  height: 1px;
+  margin: 0.25em 0;
+  background: var(--ahve-border);
+}
+
+/* The change popup. The ID must match the constant in change-popup.ts. It is placed, stacked and colored like the
+   comment popup, and the kind of the open change (the data-change attribute set from change-popup.ts) picks its
+   accent: green for an insertion, red for a deletion. display is not set, for the same reason as the comment popup. */
+#editor-change-popup {
+  --change-popup-accent: var(--ahve-change-ins);
+  --change-popup-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --change-popup-hover: color-mix(in srgb, var(--ahve-fg) 11%, transparent);
+  position: fixed;
+  z-index: 0;
+  box-sizing: border-box;
+  width: min(22em, calc(100% - 1em));
+  padding: 0 0 0.6em;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--change-popup-accent) 8%, var(--ahve-bg)), var(--ahve-bg) 5em);
+  border: 1px solid var(--change-popup-hairline);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  animation: comment-popup-in 140ms ease-out;
+}
+
+#editor-change-popup[data-change="del"] {
+  --change-popup-accent: var(--ahve-change-del);
+}
+
+/* A replacement pair joins a deletion and an insertion, so its popup takes the theme's accent rather than the color
+   of either half. */
+#editor-change-popup[data-change="replacement"] {
+  --change-popup-accent: var(--ahve-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #editor-change-popup {
+    animation: none;
+  }
+}
+
+/* The kind on the first line: its icon in the accent color, then its name. The inset line is the cap in the accent
+   color, as the comment popup's header has. */
+#editor-change-popup .change-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.6em 0.9em 0.3em;
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--change-popup-accent);
+}
+
+#editor-change-popup .change-popup-header > svg {
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--change-popup-accent);
+  stroke-width: 2.5;
+}
+
+/* The author and the time on the second line, in the same shape as the name and time of an entry. */
+#editor-change-popup .change-popup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.4em;
+  padding: 0 0.9em 0.6em;
+  color: var(--ahve-muted);
+  font-size: 0.82em;
+  line-height: 1.3;
+}
+
+#editor-change-popup .change-popup-meta > span:first-child:not(:only-child) {
+  color: var(--ahve-fg);
+  font-weight: 600;
+}
+
+#editor-change-popup .change-popup-meta > span + span::before {
+  content: "·";
+  margin-right: 0.4em;
+}
+
+/* The two decisions side by side. Accept takes the accent as a filled chip and reject stays outlined, so the decision
+   that keeps the document moving reads first; both carry their icon and their name, so neither rests on color. */
+#editor-change-popup .change-popup-actions {
+  display: flex;
+  gap: 0.4em;
+  padding: 0 0.9em;
+}
+
+#editor-change-popup .change-popup-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  box-sizing: border-box;
+  height: 2em;
+  padding: 0 0.8em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--change-popup-hairline);
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+#editor-change-popup .change-popup-actions > button > svg {
+  width: 1em;
+  height: 1em;
+  stroke-width: 2.25;
+}
+
+#editor-change-popup .change-popup-accept {
+  color: var(--ahve-bg);
+  background: var(--change-popup-accent);
+  border-color: var(--change-popup-accent);
+}
+
+#editor-change-popup .change-popup-accept:hover {
+  background: color-mix(in srgb, var(--change-popup-accent) 85%, var(--ahve-fg));
+}
+
+#editor-change-popup .change-popup-reject:hover {
+  background: var(--change-popup-hover);
+}
+
+/* The comment popup. The ID must match the constant in comment-popup.ts.
+   Placed in view coordinates; on scroll the trigger places it again. Stacked above the body and below the strip, overlays and
+   dialogs. Background, text and border colors come from theme tokens so it stays readable where it overlaps the body in all
+   three themes. display is not set: setting it would take precedence over the hidden attribute, and the popup would stay
+   visible after closing. With many entries it scrolls vertically inside instead of covering the whole body. */
+#editor-comment-popup {
+  /* The thread's accent: the first entry's author color (orange for human, blue for AI), or green once resolved. It
+     tints the top of the card and the cap of the header, tying the popup to the highlight it belongs to. */
+  --comment-popup-accent: var(--ahve-comment-mark);
+  --comment-popup-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --comment-popup-soft: color-mix(in srgb, var(--ahve-fg) 6%, transparent);
+  --comment-popup-hover: color-mix(in srgb, var(--ahve-fg) 11%, transparent);
+  position: fixed;
+  z-index: 0;
+  box-sizing: border-box;
+  width: min(30em, calc(100% - 1em));
+  max-height: min(52vh, 36em);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 0;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--comment-popup-accent) 8%, var(--ahve-bg)), var(--ahve-bg) 7em);
+  border: 1px solid var(--comment-popup-hairline);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 24px -6px rgba(0, 0, 0, 0.22),
+    0 22px 44px -18px rgba(0, 0, 0, 0.3);
+  animation: comment-popup-in 140ms ease-out;
+}
+
+#editor-comment-popup:has(.comment-thread-entry-ai:first-child) {
+  --comment-popup-accent: var(--ahve-comment-ai);
+}
+
+#editor-comment-popup:has(.comment-thread-header button[aria-pressed="true"]) {
+  --comment-popup-accent: var(--ahve-alert-tip);
+}
+
+/* Only the opacity fades in. A movement would make the placement measured on opening differ from the drawn one. */
+@keyframes comment-popup-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #editor-comment-popup {
+    animation: none;
+  }
+}
+
+/* The entries container. The spacing lives here so that the header and the composers can reach the card's edges. */
+#editor-comment-popup-entries {
+  padding: 1em 1em 0.25em;
+}
+
+/* One entry. Keeps the line breaks inside the entry and wraps long words. */
+#editor-comment-popup .comment-popup-entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Draws a line above the second and later entries to show where entries meet. */
+#editor-comment-popup .comment-popup-entry + .comment-popup-entry {
+  margin-top: 0.5em;
+  padding-top: 0.5em;
+  border-top: 1px solid var(--ahve-border);
+}
+
+/* The message that says there are no entries. Uses a muted text color so it can be told apart from an entry. */
+#editor-comment-popup .comment-popup-empty {
+  color: var(--ahve-muted);
+}
+
+/* Thread header. It sticks to the top while the entries scroll. Previous and next sit in a pill on the left, the
+   resolved toggle and comment deletion on the right. Its background is the card's top tint, opaque so that entries
+   scrolling under it do not show through. The inset line is the cap in the thread's accent color; the card's rounded
+   edge clips it into a curve. */
+#editor-comment-popup .comment-thread-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.5em 0.6em 0.45em;
+  background: color-mix(in srgb, var(--comment-popup-accent) 8%, var(--ahve-bg));
+  border-bottom: 1px solid var(--comment-popup-hairline);
+  box-shadow: inset 0 3px 0 var(--comment-popup-accent);
+}
+
+#editor-comment-popup .comment-thread-header > div {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+#editor-comment-popup .comment-thread-header > div:first-child {
+  gap: 0;
+  padding: 2px;
+  background: var(--comment-popup-soft);
+  border-radius: 10px;
+}
+
+/* Operations inside the popup. The border is transparent and an operation under the pointer gets a background, like
+   the toolbar's items. High contrast themes draw the border (the rules at the end of this file), so that control
+   boundaries can still be told apart there. */
+#editor-comment-popup button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 1.9em;
+  height: 1.9em;
+  padding: 0 0.4em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+
+#editor-comment-popup button:not(:disabled, [aria-pressed="true"]):hover {
+  background: var(--comment-popup-hover);
+}
+
+/* The icons of the operations. The size is relative, so it follows the user's font size setting. */
+#editor-comment-popup button > svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* The resolved toggle is a chip: a hairline outline while open, green once resolved. In high contrast themes it gets
+   the pressed toolbar item's border and background instead (the rules at the end of this file). */
+#editor-comment-popup .comment-thread-header > div:last-child > button:first-child {
+  border-radius: 999px;
+}
+
+#editor-comment-popup .comment-thread-header > div:last-child > button:first-child:not([aria-pressed="true"]) {
+  border-color: var(--comment-popup-hairline);
+}
+
+#editor-comment-popup button[aria-pressed="true"] {
+  color: var(--ahve-alert-tip);
+  background: color-mix(in srgb, var(--ahve-alert-tip) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ahve-alert-tip) 50%, transparent);
+}
+
+/* Deleting the comment warns by turning red under the pointer. */
+#editor-comment-popup .comment-thread-header > div:last-child > button:last-child:hover,
+#editor-comment-popup .comment-thread-entry > button:last-of-type:not(.comment-thread-save, .comment-thread-cancel):hover {
+  color: var(--ahve-alert-caution);
+  background: color-mix(in srgb, var(--ahve-alert-caution) 14%, transparent);
+}
+
+/* A move in a direction without a target is shown by dimming the contents, like a disabled toolbar item; the focus
+   outline is not dimmed. High contrast themes also draw a dashed border (the rules at the end of this file). */
+#editor-comment-popup button:disabled {
+  cursor: default;
+}
+
+#editor-comment-popup button:disabled > * {
+  opacity: 0.35;
+}
+
+/* Row of one entry. An avatar on the left, then the name and time with the operations on one line, then the text. The
+   color of the avatar is the author's, so human and AI entries can be told apart. The operations leave room on the
+   right of the first line; they show only while the row is under the pointer or holds focus (see below). */
+#editor-comment-popup .comment-thread-entry {
+  --comment-entry-accent: var(--ahve-comment-mark);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 0.15em;
+  padding: 0 0 1.1em 2.85em;
+}
+
+#editor-comment-popup .comment-thread-entry-ai {
+  --comment-entry-accent: var(--ahve-comment-ai);
+}
+
+/* The avatar: a gradient disc in the author's color with a white glyph, a person for human and a sparkle for AI. Drawn
+   with CSS only, so it needs no element and follows the theme-independent author colors. The ring in the card's
+   background color cuts the thread line where it passes behind. */
+#editor-comment-popup .comment-thread-entry::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2em;
+  height: 2em;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'%3E%3Ccircle cx='12' cy='9' r='3.8'/%3E%3Cpath d='M4.8 20.5a7.2 6 0 0 1 14.4 0z'/%3E%3C/svg%3E") center / 66% no-repeat,
+    linear-gradient(145deg, color-mix(in srgb, var(--comment-entry-accent) 68%, #fff), var(--comment-entry-accent));
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--ahve-bg), 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+#editor-comment-popup .comment-thread-entry-ai::before {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'%3E%3Cpath d='M10.5 4c.5 4.6 2.4 6.5 7 7-4.6.5-6.5 2.4-7 7-.5-4.6-2.4-6.5-7-7 4.6-.5 6.5-2.4 7-7z'/%3E%3Cpath d='M18.5 14.5c.25 2 .9 2.6 2.7 2.9-1.8.3-2.45.9-2.7 2.9-.25-2-.9-2.6-2.7-2.9 1.8-.3 2.45-.9 2.7-2.9z'/%3E%3C/svg%3E") center / 68% no-repeat,
+    linear-gradient(145deg, color-mix(in srgb, var(--comment-entry-accent) 68%, #fff), var(--comment-entry-accent));
+}
+
+/* The thread line joins an avatar to the next entry's avatar. */
+#editor-comment-popup .comment-thread-entry:has(~ .comment-thread-entry)::after {
+  content: "";
+  position: absolute;
+  top: 2.4em;
+  bottom: 0.4em;
+  left: calc(1em - 1px);
+  width: 2px;
+  background: var(--comment-popup-hairline);
+  border-radius: 1px;
+}
+
+/* Author display name and update time on the first line, level with the avatar. The name is strong and the time weak
+   and small, with a dot between them. Sizes are relative, so they follow the user's font size setting. */
+#editor-comment-popup .comment-thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1;
+  grid-row: 1;
+  align-items: center;
+  align-content: center;
+  column-gap: 0.4em;
+  min-height: 2em;
+  color: var(--ahve-muted);
+  font-size: 0.82em;
+  line-height: 1.3;
+}
+
+#editor-comment-popup .comment-thread-meta > span:first-child:not(:only-child) {
+  color: var(--ahve-fg);
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+#editor-comment-popup .comment-thread-meta > span + span::before {
+  content: "·";
+  margin-right: 0.4em;
+}
+
+/* The text takes the row below the first line. An entry without a name and time has no first line, so its text starts
+   level with the avatar instead. */
+#editor-comment-popup .comment-thread-entry > .comment-popup-entry {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-top: 0.1em;
+  line-height: 1.55;
+}
+
+#editor-comment-popup .comment-thread-entry > .comment-popup-entry:first-child {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  padding-top: 0.25em;
+}
+
+/* The operations of an entry are small and quiet, and show only while the row is under the pointer or holds focus.
+   They keep their place meanwhile, so the first line does not shift. A keyboard user reaches them by Tab, which brings
+   focus into the row and shows them. They always show where hover does not exist and in high contrast themes. */
+#editor-comment-popup .comment-thread-entry > button:not(.comment-thread-save, .comment-thread-cancel) {
+  grid-row: 1;
+  min-width: 1.75em;
+  height: 1.75em;
+  color: var(--ahve-muted);
+}
+
+@media (hover: hover) {
+  body:not(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup .comment-thread-entry:not(:hover, :focus-within) > button:not(.comment-thread-save, .comment-thread-cancel) {
+    opacity: 0;
+  }
+}
+
+/* A resolved thread quiets its entries. The avatars and the green accent still mark the thread. */
+#editor-comment-popup:has(.comment-thread-header button[aria-pressed="true"]) .comment-thread-entry > .comment-popup-entry {
+  color: var(--ahve-muted);
+}
+
+/* The last entry has no line after it, so the bottom spacing is smaller. */
+#editor-comment-popup .comment-thread-entry:last-child {
+  padding-bottom: 0.6em;
+}
+
+/* The row being edited. The field takes the full width below the name, and save and cancel sit under it on the right. */
+#editor-comment-popup .comment-thread-entry:has(> textarea) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+#editor-comment-popup .comment-thread-entry > :is(.comment-thread-meta, textarea) {
+  flex: 1 0 100%;
+}
+
+/* The message that says there are no entries. */
+#editor-comment-popup .comment-popup-empty {
+  padding: 0.5em 0 0.75em;
+  text-align: center;
+}
+
+/* Message for an empty entry. Shown in a weak text color, so it can be told apart from entry text. */
+#editor-comment-popup .comment-thread-empty-entry {
+  color: var(--ahve-muted);
+}
+
+/* The composers (the body and the reply field, each with save and cancel). The field takes the full row and the buttons
+   go right. A composer after the entries is a footer with a hairline and a soft tint; with no entries it is the
+   whole point of the card and has none. A hidden one must stay hidden, so display is set only when not hidden. */
+#editor-comment-popup > div:has(> textarea):not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4em;
+  padding: 0.6em 0.7em 0.7em;
+}
+
+#editor-comment-popup > div:has(> textarea) > textarea {
+  flex: 1 0 100%;
+}
+
+#editor-comment-popup #editor-comment-popup-entries:has(> .comment-thread-entry) ~ div:has(> textarea):not([hidden]) {
+  background: color-mix(in srgb, var(--ahve-fg) 3.5%, transparent);
+  border-top: 1px solid var(--comment-popup-hairline);
+}
+
+/* Field. Takes the full width and can be resized only vertically. Resizing horizontally too would let it overflow
+   beyond the popup width. It takes VS Code's input field colors; no fixed colors are written. Focus shows as a thin
+   ring with a soft glow; the ring stays as an outline so it does not vanish in high contrast themes. */
+#editor-comment-popup textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0.55em 0.75em;
+  resize: vertical;
+  color: var(--ahve-input-fg);
+  background: var(--ahve-input-bg);
+  border: 1px solid var(--ahve-input-border);
+  border-radius: 6px;
+  font: inherit;
+  line-height: 1.5;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+#editor-comment-popup textarea::placeholder {
+  color: var(--ahve-muted);
+  opacity: 0.85;
+}
+
+#editor-comment-popup textarea:focus-visible {
+  border-color: var(--ahve-focus-ring);
+  outline: 1px solid var(--ahve-focus-ring);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ahve-focus-ring) 28%, transparent);
+}
+
+/* Save and cancel. Pills: save in the primary button colors, cancel quiet. */
+#editor-comment-popup button:is(.comment-thread-save, .comment-thread-cancel) {
+  min-width: 0;
+  height: auto;
+  padding: 0.4em 1.1em;
+  border-radius: 6px;
+  font-size: 0.93em;
+  font-weight: 500;
+}
+
+#editor-comment-popup button.comment-thread-cancel {
+  color: var(--ahve-muted);
+}
+
+#editor-comment-popup button.comment-thread-cancel:hover {
+  color: var(--ahve-fg);
+  background: var(--comment-popup-hover);
+}
+
+#editor-comment-popup button.comment-thread-save {
+  color: var(--ahve-button-fg);
+  background: var(--ahve-button-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+#editor-comment-popup button.comment-thread-save:hover {
+  background: var(--ahve-button-hover-bg);
+  filter: brightness(1.1);
+}
+
+/* The search panel. The ID is spelled the same as the constant in search-panel.ts.
+   Fixed to the top right; its top edge is set when opening to match the bottom of the toolbar. It stacks in front of
+   the body and behind the toolbar and its popups, so it does not hide popups opened from the toolbar. Background,
+   text, and border colors come from theme tokens so that it stays readable over the body in all three themes.
+   display is set only when not hidden. Setting it always would override the hidden attribute, and the panel would not
+   disappear when closed. */
+#editor-search-panel {
+  position: fixed;
+  right: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.25em;
+  color: var(--ahve-fg);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
+  border-top: none;
+  /* Only the lower corners are rounded: the upper edge meets the bottom of the toolbar. */
+  border-radius: 0 0 6px 6px;
+  box-shadow: var(--ahve-shadow-small);
+}
+
+#editor-search-panel:not([hidden]) {
+  display: flex;
+}
+
+/* The search row and, below it, the replace row. */
+#editor-search-panel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
+/* Each row lines up its controls. The replace row gets display only when not hidden, for the same reason as the
+   panel. */
+#editor-search-panel > div > div:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+/* The replace row toggle runs the height of both rows at their left, as in VS Code's find widget, and its chevron
+   points down while the replace row is shown. */
+#editor-search-panel > button {
+  align-self: stretch;
+}
+
+#editor-search-panel > button[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+/* The search field. It takes VS Code's input field colors; no fixed colors are written. */
+#editor-search-panel input {
+  width: 14em;
+  color: var(--ahve-input-fg);
+  background: var(--ahve-input-bg);
+  border: 1px solid var(--ahve-input-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+/* The search count. Takes a minimum width so the buttons do not shift sideways whenever the text length changes. */
+#editor-search-panel [role="status"] {
+  min-width: 5em;
+  padding: 0 0.25em;
+  color: var(--ahve-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Buttons are the same size as toolbar items, and a transparent border reserves the space of the pressed-state
+   border. */
+#editor-search-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25em;
+}
+
+/* A button under the pointer gets a background, like the toolbar's items. A pressed toggle keeps its colors. */
+#editor-search-panel button:not([data-pressed]):hover {
+  background: var(--ahve-code-bg);
+}
+
+/* A pressed toggle takes VS Code's toggle colors, which include a border, so it is not told apart by background color
+   alone. High contrast themes show it like a pressed toolbar item (the rules at the end of this file). */
+#editor-search-panel button[data-pressed] {
+  color: var(--ahve-toggle-fg);
+  background: var(--ahve-toggle-bg);
+  border-color: var(--ahve-toggle-border);
+}
+
+/* The sidebar. The ID is spelled the same as the constant in sidebar.ts.
+   Fixed to the left edge over the full height of the view. While it is open, the container gets a left padding of the
+   same width (the rule below), so the toolbar and the body sit to its right instead of going under it. It stacks in
+   front of the body and behind the menus, popups and the search panel placed later in the document, the overlay and
+   the dialog. It is a shade off the editor's background, so that it reads as a surface of its own, and it is edged by a
+   hairline. The shade, the hairline and the fills are mixes of the theme tokens, which keeps them readable in all three
+   themes (the high contrast themes get their own values at the end of this file). display is set only when not hidden.
+   Setting it always would override the hidden attribute, and the sidebar would not disappear when closed.
+   The width is the one the user dragged it to (the custom property set from sidebar.ts), or 16em until then. It never
+   drops below 160px, the same floor as SIDEBAR_MIN_WIDTH, and never grows past half the view, the same share as
+   SIDEBAR_MAX_WIDTH_RATIO; in a view too narrow for both, the floor wins. Bounding it here rather than only while
+   dragging keeps a stored width usable in a view narrower than the one it was set in. */
+#editor-sidebar {
+  --sidebar-bg: color-mix(in srgb, var(--ahve-fg) 3%, var(--ahve-bg));
+  --sidebar-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --sidebar-soft: color-mix(in srgb, var(--ahve-fg) 6%, transparent);
+  --sidebar-hover: color-mix(in srgb, var(--ahve-fg) 8%, transparent);
+  --sidebar-press: color-mix(in srgb, var(--ahve-fg) 13%, transparent);
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  width: clamp(160px, var(--ahve-sidebar-width, 16em), 50vw);
+  /* The query container of the tabs: the labels go off screen when the sidebar is too narrow for three of them (the rule
+     at the tab label). The width is set from the outside, so containing the inline size changes nothing in the layout. */
+  container: sidebar / inline-size;
+  flex-direction: column;
+  color: var(--ahve-fg);
+  /* A faint wash of the accent runs down from the top edge, like the popups' cards. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ahve-accent) 6%, var(--sidebar-bg)), var(--sidebar-bg) 9em);
+  border-right: 1px solid var(--sidebar-hairline);
+}
+
+/* Only the opacity fades in, like the popups: a movement would make the position measured on opening differ from the
+   drawn one. */
+#editor-sidebar:not([hidden]) {
+  display: flex;
+  animation: sidebar-in 140ms ease-out;
+}
+
+@keyframes sidebar-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #editor-sidebar:not([hidden]) {
+    animation: none;
+  }
+
+  #editor-sidebar *,
+  #editor-sidebar [role="tablist"]::before {
+    transition: none;
+  }
+}
+
+/* Keeps the toolbar and the body clear of the open sidebar. The width is the same expression as the sidebar's, and
+   both resolve em against the same font size, so the body starts right at the sidebar's edge. */
+:root[data-sidebar-open] body {
+  padding-left: clamp(160px, var(--ahve-sidebar-width, 16em), 50vw);
+}
+
+/* The strip along the sidebar's right edge that is dragged to resize it. The class is spelled the same as the constant
+   in sidebar.ts. It sits inside the sidebar, so the toolbar and the body never cover it, and the list keeps a margin of
+   its width so that the two never overlap (the tab panel rule). It is drawn only while the pointer is on it or
+   dragging, as an accent line over the hairline. touch-action keeps a touch drag from scrolling the view instead. */
+#editor-sidebar > .sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+#editor-sidebar > .sidebar-resizer:hover,
+:root[data-sidebar-resizing] #editor-sidebar > .sidebar-resizer {
+  background: linear-gradient(to left, var(--ahve-accent) 2px, transparent 2px);
+}
+
+/* While dragging, the pointer runs over the body and the toolbar. The resize cursor stays, and the drag does not
+   select text on its way. The attribute is spelled the same as the constant in sidebar.ts. */
+:root[data-sidebar-resizing] body {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* The tabs sit in one row at the top, as a segmented control: a soft track with a lifted piece under the chosen tab. The
+   row does not scroll with the list. */
+#editor-sidebar [role="tablist"] {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin: 0.7em 0.5em 0.45em;
+  padding: 3px;
+  background: var(--sidebar-soft);
+  border-radius: 10px;
+}
+
+/* The lifted piece is one element that slides between the tabs, rather than a fill on each tab, so that changing the tab
+   reads as a movement. The three tabs are equal in width: a third of the track less its padding (3px twice) and the two
+   gaps (2px each). It sits behind the tabs, so their text and icons stay on top of it. It is tinted, outlined and lightly
+   shadowed; in a high contrast theme the tint can vanish, so the outline carries it there (the rules at the end of this
+   file). */
+#editor-sidebar [role="tablist"]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  box-sizing: border-box;
+  width: calc((100% - 10px) / 3);
+  background: color-mix(in srgb, var(--ahve-accent) 14%, var(--ahve-bg));
+  border: 1px solid color-mix(in srgb, var(--ahve-accent) 38%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* The piece moves by its own width plus one gap for each tab after the first. */
+#editor-sidebar [role="tablist"]:has(> [role="tab"]:nth-child(2)[aria-selected="true"])::before {
+  transform: translateX(calc(100% + 2px));
+}
+
+#editor-sidebar [role="tablist"]:has(> [role="tab"]:nth-child(3)[aria-selected="true"])::before {
+  transform: translateX(calc(200% + 4px));
+}
+
+#editor-sidebar [role="tab"] {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45em;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0.36em 0.4em;
+  overflow: hidden;
+  color: var(--ahve-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+#editor-sidebar [role="tab"] > svg {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+}
+
+/* The label of a tab. Three labelled tabs need about 24em of sidebar; in a narrower one, the labels are taken off
+   screen but kept in the tree, so that each tab keeps its name for assistive technology and only its icon shows. The
+   default width (16em) is below that, so the sidebar starts with icons alone until it is dragged wider. */
+@container sidebar (width < 24em) {
+  #editor-sidebar [role="tab"] > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+#editor-sidebar [role="tab"]:not([aria-selected="true"]):hover {
+  color: var(--ahve-fg);
+  background: var(--sidebar-hover);
+}
+
+/* The chosen tab is shown by the lifted piece under it and by its accent-colored text and icon. */
+#editor-sidebar [role="tab"][aria-selected="true"] {
+  color: var(--ahve-accent);
+  font-weight: 600;
+}
+
+/* The list scrolls inside the panel, so a long outline does not push the tabs out of view. The scrollbar is thin and
+   stays inside, so it does not steal the width of the items when it appears. The right margin is the width of the
+   resize strip, so that the scrollbar ends where the strip begins and grabbing its thumb scrolls the list instead of
+   starting a resize. */
+#editor-sidebar [role="tabpanel"] {
+  flex: 1;
+  margin-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ahve-fg) 28%, transparent) transparent;
+  padding: 0.2em 0.5em 1em;
+}
+
+#editor-sidebar ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A nested heading hangs from a guide line under its parent, one step in for each level of depth, so that the shape of
+   the outline reads at a glance. */
+#editor-sidebar ul ul {
+  margin: 0 0 0 0.85em;
+  padding-left: 0.2em;
+  border-left: 1px solid var(--sidebar-hairline);
+}
+
+/* An item is a rounded row that takes the full width and shows one line. The text is cut with an ellipsis rather than
+   wrapped, so that each item stays one line tall however long the heading or the annotated text is. The border is
+   transparent and reserved, so that a high contrast theme can draw it without moving the text. */
+#editor-sidebar li > button {
+  display: flex;
+  align-items: center;
+  gap: 0.2em;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.05em;
+  padding: 0.25em 0.6em;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+#editor-sidebar li > button:hover {
+  background: var(--sidebar-hover);
+}
+
+#editor-sidebar li > button:active {
+  background: var(--sidebar-press);
+}
+
+#editor-sidebar li > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The headings step down in weight and then in color as they nest: the top level reads as a title, the next as a
+   section and the rest as detail. The depth is the nesting of the lists, so an outline that starts at a lower level
+   still starts with the strongest text. A little space opens between the top-level headings, so that each one and what
+   hangs from it read as a group. */
+#editor-sidebar [role="tabpanel"][data-tab="headings"] > ul > li > button {
+  font-weight: 600;
+}
+
+#editor-sidebar [role="tabpanel"][data-tab="headings"] > ul > li + li {
+  margin-top: 0.4em;
+}
+
+#editor-sidebar [role="tabpanel"][data-tab="headings"] > ul > li > ul > li > button {
+  font-weight: 500;
+}
+
+#editor-sidebar [role="tabpanel"][data-tab="headings"] ul ul ul button {
+  color: var(--ahve-muted);
+  font-size: 0.95em;
+}
+
+#editor-sidebar [role="tabpanel"][data-tab="headings"] ul ul ul button:hover {
+  color: var(--ahve-fg);
+}
+
+/* The marker of a comment: a dot in its author's color, orange for human and blue for AI, the same colors as the
+   annotated text in the body. The ring around it is a translucent tint of the same color. A resolved thread has the
+   check mark below in its place, so both markers take the same width and the texts line up. */
+#editor-sidebar li > button[data-author]:not(.sidebar-resolved)::before {
+  content: "";
+  flex: none;
+  box-sizing: border-box;
+  width: 0.55em;
+  height: 0.55em;
+  margin: 0 0.4em 0 0.3em;
+  background: var(--sidebar-dot);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.2em color-mix(in srgb, var(--sidebar-dot) 20%, transparent);
+}
+
+#editor-sidebar li > button[data-author="human"] {
+  --sidebar-dot: var(--ahve-comment-mark);
+}
+
+#editor-sidebar li > button[data-author="ai"] {
+  --sidebar-dot: var(--ahve-comment-ai);
+}
+
+/* The icon of a change's kind: a plus in green for an insertion and a minus in red for a deletion, in a soft disc of
+   the same color, the same colors as the marked content in the body. The attribute is spelled as in change-mark.ts. */
+#editor-sidebar li > button[data-change="ins"] > svg {
+  color: var(--ahve-change-ins);
+  background: color-mix(in srgb, var(--ahve-change-ins) 18%, transparent);
+}
+
+#editor-sidebar li > button[data-change="del"] > svg {
+  color: var(--ahve-change-del);
+  background: color-mix(in srgb, var(--ahve-change-del) 18%, transparent);
+}
+
+/* A replacement pair is one item with two arrows passing each other. It belongs to neither color of its halves, so it
+   takes the theme's accent, as the popup of the pair does. */
+#editor-sidebar li > button[data-change="replacement"] > svg {
+  color: var(--ahve-accent);
+  background: color-mix(in srgb, var(--ahve-accent) 18%, transparent);
+}
+
+/* The two buttons above the list of changes that accept or reject every change: outlined chips side by side, green
+   for accepting (it keeps the insertions) and red for rejecting (it takes them out), so that they read as actions rather
+   than as items of the list. The classes are spelled as in sidebar.ts. */
+#editor-sidebar .sidebar-change-actions {
+  display: flex;
+  gap: 0.4em;
+  margin: 0.6em 0.6em 0.4em;
+}
+
+#editor-sidebar .sidebar-accept-all,
+#editor-sidebar .sidebar-reject-all {
+  --sidebar-action-color: var(--ahve-change-ins);
+  flex: 1 1 0;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.35em 0.6em;
+  color: var(--sidebar-action-color);
+  background: color-mix(in srgb, var(--sidebar-action-color) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sidebar-action-color) 45%, transparent);
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+#editor-sidebar .sidebar-reject-all {
+  --sidebar-action-color: var(--ahve-change-del);
+}
+
+#editor-sidebar .sidebar-accept-all:hover,
+#editor-sidebar .sidebar-reject-all:hover {
+  background: color-mix(in srgb, var(--sidebar-action-color) 18%, transparent);
+}
+
+/* The check mark of a resolved thread sits in a soft green disc, like the resolved chip of the popup. It is drawn a
+   little bolder than the toolbar's icons, which would look thin at this size. */
+#editor-sidebar li > button > svg {
+  flex: none;
+  box-sizing: content-box;
+  width: 0.8em;
+  height: 0.8em;
+  margin: 0 0.075em;
+  padding: 0.15em;
+  color: var(--ahve-alert-tip);
+  background: color-mix(in srgb, var(--ahve-alert-tip) 18%, transparent);
+  border-radius: 50%;
+  stroke-width: 2.75;
+}
+
+/* A resolved thread dims its text. The check mark and its disc keep their own color, so the state does not rest on the
+   dimmed text alone. */
+#editor-sidebar .sidebar-resolved > span {
+  color: var(--ahve-muted);
+}
+
+/* The message shown when the chosen tab has nothing to list: the icon of the tab in a soft tile, and the message under
+   it. */
+#editor-sidebar .sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8em;
+  margin: 2.6em 1em 1em;
+  color: var(--ahve-muted);
+  text-align: center;
+}
+
+#editor-sidebar .sidebar-empty > svg {
+  box-sizing: content-box;
+  width: 1.5em;
+  height: 1.5em;
+  padding: 0.75em;
+  background: var(--sidebar-soft);
+  border-radius: 14px;
+}
+
+/* The search highlight. Drawn with the CSS Custom Highlight API, adding no elements to the tree. The names are
+   spelled the same as the constants in search-highlight.ts. */
+::highlight(ahve-search-match) {
+  background-color: var(--ahve-search-match);
+}
+
+/* The current match is also underlined. With only a difference in background color, some themes could not tell it
+   apart from other matches. */
+::highlight(ahve-search-current) {
+  background-color: var(--ahve-search-current);
+  text-decoration: underline 2px;
+}
+
+/* The column resize marker at a column boundary. The ID matches the constant in column-resize.ts.
+   Presses and the cursor pass through to the cell below. If the marker received them, the pointer over the marker would
+   count as having left the editor root, and the marker would flicker on and off. */
+#editor-column-resize-marker {
+  position: absolute;
+  z-index: 0;
+  width: 2px;
+  background: var(--ahve-accent);
+  pointer-events: none;
+}
+
+/* Over a column band and during a drag, the cursor takes the column resize shape. It is inherited by descendants, with
+   no priority override. */
+:root[data-column-resize] {
+  cursor: col-resize;
+}
+
+/* The copy button of a code block. The ID matches the constant in code-block-copy.ts.
+   Placed in view coordinates at the top right of the visible part of the code block under the pointer; on scroll it is
+   placed again. It stacks in front of the body and behind the strip and the other floating surfaces: it sits right
+   after the editor root, before the surfaces appended later at the same level. The background, text and border colors
+   come from theme tokens, and the border keeps its edge apart from the code block in all three themes, high contrast
+   included. display is overridden while hidden: setting it would take precedence over the hidden attribute. */
+#editor-code-block-copy {
+  position: fixed;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+  color: var(--ahve-fg);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
+  border-radius: 4px;
+  box-shadow: var(--ahve-shadow-small);
+  font: inherit;
+}
+
+#editor-code-block-copy[hidden] {
+  display: none;
+}
+
+/* Under the pointer it gets a background, like the other buttons. */
+#editor-code-block-copy:hover {
+  background: var(--ahve-code-bg);
+}
+
+/* The icon is as tall as the text, so that the button covers little of the code. The size is relative, so it follows
+   the user's font size setting. */
+#editor-code-block-copy > svg {
+  width: 1em;
+  height: 1em;
+}
+
+/* The zoom buttons of diagrams. The ID matches the constant in diagram-zoom.ts. The strip of three buttons takes the
+   place, stacking level and look of the copy button of code blocks, which a diagram never shows. */
+#editor-diagram-zoom {
+  position: fixed;
+  z-index: 0;
+  display: inline-flex;
+  color: var(--ahve-fg);
+  background: var(--ahve-bg);
+  border: 1px solid var(--ahve-border);
+  border-radius: 4px;
+  box-shadow: var(--ahve-shadow-small);
+}
+
+#editor-diagram-zoom[hidden] {
+  display: none;
+}
+
+#editor-diagram-zoom > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25em;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  font: inherit;
+}
+
+#editor-diagram-zoom > button:hover {
+  background: var(--ahve-code-bg);
+}
+
+#editor-diagram-zoom svg {
+  width: 1em;
+  height: 1em;
+}
+
+/* The overlay. The ID matches the constant in overlay-presenter.ts.
+   It sits in front of the toolbar, the editor root and the action dialog's backdrop, so that pointer
+   actions do not reach past it and an overlay that goes up while a dialog is open is not dimmed. Its
+   content is aligned to the top: the action dialog appears in the middle of the screen, so
+   centering the content would hide the overlay's actions behind that box and make them
+   unpressable. */
+#editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1em;
+  padding: 2em 1em;
+  overflow-y: auto;
+  text-align: center;
+  background: var(--ahve-bg);
+}
+
+/* Left unpainted when no reason has any content. Painting it would make the document look as if it
+   vanished for an instant on every save. */
+#editor-overlay[data-blank] {
+  background: transparent;
+}
+
+/* The section for one reason. It is a floating surface with rounded corners and the large shadow. A border is
+   drawn so that, when sections stack up, it is clear where one of them ends. */
+#editor-overlay > div {
+  box-sizing: border-box;
+  max-width: 40em;
+  padding: 1em;
+  border: 1px solid var(--ahve-border);
+  border-radius: 8px;
+  box-shadow: var(--ahve-shadow-large);
+}
+
+/* The overlay actions are laid out side by side; a gap keeps two of them from touching. */
+#editor-overlay > div > button + button {
+  margin-left: 0.5em;
+}
+
+/* The conflict resolution of a save. The class matches the constant in conflict-overlay.ts.
+   Its section is wider than the others, so that the two sides of a region fit side by side, and its parts read from
+   the start of the line. */
+#editor-overlay > div:has(> .conflict-resolution) {
+  width: 100%;
+  max-width: 72em;
+}
+
+#editor-overlay .conflict-resolution {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  margin-top: 1em;
+  text-align: start;
+}
+
+/* One conflict region. A fieldset would otherwise grow to its widest content and push the sides out of the view. */
+#editor-overlay .conflict-region {
+  min-width: 0;
+  margin: 0;
+  padding: 0.5em 1em 1em;
+  border: 1px solid var(--ahve-border);
+  border-radius: 6px;
+}
+
+#editor-overlay .conflict-region > legend {
+  padding: 0 0.4em;
+  font-weight: 600;
+}
+
+#editor-overlay .conflict-show-html {
+  display: block;
+  margin-left: auto;
+}
+
+/* The two sides sit side by side, and one above the other once the view is too narrow for two. */
+#editor-overlay .conflict-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr));
+  gap: 0.75em;
+  margin: 0.75em 0;
+}
+
+#editor-overlay .conflict-side {
+  min-width: 0;
+}
+
+#editor-overlay .conflict-side-heading {
+  margin: 0 0 0.35em;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+/* The box that holds a side. Its height is capped and it scrolls. Containing layout and paint makes it the containing
+   block of anything positioned inside, so that an element with fixed position stays within the box and cannot cover
+   the choices or the buttons. */
+#editor-overlay .conflict-side > div {
+  box-sizing: border-box;
+  max-height: 16em;
+  overflow: auto;
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--ahve-border);
+  border-radius: 4px;
+  contain: layout paint;
+}
+
+/* The rendering of a side. A simple look of its own, not the editor root's. The comment entries are hidden as in the
+   editor root. */
+#editor-overlay .conflict-side-rendered :is(p, ul, ol, pre, blockquote, table, details, hr, h1, h2, h3, h4, h5, h6) {
+  margin: 0.4em 0;
+}
+
+#editor-overlay .conflict-side-rendered :is(comment-body, comment-reply) {
+  display: none;
+}
+
+#editor-overlay .conflict-side-rendered img {
+  max-width: 100%;
+  height: auto;
+}
+
+#editor-overlay .conflict-side-rendered table {
+  border-collapse: collapse;
+}
+
+#editor-overlay .conflict-side-rendered :is(th, td) {
+  padding: 0.2em 0.4em;
+  border: 1px solid var(--ahve-border);
+}
+
+#editor-overlay .conflict-side-source {
+  margin: 0;
+  font-family: var(--ahve-font-family-mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#editor-overlay .conflict-side-empty {
+  margin: 0;
+  color: var(--ahve-muted);
+  font-style: italic;
+}
+
+#editor-overlay .conflict-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em 1.25em;
+}
+
+#editor-overlay .conflict-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+#editor-overlay .conflict-choices input {
+  margin: 0;
+  accent-color: var(--ahve-accent);
+}
+
+#editor-overlay .conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5em;
+}
+
+/* While the conflict resolution is up, the action dialog's box would sit in front of it and hide its regions. The box
+   and its backdrop are hidden until the resolution goes down; what was typed into the dialog is kept. */
+body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialog-backdrop) {
+  visibility: hidden;
+}
+
+/* The backdrop of the action dialog. The ID matches the constant in action-dialog.ts.
+   It dims everything behind the dialog, showing that the document cannot be edited while the dialog
+   is open. It stacks in front of the toolbar and behind the overlay, so that an overlay that goes up
+   while the dialog is shown stays undimmed with its actions pressable. It takes presses, so nothing
+   behind it reacts to them; action-dialog.ts cancels the dialog on a press. */
+#action-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  background: var(--ahve-backdrop);
+  backdrop-filter: blur(2px);
+}
+
+/* The action dialog. The ID matches the constant in action-dialog.ts.
+   It sits in front of the overlay but does not cover the whole screen, so the overlay's actions
+   stay pressable outside the box.
+   A card in the same family as the comment popup: hairline border, layered shadow and a tint of the dialog's accent
+   fading from the top. The accent and the icon tell the kinds apart by the fields they hold (see below). The fields
+   are laid out on a two-column grid: everything spans both columns except the width and height of an image. */
+#action-dialog {
+  --dialog-accent: var(--ahve-accent);
+  --dialog-hairline: color-mix(in srgb, var(--ahve-fg) 12%, transparent);
+  --dialog-soft: color-mix(in srgb, var(--ahve-fg) 6%, transparent);
+  --dialog-label-scale: 0.86;
+  --dialog-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 11v5.5'/%3E%3Cpath d='M12 7.6h.01'/%3E%3C/svg%3E");
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1em 0.9em;
+  width: min(27em, calc(100% - 2em));
+  max-height: calc(100% - 2em);
+  overflow-y: auto;
+  padding: 1.25em 1.4em 1.15em;
+  color: var(--ahve-fg);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dialog-accent) 9%, var(--ahve-bg)), var(--ahve-bg) 9em);
+  border: 1px solid var(--dialog-hairline);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 12px 28px -8px rgba(0, 0, 0, 0.28),
+    0 32px 64px -24px rgba(0, 0, 0, 0.4);
+  translate: -50% -50%;
+  animation: action-dialog-in 160ms ease-out;
+}
+
+/* Only the opacity fades in. A change of scale would make the size measured on opening differ from the drawn one. */
+@keyframes action-dialog-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #action-dialog {
+    animation: none;
+  }
+}
+
+/* The kind of the dialog, told by what it holds: a URL is a link, a width is an image, a text area is a diagram source,
+   and a confirmation text is a warning. */
+#action-dialog:has(input[name="url"]) {
+  --dialog-accent: var(--ahve-alert-note);
+  --dialog-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+}
+
+#action-dialog:has(input[name="width"]) {
+  --dialog-accent: var(--ahve-alert-tip);
+  --dialog-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21'/%3E%3C/svg%3E");
+}
+
+#action-dialog:has(textarea) {
+  --dialog-accent: var(--ahve-alert-important);
+  --dialog-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='8' height='8' x='3' y='3' rx='2'/%3E%3Cpath d='M7 11v4a2 2 0 0 0 2 2h4'/%3E%3Crect width='8' height='8' x='13' y='13' rx='2'/%3E%3C/svg%3E");
+  /* Source text is wide. It still never grows past the view. */
+  width: min(44em, calc(100% - 2em));
+}
+
+#action-dialog:has(#action-dialog-confirmation) {
+  --dialog-accent: var(--ahve-alert-warning);
+  --dialog-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3'/%3E%3Cpath d='M12 9v4'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+}
+
+/* Everything spans the full width. The width and height of an image sit side by side instead. */
+#action-dialog > * {
+  grid-column: 1 / -1;
+}
+
+#action-dialog > label:has(> input[name="width"]),
+#action-dialog > label:has(> input[name="height"]) {
+  grid-column: auto;
+}
+
+/* The paragraphs (title, confirmation text, rejection reason) are spaced by the dialog's gap alone;
+   their default margins would add to it. */
+#action-dialog p {
+  margin: 0;
+}
+
+/* The title. The ID matches the one action-dialog.ts gives it. An icon chip in the dialog's accent sits on its left:
+   the chip is the tinted square and the glyph is drawn over it, both with CSS only, so no element is needed. */
+#action-dialog-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 2.2em;
+  padding-left: 3.05em;
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+#action-dialog-title::before,
+#action-dialog-title::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+#action-dialog-title::before {
+  left: 0;
+  width: 2.2em;
+  height: 2.2em;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--dialog-accent) 26%, transparent), color-mix(in srgb, var(--dialog-accent) 9%, transparent));
+  border-radius: 0.65em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dialog-accent) 34%, transparent);
+}
+
+#action-dialog-title::after {
+  left: 0.5em;
+  width: 1.2em;
+  height: 1.2em;
+  background: var(--dialog-accent);
+  mask: var(--dialog-icon) center / contain no-repeat;
+}
+
+/* The confirmation text of a dialog without fields. */
+#action-dialog-confirmation {
+  color: var(--ahve-muted);
+  line-height: 1.6;
+}
+
+/* The rejection reason. An empty one is taken out of the flow, so that it adds neither a row nor a gap; the element
+   stays for assistive technology to announce a reason when one is set. Once set, it is a red notice with an icon. */
+#action-dialog [role="alert"]:empty {
+  position: absolute;
+}
+
+#action-dialog [role="alert"]:not(:empty) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55em;
+  padding: 0.6em 0.8em;
+  color: color-mix(in srgb, var(--ahve-alert-caution) 72%, var(--ahve-fg));
+  background: color-mix(in srgb, var(--ahve-alert-caution) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ahve-alert-caution) 38%, transparent);
+  border-radius: 10px;
+  font-size: 0.9em;
+  line-height: 1.45;
+}
+
+#action-dialog [role="alert"]:not(:empty)::before {
+  content: "";
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9.5'/%3E%3Cpath d='M12 7.5v5'/%3E%3Cpath d='M12 16.3h.01'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Each label sits above its input field, so that the fields start at the same left edge whatever the length of the
+   labels. The label is small and quiet, and turns to the text color while its field has focus. The fields take the
+   size back, so that only the label text shrinks. */
+#action-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+  color: var(--ahve-muted);
+  font-size: calc(var(--dialog-label-scale) * 1em);
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+
+#action-dialog label:focus-within {
+  color: var(--ahve-fg);
+}
+
+/* The requirement badge. A label that says whether its field is required puts the badge on the right of the label's
+   first line, drawn from the data-requirement-label attribute. It is generated content with an empty alternative, so it
+   stays out of the field's name (assistive technology hears aria-required instead) and out of the label's text. The
+   label becomes a two-column grid so that a long label wraps before the badge, and the field takes the row below. A
+   required field's badge is red; an optional field's is a quiet gray. */
+#action-dialog label[data-requirement] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45em 0.6em;
+}
+
+#action-dialog label[data-requirement] > :is(input, textarea) {
+  grid-row: 2;
+  grid-column: 1 / -1;
+}
+
+#action-dialog label[data-requirement]::after {
+  grid-row: 1;
+  grid-column: 2;
+  content: attr(data-requirement-label) / "";
+  padding: 0.1em 0.65em;
+  color: var(--ahve-muted);
+  background: var(--dialog-soft);
+  border-radius: 999px;
+  font-size: 0.92em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+#action-dialog label[data-requirement="required"]::after {
+  color: color-mix(in srgb, var(--ahve-alert-caution) 78%, var(--ahve-fg));
+  background: color-mix(in srgb, var(--ahve-alert-caution) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ahve-alert-caution) 34%, transparent);
+}
+
+/* The input fields take the full width of the dialog and VS Code's input field colors. Focus shows as a ring with a soft
+   glow; the ring stays as an outline so it does not vanish in high contrast themes. */
+#action-dialog :is(input, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0.62em 0.85em;
+  color: var(--ahve-input-fg);
+  background-color: var(--ahve-input-bg);
+  border: 1px solid var(--ahve-input-border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: calc(1em / var(--dialog-label-scale));
+  font-weight: 400;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+#action-dialog :is(input, textarea):focus-visible {
+  border-color: var(--ahve-focus-ring);
+  outline: 1px solid var(--ahve-focus-ring);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ahve-focus-ring) 26%, transparent);
+}
+
+/* The URL and the image source carry a small glyph inside the field, on its left. It is a fixed neutral gray, which
+   reads on a light and a dark field alike. */
+#action-dialog :is(input[name="url"], input[name="source"]) {
+  padding-left: 2.55em;
+  background-repeat: no-repeat;
+  background-position: 0.85em center;
+  background-size: 1.15em;
+}
+
+#action-dialog input[name="url"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+}
+
+#action-dialog input[name="source"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21'/%3E%3C/svg%3E");
+}
+
+/* A multi-line field, used for source text. A few lines of height and a monospaced face, because it holds code. It fills
+   the width of the dialog and can be resized only vertically, so it never overflows the dialog. */
+#action-dialog textarea {
+  min-height: 14em;
+  padding: 0.8em 1em;
+  resize: vertical;
+  font-family: var(--ahve-font-family-mono);
+  font-size: calc(0.94em / var(--dialog-label-scale));
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+/* The buttons sit in one row at the end, cancel before confirm. The class names match the ones in
+   action-dialog.ts. An extra action is pushed alone to the start of the row. */
+#action-dialog .action-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+
+/* Text buttons. Cancel is quiet, with a hairline; confirm takes VS Code's primary button colors with a soft highlight
+   and shadow; the extra action (remove, delete) is a red ghost that fills on hover. */
+#action-dialog button {
+  padding: 0.5em 1.2em;
+  color: var(--ahve-fg);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ahve-fg) 20%, transparent);
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, filter 120ms ease;
+}
+
+#action-dialog button:hover {
+  background: var(--dialog-soft);
+}
+
+#action-dialog button.action-dialog-confirm {
+  color: var(--ahve-button-fg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent) var(--ahve-button-bg);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+#action-dialog button.action-dialog-confirm:hover {
+  background-color: var(--ahve-button-hover-bg);
+  filter: brightness(1.1);
+}
+
+#action-dialog button.action-dialog-confirm:active {
+  filter: brightness(0.95);
+}
+
+#action-dialog .action-dialog-extra {
+  margin-right: auto;
+  color: var(--ahve-alert-caution);
+  border-color: transparent;
+}
+
+#action-dialog .action-dialog-extra:hover {
+  background: color-mix(in srgb, var(--ahve-alert-caution) 13%, transparent);
+  border-color: color-mix(in srgb, var(--ahve-alert-caution) 36%, transparent);
+}
+
+/* The focus ring on UI components that received focus from the keyboard. The pressed state, the
+   menu mark and disabled are shown with the fill, the background and (in high contrast themes) the
+   border, so the ring is drawn as an outline offset outside the border, where it neither overlaps
+   nor erases any of them. It is limited to :focus-visible so that a pointer press does not show the
+   ring. */
+#editor-toolbar button:focus-visible,
+#editor-floating-menu button:focus-visible,
+#editor-table-menu button:focus-visible,
+#editor-comment-popup:focus-visible,
+#editor-comment-popup :focus-visible,
+#editor-change-popup:focus-visible,
+#editor-change-popup :focus-visible,
+#editor-search-panel :focus-visible,
+#action-dialog :focus-visible,
+#editor-overlay button:focus-visible,
+#editor-overlay .conflict-choices input:focus-visible,
+#editor-overlay .conflict-side > div:focus-visible {
+  outline: 2px solid var(--ahve-focus-ring);
+  outline-offset: 2px;
+}
+
+/* The comment popup and the change popup themselves. Around a panel this large, a gap between the ring and the border
+   reads as a second frame, so the ring sits right on the border. It still stays outside it and covers none of the
+   contents. */
+#editor-comment-popup:focus-visible,
+#editor-change-popup:focus-visible {
+  outline-offset: 0;
+}
+
+/* The overlay itself. It covers the viewport, so a ring drawn outside it would fall off screen and
+   not be visible. It is drawn inside instead. */
+#editor-overlay:focus-visible {
+  outline: 2px solid var(--ahve-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The tabs and the items of the sidebar. The items fill the width of a panel that scrolls, which would cut off a ring
+   drawn outside them, so it is drawn inside instead. */
+#editor-sidebar :focus-visible {
+  outline: 2px solid var(--ahve-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The tooltip. The ID matches the constant in tooltip.ts.
+   It takes no pointer events: taking them would read as leaving the target, and the tooltip would
+   be shown and hidden over and over.
+   It is drawn inverted, in the text color on the background color, so it stands apart from the surface it explains.
+   The script puts it flush against its target, above or below. The element itself is left unpainted and carries a
+   6px margin of air at the top and the bottom; the drawn box is a pseudo-element inside that air, so it stays a little
+   away from the target on either side. A drop shadow follows the drawn shape. */
+#editor-tooltip {
+  position: fixed;
+  z-index: 5;
+  max-width: 24em;
+  padding: calc(6px + 0.3em) 0.65em;
+  color: var(--ahve-bg);
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.28));
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.4;
+  pointer-events: none;
+  animation: bar-fade-in 120ms ease-out;
+}
+
+#editor-tooltip::before {
+  content: "";
+  position: absolute;
+  inset: 6px 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--ahve-fg) 94%, var(--ahve-bg));
+  border: 1px solid transparent;
+  border-radius: 0.55em;
+}
+
+/* Without motion: the surfaces appear at once and the items change state without easing. The rules sit after every
+   rule they override, and repeat those rules' selectors, so that they win over them. */
+@media (prefers-reduced-motion: reduce) {
+  #editor-toolbar,
+  #editor-toolbar .block-type-menu,
+  #editor-floating-menu,
+  #editor-tooltip {
+    animation: none;
+  }
+
+  #editor-toolbar [data-slot] > button,
+  #editor-toolbar .block-type-menu button,
+  #editor-floating-menu button,
+  #action-dialog :is(input, textarea) {
+    transition: none;
+  }
+}
+
+/* Where Mermaid lays a diagram out while it measures it. The ID matches the constant in diagram-view.ts. It keeps its
+   layout, which measuring needs, but is never seen. The font size is the one the drawn image uses (Mermaid's default
+   of 16px, the medium keyword), so that labels are measured at the size they are drawn in. */
+#ahve-diagram-sandbox {
+  position: absolute;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+  font-size: medium;
+}
+
+/* Text buttons of the overlay. They take VS Code's button colors: the main action of the surface (the
+   first overlay action) in the primary colors, and the other actions in the secondary colors. The
+   padding is the prototype's 6px by 14px against a 14px base, written relative to the font size. The
+   buttons of the action dialog have their own rules with the dialog above, and those of the table
+   picker and the comment popup theirs. The rules sit after every hover rule of the surfaces above, so
+   that the button colors win over them. */
+#editor-overlay button {
+  padding: 0.43em 1em;
+  color: var(--ahve-button-secondary-fg);
+  background: var(--ahve-button-secondary-bg);
+  border: 1px solid var(--ahve-button-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+#editor-overlay button:hover {
+  background: var(--ahve-button-secondary-hover-bg);
+}
+
+#editor-overlay > div > button:first-of-type {
+  color: var(--ahve-button-fg);
+  background: var(--ahve-button-bg);
+}
+
+#editor-overlay > div > button:first-of-type:hover {
+  background: var(--ahve-button-hover-bg);
+}
+
+/* The conflict resolution's Save is its main action. Its buttons sit inside the resolution's own parts, so the rule
+   for the first overlay action does not reach it. Until every region has a choice it is disabled and does not react
+   to the pointer. */
+#editor-overlay .conflict-save {
+  color: var(--ahve-button-fg);
+  background: var(--ahve-button-bg);
+}
+
+#editor-overlay .conflict-save:hover {
+  background: var(--ahve-button-hover-bg);
+}
+
+#editor-overlay .conflict-save:disabled {
+  background: var(--ahve-button-bg);
+  opacity: 0.5;
+}
+
+/* The HTML toggle while it is pressed. */
+#editor-overlay .conflict-show-html[aria-pressed="true"] {
+  border-color: var(--ahve-accent);
+  background: var(--ahve-selection);
+}
+
+/* High contrast themes. VS Code puts one of these classes on the body. A difference in background
+   color can vanish in these themes, so the pressed state, the menu mark, disabled and the edges of
+   the controls keep being drawn with borders and dashes, and the text buttons are not filled (VS Code
+   gives no button background in the dark high contrast theme). These rules come last so that they
+   win over the rules above. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar button[data-pressed],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button[data-pressed],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-search-panel button[data-pressed],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button[aria-pressed="true"] {
+  color: inherit;
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-accent);
+  box-shadow: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .block-type-menu button[data-marked] {
+  color: inherit;
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-accent);
+}
+
+/* The glass, the tints and the shadows of the strip, the floating menu and the block type menu can vanish in these
+   themes. They become opaque surfaces with a border, and an item under the pointer gets a border of its own, since the
+   code background it would otherwise get is close to the background. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu {
+  --bar-hairline: var(--ahve-border);
+  --bar-hover: var(--ahve-code-bg);
+  --bar-press: var(--ahve-code-bg);
+  --bar-icon: var(--ahve-fg);
+  background: var(--ahve-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu {
+  box-shadow: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar [data-slot] > button:not([data-disabled], [data-pressed]):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button:not([data-disabled], [data-pressed]):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .block-type-menu button:not([data-marked]):hover {
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar [data-slot] > button:has(> .toolbar-label) {
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .block-type-menu {
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .toolbar-indicator {
+  border: 1px solid var(--ahve-border);
+  box-shadow: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-tooltip {
+  filter: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-tooltip::before {
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar button[data-disabled],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-floating-menu button[data-disabled],
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-table-menu button[aria-disabled="true"] {
+  border-style: dashed;
+  border-color: var(--ahve-border);
+}
+
+/* The card's hairlines and soft fills are translucent tints of the text color, which can vanish in these themes. They
+   take the theme's border color and the code background instead. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup {
+  --comment-popup-hairline: var(--ahve-border);
+  --comment-popup-soft: transparent;
+  --comment-popup-hover: var(--ahve-code-bg);
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button {
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:disabled {
+  border-style: dashed;
+}
+
+/* The change popup and the accept all and reject all buttons follow the same rule: the translucent tints go, the
+   theme's border color draws the edges, and the filled accept chip keeps its fill, which these themes can show. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-change-popup {
+  --change-popup-hairline: var(--ahve-border);
+  --change-popup-hover: var(--ahve-code-bg);
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar .sidebar-accept-all,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar .sidebar-reject-all {
+  background: transparent;
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker {
+  --table-picker-hairline: var(--ahve-border);
+  --table-picker-soft: transparent;
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker [role="gridcell"] {
+  border-style: dashed;
+  background: transparent;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker [role="gridcell"][aria-selected="true"] {
+  border-style: solid;
+  border-color: var(--ahve-accent);
+  background: var(--ahve-selection);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker > div:nth-child(2) {
+  background: transparent;
+  border: 1px solid var(--ahve-border);
+}
+
+/* The action dialog's tints are translucent, which can vanish in these themes. The card takes the theme's border color
+   and a plain background, and the icon chip and the notice get a border of their own. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog {
+  --dialog-hairline: var(--ahve-border);
+  --dialog-soft: var(--ahve-code-bg);
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog-title::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog label[data-requirement]::after {
+  color: inherit;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog [role="alert"]:not(:empty) {
+  color: inherit;
+  background: transparent;
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog button,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay > div > button,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-resolution button,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:is(.comment-thread-save, .comment-thread-cancel),
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker button {
+  color: inherit;
+  background: transparent;
+  border-color: var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #action-dialog button:hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay > div > button:hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-resolution button:hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-comment-popup button:is(.comment-thread-save, .comment-thread-cancel):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-toolbar .table-picker button:hover {
+  background: var(--ahve-code-bg);
+}
+
+/* The conflict resolution's pressed HTML toggle is told by its border, and its disabled Save by a dashed border, like
+   the toolbar items. The pressed toggle keeps the text color on the code background: the selection color of these
+   themes would leave its label unreadable. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-show-html[aria-pressed="true"] {
+  color: inherit;
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-accent);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-overlay .conflict-save:disabled {
+  border-style: dashed;
+}
+
+/* The sidebar. The shade, the fills and the tint of the chosen tab are translucent mixes that can vanish in these
+   themes. It takes the theme's border color and background instead, and shows the chosen tab, the item under the
+   pointer and the resolved mark with borders, like the pressed toolbar items. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar {
+  --sidebar-hairline: var(--ahve-border);
+  --sidebar-soft: transparent;
+  --sidebar-hover: transparent;
+  --sidebar-press: var(--ahve-code-bg);
+  background: var(--ahve-bg);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar [role="tablist"] {
+  border: 1px solid var(--ahve-border);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar [role="tablist"]::before {
+  background: var(--ahve-code-bg);
+  border-color: var(--ahve-accent);
+  box-shadow: none;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar [role="tab"][aria-selected="true"] {
+  color: inherit;
+}
+
+/* The item under the pointer gets a dashed accent border. The chosen tab keeps its solid one, so the two do not read
+   alike. */
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar [role="tab"]:not([aria-selected="true"]):hover,
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar li > button:hover {
+  border-style: dashed;
+  border-color: var(--ahve-accent);
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar li > button > svg {
+  color: inherit;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-sidebar .sidebar-empty > svg {
+  box-shadow: inset 0 0 0 1px var(--ahve-border);
+}

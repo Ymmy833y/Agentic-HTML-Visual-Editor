@@ -1,0 +1,7 @@
+{
+  "name": "agentic-html-visual-editor-release",
+  "private": true,
+  "dependencies": {
+    "@vscode/vsce": "4.0.0"
+  }
+}

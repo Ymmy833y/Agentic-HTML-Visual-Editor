@@ -1,126 +1,74 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { AhveSessionRegistry } from '../../src/editor/session-registry';
-import type { AhveDocument } from '../../src/editor/AhveDocument';
 
-// The registry imports `vscode` for types only, so it can be driven with minimal
-// fakes. All it needs is a document's `uri` (toString / fsPath) and `panel` identity.
+import type * as vscode from 'vscode';
 
-type FakePanel = { name: string };
+import type { InternalErrorSink } from '../../src/diagnostics/error-reporter';
+import type { HtmlCustomDocument } from '../../src/editor/html-custom-document';
+import { SessionRegistry } from '../../src/session/session-registry';
 
-function fakeUri(fsPath: string, text = `file://${fsPath}`): AhveDocument['uri'] {
-  return { fsPath, toString: () => text } as unknown as AhveDocument['uri'];
+interface RecordingSink extends InternalErrorSink {
+  readonly lines: string[];
 }
 
-function fakeDocument(uri: AhveDocument['uri'], panel?: FakePanel): AhveDocument {
-  return { uri, panel } as unknown as AhveDocument;
+/** Creates an internal error sink that only records received lines. */
+function createSink(): RecordingSink {
+  const lines: string[] = [];
+  return { lines, reportInternalError: (detail) => lines.push(detail) };
 }
 
-function panel(name: string): FakePanel {
-  return { name };
+/**
+ * Inspects registration without launching VS Code, keeping the history URI and the source URI apart.
+ *
+ * @param uri The source URI used as the registration key.
+ */
+function createDocument(uri: string): HtmlCustomDocument {
+  return {
+    uri: { toString: () => uri + '?ahve-editor=wrapped' },
+    sourceUri: { toString: () => uri },
+  } as unknown as HtmlCustomDocument;
 }
 
-function asPanel(value: FakePanel): Parameters<AhveSessionRegistry['setActivePanel']>[0] {
-  return value as unknown as Parameters<AhveSessionRegistry['setActivePanel']>[0];
+/**
+ * Creates a panel that simulates only subscriptions and active state.
+ *
+ * The registry calls only the two subscription methods and reads `active`. The subscription methods
+ * only need to return disposables, so they return no-op disposables.
+ */
+function createPanel(): vscode.WebviewPanel {
+  const subscribe = (): vscode.Disposable => ({ dispose: (): void => undefined });
+  return { active: false, onDidChangeViewState: subscribe, onDidDispose: subscribe } as unknown as vscode.WebviewPanel;
 }
 
-describe('AhveSessionRegistry: document registration', () => {
-  it('finds a registered document by the uri string representation', () => {
-    const registry = new AhveSessionRegistry();
-    const uri = fakeUri('/w/a.html');
-    const document = fakeDocument(uri);
-    registry.add(document);
+describe('session registration', () => {
+  it('uses the source URI, not the history URI, for registration, the session URI, and inspection', () => {
+    const registry = new SessionRegistry(createSink());
+    const document = createDocument('file:///a.html');
+    const session = registry.register(document, createPanel());
 
-    expect(registry.find(uri)).toBe(document);
+    expect(registry.findSession('file:///a.html')).toBe(session);
+    expect(registry.findSession(document.uri.toString())).toBeUndefined();
+    expect(session.documentUri).toBe(document.sourceUri);
+    expect(registry.readInspection().documentUris).toEqual(['file:///a.html']);
+    registry.dispose();
+  });
+  it('records a replacement as an internal error when the same document is registered twice', () => {
+    const sink = createSink();
+    const registry = new SessionRegistry(sink);
+    registry.register(createDocument('file:///a.html'), createPanel());
+
+    registry.register(createDocument('file:///a.html'), createPanel());
+
+    expect(sink.lines).toHaveLength(1);
   });
 
-  it('falls back to fsPath when uri strings do not match', () => {
-    // VSCode may normalize a uri before it reaches openCustomDocument (the case of a
-    // Windows drive letter, for instance).
-    const registry = new AhveSessionRegistry();
-    const document = fakeDocument(fakeUri('/w/a.html', 'file:///W/a.html'));
-    registry.add(document);
+  it('does not record an internal error when different documents are registered in sequence', () => {
+    const sink = createSink();
+    const registry = new SessionRegistry(sink);
 
-    expect(registry.find(fakeUri('/w/a.html', 'file:///w/a.html'))).toBe(document);
-  });
+    registry.register(createDocument('file:///a.html'), createPanel());
+    registry.register(createDocument('file:///b.html'), createPanel());
 
-  it('returns undefined for an unregistered uri', () => {
-    const registry = new AhveSessionRegistry();
-    registry.add(fakeDocument(fakeUri('/w/a.html')));
-
-    expect(registry.find(fakeUri('/w/b.html'))).toBeUndefined();
-  });
-
-  it('removes a document only when it is still the registered instance', () => {
-    const registry = new AhveSessionRegistry();
-    const uri = fakeUri('/w/a.html');
-    const first = fakeDocument(uri);
-    const second = fakeDocument(uri);
-    registry.add(first);
-    registry.add(second); // reopened under the same uri
-
-    // A late dispose of the old document must not erase the new registration.
-    registry.remove(first);
-    expect(registry.find(uri)).toBe(second);
-
-    registry.remove(second);
-    expect(registry.find(uri)).toBeUndefined();
-  });
-});
-
-describe('AhveSessionRegistry: active panel', () => {
-  it('starts with no active panel', () => {
-    expect(new AhveSessionRegistry().getActivePanel()).toBeNull();
-  });
-
-  it('returns the most recently set panel', () => {
-    const registry = new AhveSessionRegistry();
-    const a = panel('a');
-    const b = panel('b');
-    registry.setActivePanel(asPanel(a));
-    registry.setActivePanel(asPanel(b));
-
-    expect(registry.getActivePanel()).toBe(b);
-  });
-
-  it('clears the active panel only when given the current panel', () => {
-    const registry = new AhveSessionRegistry();
-    const active = panel('active');
-    const other = panel('other');
-    registry.setActivePanel(asPanel(active));
-
-    // Another panel going inactive must not lose track of the active one.
-    registry.clearActivePanel(asPanel(other));
-    expect(registry.getActivePanel()).toBe(active);
-
-    registry.clearActivePanel(asPanel(active));
-    expect(registry.getActivePanel()).toBeNull();
-  });
-});
-
-describe('AhveSessionRegistry: active document', () => {
-  it('returns the document hosted by the active panel', () => {
-    const registry = new AhveSessionRegistry();
-    const activePanel = panel('a');
-    const target = fakeDocument(fakeUri('/w/a.html'), activePanel);
-    registry.add(target);
-    registry.add(fakeDocument(fakeUri('/w/b.html'), panel('b')));
-    registry.setActivePanel(asPanel(activePanel));
-
-    expect(registry.getActiveDocument()).toBe(target);
-  });
-
-  it('returns undefined when there is no active panel', () => {
-    const registry = new AhveSessionRegistry();
-    registry.add(fakeDocument(fakeUri('/w/a.html'), panel('a')));
-
-    expect(registry.getActiveDocument()).toBeUndefined();
-  });
-
-  it('returns undefined when no document hosts the active panel', () => {
-    const registry = new AhveSessionRegistry();
-    registry.add(fakeDocument(fakeUri('/w/a.html'), panel('a')));
-    registry.setActivePanel(asPanel(panel('detached')));
-
-    expect(registry.getActiveDocument()).toBeUndefined();
+    expect(sink.lines).toEqual([]);
   });
 });

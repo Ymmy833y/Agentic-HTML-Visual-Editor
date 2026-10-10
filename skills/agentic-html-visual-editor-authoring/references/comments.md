@@ -49,6 +49,8 @@ A comment is resolved when its `comment` element has the `data-resolved` attribu
 
 Resolving is usually the human reviewer's decision. Before you mark a comment as resolved, it is best to confirm with the user. To mark it, add `data-resolved=""` to the `comment` element, as the editor does.
 
+A person can open the thread by clicking its annotated text or its sidebar entry. With the caret inside the annotated text, Alt+Enter (Option+Enter on macOS) opens the thread and focuses the reply field. These actions do not change the comment's markup.
+
 ## Listing and copying
 
 `scripts/list_comments.py` reads the comments of one or more HTML files and prints them as a JSON array. It only reads the files.

@@ -48,6 +48,8 @@ So keep the source block as the diagram. Do not put a rendered SVG or an image o
 
 The editor draws with the Mermaid that it bundles, in a configuration that runs no script and fetches nothing from outside, and it matches the light or dark theme of VS Code. Do not add a `script` tag or a link to a Mermaid CDN. A `script` in the body keeps the whole document from opening.
 
+Hover over a drawn diagram to show zoom-in, zoom-out, and reset buttons. Ctrl+wheel (Cmd+wheel on macOS) also zooms from 50% to 400%. Zoom changes only the view: it does not change the source, create an edit, or travel with copied HTML. PDF export draws the diagram in a light theme at its normal size.
+
 A diagram is not drawn, and an error is shown in its place, when any of these is true:
 
 - The source is longer than 50,000 characters.

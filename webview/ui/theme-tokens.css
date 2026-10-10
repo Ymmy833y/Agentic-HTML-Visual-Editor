@@ -1,0 +1,98 @@
+/* Theme tokens and their fallback values.
+   Only this file may reference VS Code theme variables. */
+:root {
+  --ahve-bg: var(--vscode-editor-background, #ffffff);
+  --ahve-fg: var(--vscode-editor-foreground, #1f2328);
+  --ahve-muted: var(--vscode-descriptionForeground, #57606a);
+  --ahve-border: var(--vscode-panel-border, #d0d7de);
+  --ahve-accent: var(--vscode-textLink-foreground, #0969da);
+  --ahve-code-bg: var(--vscode-textCodeBlock-background, #f6f8fa);
+  --ahve-selection: var(--vscode-editor-selectionBackground, rgba(9, 105, 218, 0.2));
+  /* The color of the keyboard focus ring. The fallback differs from the pressed fill and border
+     (--ahve-accent), so that focus on a pressed item can still be told apart. */
+  --ahve-focus-ring: var(--vscode-focusBorder, #0090f1);
+
+  /* The accent color of each alert kind. The names follow the spellings in the shared list, and all five are here.
+     Warning and caution borrow the diagnostic colors the editor uses for the same meaning. The fallbacks are of a
+     middle depth, chosen so that with no theme variable they stay far enough in brightness from the background of
+     a light, a dark, and a high contrast theme alike. */
+  --ahve-alert-note: var(--vscode-charts-blue, #2f81f7);
+  --ahve-alert-tip: var(--vscode-charts-green, #2da44e);
+  --ahve-alert-important: var(--vscode-charts-purple, #8250df);
+  --ahve-alert-warning: var(--vscode-editorWarning-foreground, #bf8700);
+  --ahve-alert-caution: var(--vscode-editorError-foreground, #f85149);
+
+  /* Author colors of comments: orange for human and blue for AI. The solid color draws the border and underline of the
+     annotated text, the caret inside it and the border of an entry in the popup; the translucent one is the background of
+     the annotated text. They are fixed values rather than theme variables: VS Code has no variable that reliably gives an
+     orange (charts.orange is translucent in some themes and undefined in high contrast themes), and colors that changed
+     with the theme would weaken the cue telling the authors apart. Both solid colors keep a contrast of at least 3:1
+     against a white and a black background. */
+  --ahve-comment-mark: #d97706;
+  --ahve-comment-highlight: rgba(245, 158, 11, 0.25);
+  --ahve-comment-ai: #1e78be;
+  --ahve-comment-ai-highlight: rgba(45, 156, 219, 0.22);
+  /* Border colors of a resolved comment: each author color mixed 3:7 with a middle gray, giving an orange-tinged gray for
+     human and a blue-tinged gray for AI. They are opaque rather than faded with transparency, so they stay visible in
+     high contrast themes. */
+  --ahve-comment-resolved: #9b7d5b;
+  --ahve-comment-ai-resolved: #637e93;
+
+  /* Colors of change marks: green for an insertion and red for a deletion, as diffs are read everywhere. The solid color
+     draws the underline or the strikethrough of the marked content, the icon of the kind in the popup and the sidebar,
+     and the border of the open mark; the translucent one is the background of the marked content. They are fixed values
+     for the same reason as the author colors: a color that changed with the theme would weaken the cue, and the high
+     contrast themes define no green or red. Both solid colors keep a contrast of at least 3:1 against a white and a
+     black background. */
+  --ahve-change-ins: #1f8a3a;
+  --ahve-change-ins-highlight: rgba(46, 160, 67, 0.22);
+  --ahve-change-del: #d1343d;
+  --ahve-change-del-highlight: rgba(248, 81, 73, 0.2);
+
+  /* Background colors of the search highlight for all matches and the current match. They borrow the editor's find
+     colors so matches look the same as when searching in a text editor. The current match does not rely on color
+     alone; the bundled stylesheet also underlines it. */
+  --ahve-search-match: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  --ahve-search-current: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.6));
+
+  /* Colors of the input fields, taken from VS Code's input fields. Without them the fields fall back to the page's
+     background, text and border colors, so they still stand out from the surface around them. */
+  --ahve-input-bg: var(--vscode-input-background, var(--ahve-bg));
+  --ahve-input-fg: var(--vscode-input-foreground, var(--ahve-fg));
+  --ahve-input-border: var(--vscode-input-border, var(--ahve-border));
+
+  /* Colors of the text buttons, taken from VS Code's buttons. The primary colors go to the main action of a dialog or
+     a surface and also fill a pressed item; the secondary colors go to the other actions. */
+  --ahve-button-bg: var(--vscode-button-background, var(--ahve-accent));
+  --ahve-button-fg: var(--vscode-button-foreground, #ffffff);
+  --ahve-button-hover-bg: var(--vscode-button-hoverBackground, var(--ahve-accent));
+  --ahve-button-border: var(--vscode-button-border, transparent);
+  --ahve-button-secondary-bg: var(--vscode-button-secondaryBackground, var(--ahve-code-bg));
+  --ahve-button-secondary-fg: var(--vscode-button-secondaryForeground, var(--ahve-fg));
+  --ahve-button-secondary-hover-bg: var(--vscode-button-secondaryHoverBackground, var(--ahve-border));
+
+  /* Colors of a pressed toggle, taken from the toggles in VS Code's own find widget. They keep a border, so a pressed
+     toggle is told apart from the others by more than its background. */
+  --ahve-toggle-bg: var(--vscode-inputOption-activeBackground, var(--ahve-selection));
+  --ahve-toggle-border: var(--vscode-inputOption-activeBorder, var(--ahve-accent));
+  --ahve-toggle-fg: var(--vscode-inputOption-activeForeground, var(--ahve-fg));
+
+  /* Shadows of the surfaces that float over the body, in three sizes: small for the tooltip and the search panel,
+     medium for the menus and popups, large for the dialogs. They are fixed values rather than theme variables: VS Code
+     gives no shadow color in high contrast themes, and there the borders carry the edges of the surfaces. */
+  --ahve-shadow-small: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --ahve-shadow-medium: 0 4px 14px rgba(0, 0, 0, 0.2);
+  --ahve-shadow-large: 0 10px 30px rgba(0, 0, 0, 0.25);
+
+  /* The backdrop behind an action dialog. A fixed translucent dark color dims the page in any theme, showing that the
+     document cannot be edited while the dialog is open. */
+  --ahve-backdrop: rgba(0, 0, 0, 0.35);
+
+  /* Follow the font size because users configure it for readability. */
+  --ahve-font-size: var(--vscode-font-size, 14px);
+
+  /* Keep the extension's font families fixed instead of mapping them to theme variables. */
+  --ahve-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --ahve-font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

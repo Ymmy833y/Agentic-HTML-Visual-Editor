@@ -1,0 +1,3 @@
+tests/integration/fixtures/sample.html text eol=lf
+tests/integration/fixtures/crlf.html -text
+tests/manual/** -text

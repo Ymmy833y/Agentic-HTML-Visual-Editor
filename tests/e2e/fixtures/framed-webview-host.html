@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>framed webview host</title>
+</head>
+<body>
+<!-- Holds only the iframe hosting the view and an input field outside it. In VS Code the view runs
+     inside a frame and loses focus when the user moves to another editor. This page exists to check
+     the behavior during that time. The stub enters each frame as an initialization script, and the
+     test adds the bundle to the frame. -->
+<input id="outside-field">
+<iframe id="view-frame" src="webview-host.html"></iframe>
+</body>
+</html>

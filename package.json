@@ -1,8 +1,8 @@
 {
   "name": "agentic-html-visual-editor",
-  "displayName": "Agentic HTML Visual Editor",
-  "description": "A WYSIWYG HTML editor for reviewing and refining AI-generated content in VS Code",
-  "version": "0.1.13",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "version": "1.0.0",
   "keywords": [
     "wysiwyg",
     "html",
@@ -12,6 +12,7 @@
     "agentic"
   ],
   "publisher": "YuyaMiyamoto",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git"
@@ -21,44 +22,74 @@
     "url": "https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.90.0"
   },
   "icon": "assets/icon.png",
   "categories": [
     "AI",
     "Other"
   ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
-  "activationEvents": [
-    "onLanguage:html"
-  ],
+  "browser": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
+        "command": "ahve.save",
+        "title": "%command.save.title%"
+      },
+      {
+        "command": "ahve.undo",
+        "title": "%command.undo.title%"
+      },
+      {
+        "command": "ahve.redo",
+        "title": "%command.redo.title%"
+      },
+      {
+        "command": "ahve.recover",
+        "title": "%command.recover.title%"
+      },
+      {
         "command": "ahve.openInWysiwygEditor",
-        "title": "Open in WYSIWYG",
-        "category": "Agentic HTML Visual Editor",
+        "title": "%command.openInWysiwygEditor.title%",
+        "category": "%command.category%",
         "icon": "$(edit)"
       },
       {
         "command": "ahve.openInHtmlEditor",
-        "title": "Open in HTML",
-        "category": "Agentic HTML Visual Editor",
+        "title": "%command.openInHtmlEditor.title%",
+        "category": "%command.category%",
         "icon": "$(code)"
       },
       {
         "command": "ahve.copyAsHtml",
-        "title": "Copy as HTML",
-        "category": "Agentic HTML Visual Editor"
+        "title": "%command.copyAsHtml.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "ahve.exportAsPdf",
+        "title": "%command.exportAsPdf.title%",
+        "category": "%command.category%"
       }
     ],
     "customEditors": [
       {
         "viewType": "ahve.editor",
-        "displayName": "Agentic HTML Visual Editor",
+        "displayName": "%editor.html.displayName%",
         "selector": [
           {
             "filenamePattern": "*.html"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "ahve.documentEditor",
+        "displayName": "%editor.html.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "*.ahve-editor"
           }
         ],
         "priority": "option"
@@ -68,27 +99,47 @@
       "editor/title": [
         {
           "command": "ahve.openInWysiwygEditor",
-          "when": "resourceExtname == .html && activeCustomEditorId != ahve.editor",
-          "group": "navigation"
+          "group": "navigation",
+          "when": "activeEditor == workbench.editors.files.textFileEditor && resourceFilename =~ /\\.html$/i"
         },
         {
           "command": "ahve.openInHtmlEditor",
-          "when": "activeCustomEditorId == ahve.editor",
-          "group": "navigation"
+          "group": "navigation",
+          "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
         }
       ],
       "commandPalette": [
         {
+          "command": "ahve.save",
+          "when": "false"
+        },
+        {
+          "command": "ahve.undo",
+          "when": "false"
+        },
+        {
+          "command": "ahve.redo",
+          "when": "false"
+        },
+        {
+          "command": "ahve.recover",
+          "when": "activeCustomEditorId == ahve.documentEditor"
+        },
+        {
           "command": "ahve.openInWysiwygEditor",
-          "when": "resourceExtname == .html"
+          "when": "activeEditor == workbench.editors.files.textFileEditor && resourceFilename =~ /\\.html$/i"
         },
         {
           "command": "ahve.openInHtmlEditor",
-          "when": "activeCustomEditorId == ahve.editor"
+          "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
         },
         {
           "command": "ahve.copyAsHtml",
-          "when": "activeCustomEditorId == ahve.editor"
+          "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
+        },
+        {
+          "command": "ahve.exportAsPdf",
+          "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
         }
       ]
     },
@@ -97,72 +148,82 @@
         "command": "ahve.save",
         "key": "ctrl+s",
         "mac": "cmd+s",
-        "when": "activeCustomEditorId == ahve.editor"
+        "when": "activeCustomEditorId == ahve.documentEditor"
       },
       {
         "command": "ahve.undo",
         "key": "ctrl+z",
         "mac": "cmd+z",
-        "when": "activeCustomEditorId == ahve.editor"
-      },
-      {
-        "command": "ahve.redo",
-        "key": "ctrl+y",
-        "mac": "cmd+shift+z",
-        "when": "activeCustomEditorId == ahve.editor"
+        "when": "activeCustomEditorId == ahve.documentEditor"
       },
       {
         "command": "ahve.redo",
         "key": "ctrl+shift+z",
-        "when": "activeCustomEditorId == ahve.editor"
+        "mac": "cmd+shift+z",
+        "when": "activeCustomEditorId == ahve.documentEditor"
+      },
+      {
+        "command": "ahve.redo",
+        "key": "ctrl+y",
+        "when": "activeCustomEditorId == ahve.documentEditor && !isMac"
       }
     ]
   },
   "scripts": {
-    "build": "node esbuild.config.js",
-    "watch": "node esbuild.config.js --watch",
-    "vscode:prepublish": "node esbuild.config.js --production",
+    "vscode:prepublish": "npm run package",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "node esbuild.mjs --production",
+    "typecheck": "tsc -p common && tsc -p src && tsc -p webview && tsc -p tests && tsc -p tests/integration && tsc -p tests/web",
+    "lint": "eslint .",
     "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
-    "test:unit": "vitest run",
-    "test:unit:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "pretest:integration": "npm run build && tsc -p tsconfig.test.json",
-    "test:integration": "vscode-test",
+    "test:prepare": "npm run build && tsc -p tests/integration",
+    "test:unit": "vitest run --coverage",
+    "pretest:integration": "npm run build && tsc -p tests/integration",
+    "test:integration": "node scripts/run-integration-tests.mjs",
+    "test:integration:only": "node scripts/run-integration-tests.mjs",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "test:e2e:only": "playwright test",
+    "pretest:web": "npm run build && tsc -p tests/web",
+    "test:web": "vscode-test-web --browserType=chromium --headless --extensionDevelopmentPath=. --extensionTestsPath=out-test-web/activation.js",
+    "notices": "node scripts/release/third-party-notices.mjs",
+    "notices:check": "node scripts/release/third-party-notices.mjs --check",
+    "audit:runtime": "npm audit --omit=dev --audit-level=moderate",
+    "audit:all": "npm audit --audit-level=moderate && npm audit --prefix scripts/release --audit-level=moderate",
+    "readme:images": "npm run build && node scripts/release/readme-images.mjs"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "@types/jsdom": "^28.0.3",
+    "@playwright/test": "^1.50.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^24.0.0",
-    "@types/vscode": "^1.85.0",
-    "@vitest/coverage-v8": "^5.0.0",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2",
-    "esbuild": "^0.28.1",
-    "eslint": "^10.4.0",
-    "glob": "^13.0.6",
-    "globals": "^17.6.0",
-    "jsdom": "^29.1.1",
-    "mocha": "^11.7.6",
-    "typescript": "^5.3.0",
-    "typescript-eslint": "^8.59.4",
-    "vitest": "^5.0.0"
-  },
-  "overrides": {
-    "brace-expansion@>=2.0.0 <3.0.0": "2.1.7",
-    "brace-expansion@>=3.0.0 <6.0.0": "5.0.12",
-    "serialize-javascript": "7.0.5",
-    "diff": "8.0.3",
-    "undici": "7.29.1",
-    "js-yaml": "4.3.2"
+    "@types/node": "^22.10.0",
+    "@types/vscode": "1.90.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/test-web": "^0.0.81",
+    "esbuild": "^0.25.0",
+    "eslint": "^10.5.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
-    "mermaid": "^11.17.2",
-    "node-diff3": "^3.2.1"
+    "html2canvas-pro": "2.5.2",
+    "mermaid": "11.17.2",
+    "node-diff3": "3.2.1"
+  },
+  "overrides": {
+    "mocha": {
+      "diff": "^8.0.3",
+      "serialize-javascript": "^7.0.5"
+    }
   }
 }

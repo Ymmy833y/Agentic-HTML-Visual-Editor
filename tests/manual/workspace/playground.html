@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notification settings: design notes</title>
+</head>
+<body>
+<h1>Notification Settings: Design Notes</h1>
+<p>A <strong>per-channel notification settings page</strong> drafted by an AI agent, ready for <comment id="c-a4f9q2zt">team review<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-28T09:05:00Z">I assumed design review happens in the sprint 42 planning. Please correct me if it has moved.</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-28T10:20:00Z">Correct. Thursday afternoon.</comment-reply></comment>.</p>
+<blockquote data-alert="note">Support ticket counts come from the <em>Q3 support report</em>.</blockquote>
+
+<h2>Background</h2>
+<p>Users can only turn all notifications on or off today. In Q3, <strong>38%</strong> of support tickets about notifications asked to mute a single channel. See the <a href="https://example.com/q3-report">Q3 support report</a> for the full breakdown.</p>
+<p>The <s>email digest</s> setting was removed in v4 and is out of scope.</p>
+
+<h2>Goals</h2>
+<ul>
+<li>Mute a channel in <strong>two clicks</strong> or fewer.</li>
+<li>Keep the current defaults for existing users.
+<ul>
+<li>Email and push stay on.</li>
+<li>SMS stays off.</li>
+</ul>
+</li>
+<li>Store settings under <code>user.notifications</code>.</li>
+</ul>
+
+<h2>Flow</h2>
+<pre class="mermaid">flowchart LR
+  Event[Event raised] --> Prefs{Channel enabled?}
+  Prefs -->|Yes| Quiet{Quiet hours?}
+  Prefs -->|No| Drop([Dropped])
+  Quiet -->|No| Send([Sent])
+  Quiet -->|Yes| Queue[Queued until morning]
+</pre>
+
+<h2>Channels</h2>
+<table>
+<colgroup><col style="width: 20%"><col style="width: 20%"><col style="width: 20%"><col style="width: 40%"></colgroup>
+<thead>
+<tr><th scope="col">Channel</th><th scope="col">Default</th><th scope="col">Quiet hours</th><th scope="col">Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Email</td><td>On</td><td rowspan="2">Respected</td><td>Batched every 15 minutes.</td></tr>
+<tr><td>Push</td><td>On</td><td>Sent immediately.</td></tr>
+<tr><td>SMS</td><td>Off</td><td>Ignored</td><td>Security alerts only.</td></tr>
+<tr><td>In-app</td><td colspan="3">Always on. Cannot be muted.</td></tr>
+</tbody>
+</table>
+
+<h2>Options Compared</h2>
+<table>
+<thead>
+<tr><th>Option</th><th>Screens</th><th>Effort</th><th>Risk</th></tr>
+</thead>
+<tbody>
+<tr><td>A. Toggle per channel</td><td>1</td><td>2 weeks</td><td>Low</td></tr>
+<tr><td>B. Toggle per event type</td><td>3</td><td>5 weeks</td><td>Medium</td></tr>
+<tr><td>C. Keep the global switch</td><td>1</td><td>None</td><td>None</td></tr>
+</tbody>
+</table>
+<blockquote data-alert="tip">Option A can grow into option B later without a data migration.</blockquote>
+
+<h2>Open Questions</h2>
+<details open>
+<summary>Quiet hours</summary>
+<p>Should quiet hours follow the <comment id="c-h8r3k6wn">device time zone<comment-body contenteditable="false" data-author="human" data-updated="2026-09-29T08:15:00Z">What happens when the user travels?</comment-body><comment-reply contenteditable="false" data-author="ai" data-updated="2026-09-29T08:32:00Z">The device time zone follows the user, so quiet hours stay at local night time.</comment-reply></comment> or the account setting?</p>
+</details>
+<details>
+<summary>Team accounts</summary>
+<p>Can an admin lock settings for all members? Deferred to the next release.</p>
+</details>
+<blockquote data-alert="important">Security alerts must never be muted, whatever the settings say.</blockquote>
+<blockquote data-alert="warning">Push tokens expire after 90 days. Settings must survive a token refresh.</blockquote>
+
+<h2>Rollout</h2>
+<ol>
+<li>Ship option A behind a feature flag.</li>
+<li>Enable it for <comment id="c-m2t7v5bc" data-resolved="">internal users<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-27T14:00:00Z">Should beta testers be included?</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-27T15:10:00Z">No, internal users only.</comment-reply></comment> for one week.</li>
+<li>Roll out to everyone if the ticket count drops.</li>
+</ol>
+<pre><code>{
+  "feature": "per-channel-notifications",
+  "rollout": 0.05
+}</code></pre>
+<blockquote data-alert="caution">Turning the flag off resets every user to the global switch.</blockquote>
+
+<hr>
+<h3>Appendix: Mockup</h3>
+<p><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='80'%3E%3Crect width='240' height='80' rx='8' fill='%23F59E0B'/%3E%3Ctext x='120' y='46' font-family='sans-serif' font-size='16' fill='%23ffffff' text-anchor='middle'%3ESettings mockup%3C/text%3E%3C/svg%3E" alt="Settings mockup"></p>
+<p>Back to the <a href="./playground.html">top of these notes</a>.</p>
+</body>
+</html>

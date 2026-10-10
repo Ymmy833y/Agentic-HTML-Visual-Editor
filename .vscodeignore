@@ -1,21 +1,28 @@
-# Package nothing unless it is explicitly required at runtime or on the Marketplace.
+# Restrict the package by enumerating what to include (NFR-M-01).
+# With the opposite approach of adding exclusions later, build outputs and working files
+# added from then on would slip into the distributed package by default.
+# When something new has to ship, add one line to this list to allow it explicitly.
 **
-
-# Runtime bundles
 !dist/extension.js
 !dist/webview.js
 !dist/webview.css
-!dist/mermaid.js
-
-# Extension and Marketplace assets
-!assets/icon.png
-!icons/ahve-dark.svg
 !icons/ahve-light.svg
-
-# Manifest, documentation, and licenses
+!icons/ahve-dark.svg
+!assets/icon.png
 !package.json
+!package.nls.json
+!package.nls.*.json
+!messages/**
 !README.md
-!README_ja.md
 !CHANGELOG.md
 !LICENSE
 !THIRD_PARTY_NOTICES.md
+# The authoring guide skill is allowed one file at a time. Allowing its directory would take in everything
+# under it, so the distributed package would also carry the script's tests, which users never run.
+!skills/agentic-html-visual-editor-authoring/SKILL.md
+!skills/agentic-html-visual-editor-authoring/references/html-document.md
+!skills/agentic-html-visual-editor-authoring/references/formatting.md
+!skills/agentic-html-visual-editor-authoring/references/mermaid.md
+!skills/agentic-html-visual-editor-authoring/references/comments.md
+!skills/agentic-html-visual-editor-authoring/references/change-marks.md
+!skills/agentic-html-visual-editor-authoring/scripts/list_comments.py

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Checkout redesign: design notes</title>
+</head>
+<body>
+<h1>Checkout Redesign: Design Notes</h1>
+<p>A <strong>two-step checkout</strong> drafted by an AI agent, ready for <comment id="c-k3n8x2qa">team review<comment-body contenteditable="false" data-author="ai" data-updated="2026-09-24T09:12:00Z">I assumed the review happens before the October planning meeting. Please correct me if the date has moved.</comment-body><comment-reply contenteditable="false" data-author="human" data-updated="2026-09-24T10:03:00Z">Still on track. Let's aim for Friday.</comment-reply></comment>.</p>
+<blockquote data-alert="note">Figures come from the <em>September usability study</em>.</blockquote>
+<h2>Goals</h2>
+<ul>
+<li>Purchase in under <strong>2 minutes</strong>.</li>
+<li>Keep guest checkout as the default.</li>
+<li>Show the full price, <code>shipping</code> included.</li>
+</ul>
+<h2>Flow</h2>
+<pre class="mermaid">flowchart LR
+  Cart[Cart] --> Details[Shipping and payment]
+  Details --> Review{Review order}
+  Review -->|Confirm| Done([Order placed])
+</pre>
+<h2>Options Compared</h2>
+<table>
+<thead>
+<tr><th>Option</th><th>Steps</th><th>Effort</th><th>Risk</th></tr>
+</thead>
+<tbody>
+<tr><td>A. Single page</td><td>1</td><td>3 weeks</td><td>High</td></tr>
+<tr><td>B. Two steps</td><td>2</td><td>4 weeks</td><td>Low</td></tr>
+<tr><td>C. Current flow</td><td>5</td><td>None</td><td>None</td></tr>
+</tbody>
+</table>
+<h2>Open Questions</h2>
+<details open>
+<summary>Payment providers</summary>
+<p>Do we launch with <comment id="c-p7w2m9vd">wallet payments<comment-body contenteditable="false" data-author="human" data-updated="2026-09-25T08:30:00Z">Can we ship without Apple Pay in the first release?</comment-body><comment-reply contenteditable="false" data-author="ai" data-updated="2026-09-25T08:41:00Z">Yes. The provider SDK can be switched on later without changing the flow.</comment-reply></comment> on day one?</p>
+</details>
+<blockquote data-alert="warning">The address form must keep working with browser autofill.</blockquote>
+<h2>Rollout</h2>
+<ol>
+<li>Ship option B behind a feature flag.</li>
+<li>Run an A/B test for two weeks.</li>
+<li>Roll out to everyone if conversion improves.</li>
+</ol>
+<pre><code>{
+  "feature": "two-step-checkout",
+  "rollout": 0.1
+}</code></pre>
+</body>
+</html>

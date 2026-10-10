@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-10
+
+Stable release following the 0.2.0 pre-release. The changes below are relative to 0.2.0.
+
+### Added
+
+- Find and replace text with `Ctrl+H` (`Cmd+Option+F` on macOS), including Replace All; comment bodies and replies are excluded, and replacing annotated text keeps its thread
+- Review agent-written additions, deletions, and replacements using `ins`, `del`, and `data-change` marks; accept or reject a change from its popup, or all changes from the sidebar
+- Export the open document as an A4 portrait PDF from the toolbar or **Visual Editor: Export as PDF** command; export uses a light theme, omits comment annotations, and keeps supported links clickable. Pages are images, so PDF text cannot be selected or searched; pending change marks must be accepted or rejected before export
+- Offer to create a minimal HTML document when opening an empty or whitespace-only file; the file changes only when the user chooses this option
+- Zoom Mermaid previews with the diagram controls or `Ctrl`+wheel (`Cmd`+wheel on macOS), with horizontal scrolling for wide diagrams; zoom affects only the preview and is not saved
+- Open the comment at the caret with `Alt+Enter`, and indent or outdent code-block lines with `Tab` or `Shift+Tab`; `Tab` in ordinary document text keeps focus in the document
+
+### Changed
+
+- Require VS Code 1.90 or later, up from 1.86
+- Resolve save conflicts by choosing the file version, the visual version, or both for each conflicting region before saving; canceling keeps the visual edits pending. A save in a hidden tab shows a notification that can bring its conflicts into view
+- Resize the sidebar by dragging its edge and remember its width and open state across files; narrow sidebars show icon-only tabs with tooltips
+- Support lists, tables, collapsible sections, horizontal rules, and Mermaid diagrams inside ordinary and alert blockquotes; `Backspace` at the start of the first line lifts that line out of the quote
+- Apply formatting toggled at a caret to the next typed text, and let Clear Formatting remove fully selected blocks' styles as well as inline formatting
+- Accept `px` and `%` for image width and height; a size without either suffix is treated as pixels
+- Confirm multiline dialog input with `Enter` and insert a line break with `Shift+Enter`, including the Mermaid source dialog
+- Allow visual undo, redo, and Revert File while the HTML text tab has unsaved changes, using the file on disk and leaving the text tab's edits intact; saving the visual view still requires saving the text tab first
+
+### Fixed
+
+- Move vertically between table cells with the up and down arrow keys at the cell's first or last displayed line, and preserve the table's total width and existing column proportions when inserting a column
+- Keep bold, italic, and strikethrough from pasted HTML as semantic elements, remove obsolete formatting wrappers, and avoid inserting those elements into content that cannot contain them
+- Refuse files whose non-UTF-8 bytes were decoded as replacement characters instead of saving damaged content; literal replacement characters in valid UTF-8 remain editable. Update non-UTF-8 encoding declarations when saving as UTF-8
+- Avoid treating an intermediate file write as an external replacement; improve adjacent-line save merges, failed-save retry, and restoration of unsaved visual edits
+- Fit long comment popups within the view, preserve their scroll position, emphasize the open annotation, and disable comment controls when the selection cannot create or open a comment
+- Fall back to the workspace folder when a document-relative file link is not found, and resolve links starting with a single `/` from the document's workspace folder
+- Keep code blocks readable in both high-contrast themes and keep the document's scroll position when focus returns to the editor
+- Show the alert kind, such as Note or Warning, in the block type control while editing an alert's body
+- Improve whole-document deletion performance for large documents
+- Explain why splitting a visual editor tab leaves an empty group: multiple visual views of one file are unsupported
+
+## [0.2.0] - 2026-10-01
+
+Pre-release. Rebuilt from the ground up for long-term maintenance. Every feature of 0.1.12 carries over.
+
+### Added
+
+- Run in VS Code for the Web (such as vscode.dev) and in virtual workspaces, and work in untrusted workspaces
+- Show the editor in Japanese when VS Code's display language is Japanese: the toolbar, menus, dialogs, command names, and notifications all follow it
+- Sidebar at the left edge of the view that lists the headings by level and every comment thread in document order, with resolved threads marked; choosing an item moves to that spot, and a toolbar button opens and closes it
+- Carry the document's `lang` over to the editing area, so the text is laid out in the language of the file rather than that of the UI
+- Agent Skill that teaches AI agents how to write HTML for this editor and work with its review comments, installable with `npx skills add Ymmy833y/Agentic-HTML-Visual-Editor`
+
+### Changed
+
+- Require VS Code 1.86 or later (previously 1.85)
+- Do not open a document in the WYSIWYG view when its body contains `script`, `iframe`, `object`, `embed`, `noscript`, `link`, `style`, `base`, or `meta`, or when it does not have exactly one `<body>` start tag followed by one end tag (an empty file included); a dialog explains why and offers to switch to the text editor, and the file is left untouched. Previously such tags were stripped and a document without `<body>` was opened as it was
+- Neutralize `on*` event-handler attributes and URLs with a `javascript:`, `vbscript:`, or `data:text/html` scheme only inside the view, and write them back as they were when saving, so sanitizing never removes anything from the file
+- Keep every line you did not edit exactly as it is on disk — whitespace, attribute quotes, tag case, and void-element spelling included — even after editing elsewhere in the document, and put a newly inserted block on its own line without indentation
+- Keep `<b>` and `<i>` as written instead of rewriting them to `<strong>` and `<em>`; they are still recognized as bold and italic
+- Report problems you can act on as notifications and record internal errors in the **Agentic HTML Visual Editor** output channel; a failed save or merge is always reported
+- Open files in encodings other than UTF-8 and, when saving from the WYSIWYG view, convert them to UTF-8 with their characters intact
+- Reach and operate the toolbar, menus, dialogs, and the comment popup with the keyboard alone (`Alt+F10` moves focus from the document to the toolbar), with a visible focus ring and roles and labels for screen readers
+
 ## [0.1.13] - 2026-10-01
 
 ### Security
