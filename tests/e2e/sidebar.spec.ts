@@ -22,9 +22,11 @@ import {
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_RESIZER_CLASS,
   SIDEBAR_RESIZING_ATTRIBUTE,
+  SIDEBAR_WIDTH_PROPERTY,
 } from '../../webview/ui/sidebar';
 import { TOOLBAR_ELEMENT_ID } from '../../webview/ui/toolbar';
 import { TOOLBAR_SLOT } from '../../webview/ui/toolbar-slots';
+import { TOOLTIP_DELAY_MS, TOOLTIP_ELEMENT_ID } from '../../webview/ui/tooltip';
 import { EDITOR_ROOT, readBodyHtml } from './helpers/editing';
 import { PROBE_BUNDLE_PATH, getOutboundMessages, openWebviewHost, sendToWebview } from './helpers/page';
 
@@ -36,6 +38,7 @@ const SIDEBAR = `#${SIDEBAR_ELEMENT_ID}`;
 const SIDEBAR_BUTTON = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.sidebar}"] > button`;
 const BOLD_BUTTON = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.bold}"] > button`;
 const TABS = `${SIDEBAR} [role="tab"]`;
+const TOOLTIP = `#${TOOLTIP_ELEMENT_ID}`;
 const RESIZER = `${SIDEBAR} > .${SIDEBAR_RESIZER_CLASS}`;
 const ITEMS = `${SIDEBAR} [role="tabpanel"] button`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
@@ -1321,6 +1324,135 @@ test.describe('the changes tab', () => {
 });
 
 test.describe('the tabs of a narrow sidebar', () => {
+  for (const width of [undefined, SIDEBAR_MIN_WIDTH]) {
+    test(`at ${width === undefined ? 'the default' : 'the narrowest'} width, hovering each tab shows its name in the shared tooltip`, async ({ page }) => {
+      await openSidebarEditor(page, '<h1>A</h1>', { open: true, width });
+      await expect(page.locator(SIDEBAR)).toBeVisible();
+
+      for (const name of ['Headings', 'Comments', 'Changes']) {
+        await sidebarTab(page, name).hover();
+        await expect(page.locator(TOOLTIP)).toHaveText(name);
+        await expect(page.getByRole('tooltip')).toHaveCount(1);
+      }
+    });
+  }
+
+  test('Tab and arrow keys show the name of the focused icon-only tab', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1><p>abcd</p>', { open: true });
+    await placeCaret(page, `${EDITOR_ROOT} p`, 2);
+    await page.keyboard.press('Alt+F10');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(sidebarTab(page, 'Headings')).toBeFocused();
+    await expect(page.locator(TOOLTIP)).toHaveText('Headings');
+
+    await page.keyboard.press('ArrowRight');
+    await expect(sidebarTab(page, 'Comments')).toBeFocused();
+    await expect(page.locator(TOOLTIP)).toHaveText('Comments');
+    await page.keyboard.press('ArrowRight');
+    await expect(sidebarTab(page, 'Changes')).toBeFocused();
+    await expect(page.locator(TOOLTIP)).toHaveText('Changes');
+  });
+
+  test('at 400px, hovering or keyboard focusing the labelled tabs shows no tooltip', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1><p>abcd</p>', { open: true, width: 400 });
+    for (const name of ['Headings', 'Comments', 'Changes']) {
+      await sidebarTab(page, name).hover();
+      await page.waitForTimeout(TOOLTIP_DELAY_MS + 150);
+      await expect(page.locator(TOOLTIP)).toHaveCount(0);
+    }
+
+    await placeCaret(page, `${EDITOR_ROOT} p`, 2);
+    await page.keyboard.press('Alt+F10');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    for (const name of ['Headings', 'Comments', 'Changes']) {
+      await expect(sidebarTab(page, name)).toBeFocused();
+      await page.waitForTimeout(TOOLTIP_DELAY_MS + 150);
+      await expect(page.locator(TOOLTIP)).toHaveCount(0);
+      await page.keyboard.press('ArrowRight');
+    }
+  });
+
+  for (const phase of ['waiting', 'shown']) {
+    test(`widening the sidebar cancels a ${phase} tab tooltip without a pointer or focus event`, async ({ page }) => {
+      await openSidebarEditor(page, '<h1>A</h1>', { open: true, width: SIDEBAR_MIN_WIDTH });
+      await sidebarTab(page, 'Changes').hover();
+      if (phase === 'shown') {
+        await expect(page.locator(TOOLTIP)).toHaveText('Changes');
+      }
+
+      // Changing the layout directly leaves the pointer still and isolates the label observer from
+      // the shared controller's existing pointerdown cancellation during a drag.
+      await page.evaluate((property) => document.documentElement.style.setProperty(property, '400px'), SIDEBAR_WIDTH_PROPERTY);
+      await expect(sidebarTab(page, 'Changes').locator('span')).toHaveCSS('position', 'static');
+      await expect(page.locator(TOOLTIP)).toHaveCount(0);
+      await page.waitForTimeout(TOOLTIP_DELAY_MS + 150);
+      await expect(page.locator(TOOLTIP)).toHaveCount(0);
+    });
+  }
+
+  test('narrowing a labelled sidebar enables both hover and keyboard tooltips on the next trigger', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1><p>abcd</p>', { open: true, width: 400 });
+    await page.evaluate((property) => document.documentElement.style.setProperty(property, '160px'), SIDEBAR_WIDTH_PROPERTY);
+    await expect(sidebarTab(page, 'Changes').locator('span')).toHaveCSS('position', 'absolute');
+    await sidebarTab(page, 'Changes').hover();
+    await expect(page.locator(TOOLTIP)).toHaveText('Changes');
+
+    await page.locator(`${EDITOR_ROOT} p`).hover();
+    await placeCaret(page, `${EDITOR_ROOT} p`, 2);
+    await page.keyboard.press('Alt+F10');
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(sidebarTab(page, 'Headings')).toBeFocused();
+    await expect(page.locator(TOOLTIP)).toHaveText('Headings');
+  });
+
+  for (const phase of ['waiting', 'shown']) {
+    for (const action of ['leave', 'key', 'close']) {
+      test(`${action} cancels a ${phase} tab tooltip`, async ({ page }) => {
+        await openSidebarEditor(page, '<h1>A</h1><p>abcd</p>', { open: true });
+        await sidebarTab(page, 'Headings').hover();
+        if (phase === 'shown') {
+          await expect(page.locator(TOOLTIP)).toHaveText('Headings');
+        }
+
+        if (action === 'leave') {
+          await page.locator(`${EDITOR_ROOT} p`).hover();
+        } else if (action === 'key') {
+          await page.keyboard.press('Escape');
+        } else {
+          await page.locator(SIDEBAR_BUTTON).click();
+          await expect(page.locator(SIDEBAR)).toBeHidden();
+          // Move off the toggle so its own tooltip does not replace the cancelled tab message.
+          await page.locator(`${EDITOR_ROOT} p`).hover();
+        }
+        await page.waitForTimeout(TOOLTIP_DELAY_MS + 150);
+        await expect(page.locator(TOOLTIP)).toHaveCount(0);
+      });
+    }
+  }
+
+  test('showing a tab tooltip preserves the selection and output and keeps accessible names without native titles', async ({ page }) => {
+    await openSidebarEditor(page, '<h1>A</h1><p>abcd</p>', { open: true });
+    await selectText(page, `${EDITOR_ROOT} p`, 1, 3);
+    const output = await readBodyOutput(page);
+    await sidebarTab(page, 'Changes').hover();
+    await expect(page.locator(TOOLTIP)).toHaveText('Changes');
+
+    for (const name of ['Headings', 'Comments', 'Changes']) {
+      await expect(sidebarTab(page, name)).toHaveAccessibleName(name);
+    }
+    expect([
+      await readFocus(page),
+      await page.evaluate(() => window.getSelection()?.toString()),
+      await readBodyOutput(page),
+      await readEditMessageTypes(page),
+      await page.locator(`${SIDEBAR} [title]`).count(),
+      await page.locator(`${TABS}[aria-describedby]`).count(),
+    ]).toEqual(['editor', 'bc', output, [], 0, 0]);
+  });
+
   /**
    * Reads each tab: its name, whether its content fits inside it, whether its label takes up room on screen, and its
    * horizontal edges.

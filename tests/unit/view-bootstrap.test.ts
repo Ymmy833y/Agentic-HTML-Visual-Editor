@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   EDITOR_ROOT_ELEMENT_ID,
@@ -129,8 +129,16 @@ async function startView(): Promise<StartedView> {
 const BOOTSTRAP_IMPORT_TIMEOUT_MS = 30_000;
 
 beforeAll(async () => {
+  // Startup only needs to subscribe; label layout is exercised in the browser tests.
+  vi.stubGlobal('ResizeObserver', class {
+    observe(): void {}
+  });
   await import('../../webview/bootstrap/view-bootstrap');
 }, BOOTSTRAP_IMPORT_TIMEOUT_MS);
+
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('view startup', () => {
   it('retains a determined boundary that matches the split result', async () => {

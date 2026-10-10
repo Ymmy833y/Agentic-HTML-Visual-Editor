@@ -95,6 +95,8 @@ function attach(html: string, layout?: SidebarLayout, mount = true): Harness {
     rejectAllChanges: () => moves.push('reject all'),
     hasShortcut: () => false,
     returnToEditor: () => undefined,
+    registerTooltip: () => undefined,
+    hideTooltip: () => undefined,
     reportDiagnostic: () => undefined,
     saveLayout: (saved) => layouts.push(saved),
   }, layout);
@@ -182,10 +184,14 @@ function readSidebarButton(): HTMLButtonElement {
 describe('The sidebar', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+    vi.stubGlobal('ResizeObserver', class {
+      observe(): void {}
+    });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('is placed hidden right before the toolbar, outside the editor root, as a named region with three tabs', () => {

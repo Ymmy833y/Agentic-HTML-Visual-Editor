@@ -852,6 +852,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       },
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
       returnToEditor: () => viewShell.editorReturn.returnToEditor(),
+      registerTooltip: (element, label, shouldShow) => viewShell.tooltip.registerTarget(element, label, shouldShow),
+      hideTooltip: () => viewShell.tooltip.hide(),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
       saveLayout: (change) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged, ...change }),
     }, readEmbeddedSidebarLayout(view.document));
