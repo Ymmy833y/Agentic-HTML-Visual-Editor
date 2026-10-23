@@ -136,6 +136,38 @@ describe('第三者のパッケージの収集', () => {
     ]);
   });
 
+  it('バンドルが直に取り込んだパッケージは、別の配布物のソースマップに現れる版ではなく、導入された版で返す', () => {
+    writeBundledFixture();
+    // bundled の配下の取り込み済みの配布物が、embedded の古い版を抱えている。embedded 自身もバンドルが直に取り込んでいる。
+    const packages = collectThirdPartyPackages([join(root, 'node_modules/bundled'), join(root, 'node_modules/embedded')], {
+      supplementDir: join(root, 'supplement'),
+    });
+
+    expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['3.2.0']);
+  });
+
+  it('同じ名前のパッケージをバンドルが入れ子の node_modules からも取り込んでいると、取り込んだ版をすべて返す', () => {
+    writeBundledFixture();
+    writeFixture('node_modules/nesting/package.json', JSON.stringify({ name: 'nesting', version: '1.0.0', license: 'MIT' }));
+    writeFixture('node_modules/nesting/LICENSE', 'nesting license');
+    writeFixture(
+      'node_modules/nesting/node_modules/embedded/package.json',
+      JSON.stringify({ name: 'embedded', version: '2.0.0', license: 'ISC' }),
+    );
+    writeFixture('node_modules/nesting/node_modules/embedded/LICENSE', 'embedded license');
+
+    const packages = collectThirdPartyPackages(
+      [
+        join(root, 'node_modules/bundled'),
+        join(root, 'node_modules/embedded'),
+        join(root, 'node_modules/nesting/node_modules/embedded'),
+      ],
+      { supplementDir: join(root, 'supplement') },
+    );
+
+    expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['2.0.0', '3.2.0']);
+  });
+
   it('起点からたどれない開発依存は、node_modules にあっても返さない', () => {
     writeBundledFixture();
 

@@ -156,8 +156,16 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
           .sort()
       : [];
 
+  // バンドルが node_modules から直に取り込んだパッケージの版。導入された版がそのまま配布物に入る。入れ子の node_modules
+  // に同じ名前の別の版があれば、それも取り込まれているので名前ごとにすべて持つ。
+  /** @type {Map<string, Set<string>>} */
+  const bundledVersions = new Map();
   for (const dir of rootDirs) {
-    note(readManifest(dir).name, dir, undefined);
+    const { name, version } = readManifest(dir);
+    if (typeof version === 'string') {
+      bundledVersions.set(name, (bundledVersions.get(name) ?? new Set()).add(version));
+    }
+    note(name, dir, undefined);
   }
 
   while (pending.length > 0) {
@@ -204,13 +212,19 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
     const manifests = candidates.filter((dir) => existsSync(join(dir, 'package.json'))).map(readManifest);
     const license = manifests.map(licenseOf).find((value) => value !== undefined);
     const version = manifests.map((manifest) => manifest.version).find((value) => typeof value === 'string');
-    // 取り込まれた版が分かればそれを載せ、分からなければ導入された版を載せる。
+    // バンドルが直に取り込んだ版があればそれを載せる。起点の配下のソースマップには、バンドルに入らない配布物（mermaid の
+    // mermaid.esm.min など）が取り込んだ別の版が現れる。それを載せると、ロックファイルで直した版を古い版と取り違えて
+    // 表示してしまう。直に取り込まれていなければ、ソースマップから分かった取り込まれた版を載せ、それも無ければ導入された版を載せる。
+    const sortVersions = (set) => [...set].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
+    const bundled = bundledVersions.get(name);
     const versions =
-      entry.embeddedVersions.size > 0
-        ? [...entry.embeddedVersions].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }))
-        : version === undefined
-          ? []
-          : [version];
+      bundled !== undefined
+        ? sortVersions(bundled)
+        : entry.embeddedVersions.size > 0
+          ? sortVersions(entry.embeddedVersions)
+          : version === undefined
+            ? []
+            : [version];
     // 種類の無い表示は、載せたライセンス文と食い違って読まれうる。ライセンス文が無いときと同じく止めて補足を求める。
     if (licenseDir === undefined || license === undefined || versions.length === 0) {
       missing.push(name);
