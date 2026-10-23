@@ -7,13 +7,14 @@ import type { DiagramConfig, DiagramRenderer } from './diagram-render';
  *
  * Mermaid is bundled into the view, but it is imported dynamically so that the library is evaluated only when a
  * document first shows a diagram source block. Opening a document without diagrams pays only for parsing the bundle.
- * The prebuilt minified entry keeps the bundle small even in development builds.
+ * The core entry imports its dependencies, such as DOMPurify, from their own packages instead of carrying prebuilt
+ * copies, so the versions in the lockfile are the ones the view runs.
  *
  * @returns The diagram renderer.
  * @throws When the loaded module does not have the functions the view uses.
  */
 export async function loadDiagramRenderer(): Promise<DiagramRenderer> {
-  const loaded = await import('mermaid/dist/mermaid.esm.min.mjs');
+  const loaded = await import('mermaid/dist/mermaid.core.mjs');
   const api: unknown = loaded.default;
   if (typeof api !== 'object' || api === null) {
     throw new Error('The Mermaid module has no default export');
