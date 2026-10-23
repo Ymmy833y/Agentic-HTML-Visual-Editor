@@ -136,9 +136,9 @@ describe('第三者のパッケージの収集', () => {
     ]);
   });
 
-  it('バンドルが直に取り込んだパッケージは、別の配布物のソースマップに現れる版ではなく、導入された版で返す', () => {
+  it('returns the installed version of a package the bundle imports directly, not one named in a source map', () => {
     writeBundledFixture();
-    // bundled の配下の取り込み済みの配布物が、embedded の古い版を抱えている。embedded 自身もバンドルが直に取り込んでいる。
+    // The prebuilt files under bundled embed an older embedded, and the bundle also imports embedded itself.
     const packages = collectThirdPartyPackages([join(root, 'node_modules/bundled'), join(root, 'node_modules/embedded')], {
       supplementDir: join(root, 'supplement'),
     });
@@ -146,7 +146,7 @@ describe('第三者のパッケージの収集', () => {
     expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['3.2.0']);
   });
 
-  it('同じ名前のパッケージをバンドルが入れ子の node_modules からも取り込んでいると、取り込んだ版をすべて返す', () => {
+  it('returns every version of a package the bundle imports from a nested node_modules as well', () => {
     writeBundledFixture();
     writeFixture('node_modules/nesting/package.json', JSON.stringify({ name: 'nesting', version: '1.0.0', license: 'MIT' }));
     writeFixture('node_modules/nesting/LICENSE', 'nesting license');

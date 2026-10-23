@@ -156,8 +156,8 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
           .sort()
       : [];
 
-  // バンドルが node_modules から直に取り込んだパッケージの版。導入された版がそのまま配布物に入る。入れ子の node_modules
-  // に同じ名前の別の版があれば、それも取り込まれているので名前ごとにすべて持つ。
+  // The versions of the packages that the bundle imports straight from node_modules. The installed version is the one
+  // that ships. A copy of the same name in a nested node_modules is bundled too, so each name keeps every version.
   /** @type {Map<string, Set<string>>} */
   const bundledVersions = new Map();
   for (const dir of rootDirs) {
@@ -212,9 +212,10 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
     const manifests = candidates.filter((dir) => existsSync(join(dir, 'package.json'))).map(readManifest);
     const license = manifests.map(licenseOf).find((value) => value !== undefined);
     const version = manifests.map((manifest) => manifest.version).find((value) => typeof value === 'string');
-    // バンドルが直に取り込んだ版があればそれを載せる。起点の配下のソースマップには、バンドルに入らない配布物（mermaid の
-    // mermaid.esm.min など）が取り込んだ別の版が現れる。それを載せると、ロックファイルで直した版を古い版と取り違えて
-    // 表示してしまう。直に取り込まれていなければ、ソースマップから分かった取り込まれた版を載せ、それも無ければ導入された版を載せる。
+    // List the versions that the bundle imports straight from node_modules when there are any. The source maps under a
+    // root also name other versions, embedded in prebuilt files that never reach the bundle (such as Mermaid's
+    // mermaid.esm.min), and listing those would show a stale version in place of the one the lockfile fixed. Without a
+    // direct import, list the embedded versions the source maps name, and failing that the installed version.
     const sortVersions = (set) => [...set].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
     const bundled = bundledVersions.get(name);
     const versions =
