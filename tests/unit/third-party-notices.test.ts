@@ -136,6 +136,38 @@ describe('第三者のパッケージの収集', () => {
     ]);
   });
 
+  it('returns the installed version of a package the bundle imports directly, not one named in a source map', () => {
+    writeBundledFixture();
+    // The prebuilt files under bundled embed an older embedded, and the bundle also imports embedded itself.
+    const packages = collectThirdPartyPackages([join(root, 'node_modules/bundled'), join(root, 'node_modules/embedded')], {
+      supplementDir: join(root, 'supplement'),
+    });
+
+    expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['3.2.0']);
+  });
+
+  it('returns every version of a package the bundle imports from a nested node_modules as well', () => {
+    writeBundledFixture();
+    writeFixture('node_modules/nesting/package.json', JSON.stringify({ name: 'nesting', version: '1.0.0', license: 'MIT' }));
+    writeFixture('node_modules/nesting/LICENSE', 'nesting license');
+    writeFixture(
+      'node_modules/nesting/node_modules/embedded/package.json',
+      JSON.stringify({ name: 'embedded', version: '2.0.0', license: 'ISC' }),
+    );
+    writeFixture('node_modules/nesting/node_modules/embedded/LICENSE', 'embedded license');
+
+    const packages = collectThirdPartyPackages(
+      [
+        join(root, 'node_modules/bundled'),
+        join(root, 'node_modules/embedded'),
+        join(root, 'node_modules/nesting/node_modules/embedded'),
+      ],
+      { supplementDir: join(root, 'supplement') },
+    );
+
+    expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['2.0.0', '3.2.0']);
+  });
+
   it('起点からたどれない開発依存は、node_modules にあっても返さない', () => {
     writeBundledFixture();
 
