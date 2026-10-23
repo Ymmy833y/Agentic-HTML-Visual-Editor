@@ -156,8 +156,16 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
           .sort()
       : [];
 
+  // The versions of the packages that the bundle imports straight from node_modules. The installed version is the one
+  // that ships. A copy of the same name in a nested node_modules is bundled too, so each name keeps every version.
+  /** @type {Map<string, Set<string>>} */
+  const bundledVersions = new Map();
   for (const dir of rootDirs) {
-    note(readManifest(dir).name, dir, undefined);
+    const { name, version } = readManifest(dir);
+    if (typeof version === 'string') {
+      bundledVersions.set(name, (bundledVersions.get(name) ?? new Set()).add(version));
+    }
+    note(name, dir, undefined);
   }
 
   while (pending.length > 0) {
@@ -204,13 +212,20 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
     const manifests = candidates.filter((dir) => existsSync(join(dir, 'package.json'))).map(readManifest);
     const license = manifests.map(licenseOf).find((value) => value !== undefined);
     const version = manifests.map((manifest) => manifest.version).find((value) => typeof value === 'string');
-    // 取り込まれた版が分かればそれを載せ、分からなければ導入された版を載せる。
+    // List the versions that the bundle imports straight from node_modules when there are any. The source maps under a
+    // root also name other versions, embedded in prebuilt files that never reach the bundle (such as Mermaid's
+    // mermaid.esm.min), and listing those would show a stale version in place of the one the lockfile fixed. Without a
+    // direct import, list the embedded versions the source maps name, and failing that the installed version.
+    const sortVersions = (set) => [...set].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
+    const bundled = bundledVersions.get(name);
     const versions =
-      entry.embeddedVersions.size > 0
-        ? [...entry.embeddedVersions].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }))
-        : version === undefined
-          ? []
-          : [version];
+      bundled !== undefined
+        ? sortVersions(bundled)
+        : entry.embeddedVersions.size > 0
+          ? sortVersions(entry.embeddedVersions)
+          : version === undefined
+            ? []
+            : [version];
     // 種類の無い表示は、載せたライセンス文と食い違って読まれうる。ライセンス文が無いときと同じく止めて補足を求める。
     if (licenseDir === undefined || license === undefined || versions.length === 0) {
       missing.push(name);

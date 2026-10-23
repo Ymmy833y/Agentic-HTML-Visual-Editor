@@ -2,7 +2,7 @@
   "name": "agentic-html-visual-editor",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "keywords": [
     "wysiwyg",
     "html",
@@ -204,7 +204,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.10.0",
     "@types/vscode": "1.90.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/test-web": "^0.0.81",
@@ -213,7 +213,7 @@
     "jsdom": "^26.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "html2canvas-pro": "2.5.2",
@@ -221,6 +221,9 @@
     "node-diff3": "3.2.1"
   },
   "overrides": {
+    "mermaid": {
+      "katex": "^0.18.2"
+    },
     "mocha": {
       "diff": "^8.0.3",
       "serialize-javascript": "^7.0.5"
