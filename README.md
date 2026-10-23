@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor: a WYSIWYG bridge between AI agents and humans" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.0-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.1-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 or later" />
   <a href="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/blob/HEAD/LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT License" /></a>
 </p>
