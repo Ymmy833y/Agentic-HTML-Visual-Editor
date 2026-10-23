@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor：AI エージェントと人間をつなぐ WYSIWYG エディタ" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.1-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 以降" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT ライセンス" /></a>
 </p>
