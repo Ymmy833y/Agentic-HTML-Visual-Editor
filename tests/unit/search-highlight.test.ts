@@ -54,7 +54,7 @@ function readEnds(range: AbstractRange): (string | number | null)[] {
  */
 function readDeclarations(name: string, selector: string): string[] {
   const text = fs.readFileSync(path.join(STYLESHEET_DIRECTORY, name), 'utf8').replace(STYLESHEET_COMMENT_PATTERN, '');
-  const escaped = selector.replace(/[()]/g, '\\$&');
+  const escaped = selector.replace(/[\\()]/g, '\\$&');
   const match = new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(text);
   return (match?.[1] ?? '').split(';').map((declaration) => declaration.trim()).filter((declaration) => declaration !== '');
 }
