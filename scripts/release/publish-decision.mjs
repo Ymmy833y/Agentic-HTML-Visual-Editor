@@ -1,37 +1,38 @@
-// Marketplace へ公開するかを決める。公開のワークフローの最初のジョブから呼ばれる。
+// Decides whether to publish to the Marketplace. The first job of the publish workflow runs it.
 //
-// ワークフローは開発リポジトリに置かれ、リポジトリの反映で公開リポジトリにも入る。公開してよいのは公開リポジトリ
-// だけなので、実行中のリポジトリが package.json の repository と一致するかを最初に確かめる。
-// 公開の要否は、直前のコミットとの差ではなく Marketplace の公開済みの版との比較で決める。やり直した実行や、
-// 複数のコミットをまとめた push でも、同じ判定になるためである。
+// The workflow lives in the development repository and reaches the public repository when the two are mirrored. Only
+// the public repository may publish, so the first check is whether the running repository is the one package.json
+// names in repository.
+// Whether to publish is decided against the version already on the Marketplace, not against the previous commit, so a
+// rerun or a push that carries several commits reaches the same decision.
 
 import { realpathSync } from 'node:fs';
 import { appendFile, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-// 公開ギャラリーの照会の入口。vsce が掲載の情報を読むのと同じ API である。
+// The public gallery query endpoint, the same API vsce reads listings from.
 const GALLERY_QUERY_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 const GALLERY_API_VERSION = '3.0-preview.1';
 
-// 拡張名（publisher.name）で引き、版は最新の 1 件だけを返させる。
+// Look the extension up by publisher.name and return only its latest version.
 const FILTER_TYPE_EXTENSION_NAME = 7;
 const FLAG_INCLUDE_VERSIONS = 0x1;
 const FLAG_INCLUDE_LATEST_VERSION_ONLY = 0x200;
 
-// 応答が返らないまま公開の実行を止め続けないための上限。
+// Keeps an unanswered query from holding up the publish run.
 const QUERY_TIMEOUT_MS = 30_000;
 
-// Marketplace が受け付ける版の形。接尾辞の付いた版（1.0.0-beta.1 など）は受け付けられない。
+// The version form the Marketplace accepts. A version with a suffix, such as 1.0.0-beta.1, is refused.
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-// GitHub のリポジトリの URL から owner と repo を取り出す。https・git+https・ssh の綴りを受け付ける。
+// Takes the owner and the repo out of a GitHub repository URL, spelled as https, git+https or ssh.
 const GITHUB_REPOSITORY_PATTERN = /^(?:git\+)?(?:https?:\/\/|ssh:\/\/git@|git@)github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i;
 
 /**
- * 版を major・minor・patch の 3 つの数に分ける。
+ * Splits a version into its major, minor and patch numbers.
  *
- * @param {unknown} text 版の文字列。
- * @returns {[number, number, number] | null} 3 つの数。形が違えば null。
+ * @param {unknown} text The version.
+ * @returns {[number, number, number] | null} The three numbers, or null when the version has another form.
  */
 export function parseVersion(text) {
   if (typeof text !== 'string') {
@@ -45,19 +46,19 @@ export function parseVersion(text) {
 }
 
 /**
- * 2 つの版の新旧を比べる。
+ * Compares two versions.
  *
- * @param {string} left 比べる版。
- * @param {string} right 比べられる版。
- * @returns {number} left が新しければ正、同じなら 0、古ければ負。
+ * @param {string} left The version compared.
+ * @param {string} right The version compared against.
+ * @returns {number} Positive when left is newer, 0 when they are equal, negative when left is older.
  */
 export function compareVersions(left, right) {
   const leftParts = parseVersion(left);
   const rightParts = parseVersion(right);
   if (leftParts === null || rightParts === null) {
-    throw new Error(`版を比べられない：${left} と ${right}`);
+    throw new Error(`Cannot compare the versions ${left} and ${right}`);
   }
-  // 文字列のまま比べると 1.10.0 が 1.9.0 より古くなるため、部分ごとに数として比べる。
+  // Compared as numbers part by part; compared as strings, 1.10.0 would be older than 1.9.0.
   for (let index = 0; index < 3; index += 1) {
     if (leftParts[index] !== rightParts[index]) {
       return leftParts[index] - rightParts[index];
@@ -67,24 +68,24 @@ export function compareVersions(left, right) {
 }
 
 /**
- * 変更履歴に、指定した版の見出しがあるかを調べる。
+ * Tells whether the changelog has a heading for a version.
  *
- * @param {string} changelog CHANGELOG.md の本文。
- * @param {string} version 版。
- * @returns {boolean} 見出しがあれば true。
+ * @param {string} changelog The text of CHANGELOG.md.
+ * @param {string} version The version.
+ * @returns {boolean} True when the heading is there.
  */
 export function hasChangelogEntry(changelog, version) {
-  // 見出しは「## [x.y.z] - 日付」。閉じ括弧までを含めて比べ、1.0.0-beta や 1.0.01 の見出しを拾わない。
+  // The heading is "## [x.y.z] - date". Comparing up to the closing bracket keeps 1.0.0-beta and 1.0.01 from matching.
   const heading = `## [${version}]`;
   return changelog.split(/\r?\n/).some((line) => line === heading || line.startsWith(`${heading} `));
 }
 
 /**
- * 実行中のリポジトリが、package.json の repository が指すリポジトリかを判定する。
+ * Tells whether the running repository is the one that package.json names in repository.
  *
- * @param {string | undefined} repository 実行中のリポジトリの owner/repo。
- * @param {string | undefined} repositoryUrl package.json の repository の URL。
- * @returns {boolean} 同じリポジトリなら true。
+ * @param {string | undefined} repository The owner/repo of the running repository.
+ * @param {string | undefined} repositoryUrl The repository URL from package.json.
+ * @returns {boolean} True when both name the same repository.
  */
 export function isPublicRepository(repository, repositoryUrl) {
   if (!repository || !repositoryUrl) {
@@ -94,16 +95,17 @@ export function isPublicRepository(repository, repositoryUrl) {
   if (match === null) {
     return false;
   }
-  // GitHub はリポジトリの名前の大文字と小文字を区別しない。
+  // GitHub does not distinguish the letter case of repository names.
   return `${match[1]}/${match[2]}`.toLowerCase() === repository.toLowerCase();
 }
 
 /**
- * Marketplace から、拡張の公開済みの最新版を取得する。
+ * Fetches the latest version of the extension published on the Marketplace.
  *
- * @param {string} extensionId publisher.name の形の拡張 ID。
- * @param {typeof fetch} [fetchImpl] 照会に使う fetch。
- * @returns {Promise<{ kind: 'found', version: string } | { kind: 'none' }>} 公開済みの版、または未公開。
+ * @param {string} extensionId The extension ID in the form publisher.name.
+ * @param {typeof fetch} [fetchImpl] The fetch used for the query.
+ * @returns {Promise<{ kind: 'found', version: string } | { kind: 'none' }>} The published version, or none when the
+ *   extension has never been published.
  */
 export async function fetchPublishedVersion(extensionId, fetchImpl = fetch) {
   const response = await fetchImpl(GALLERY_QUERY_URL, {
@@ -119,70 +121,97 @@ export async function fetchPublishedVersion(extensionId, fetchImpl = fetch) {
     signal: AbortSignal.timeout(QUERY_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Marketplace への照会が HTTP ${response.status} で失敗した`);
+    throw new Error(`The Marketplace query failed with HTTP ${response.status}`);
   }
+
   const body = await response.json();
   const extensions = body?.results?.[0]?.extensions;
   if (!Array.isArray(extensions)) {
-    throw new Error('Marketplace の応答に拡張の一覧が無い');
+    throw new Error('The Marketplace response has no list of extensions');
   }
   if (extensions.length === 0) {
     return { kind: 'none' };
   }
+
   const version = extensions[0]?.versions?.[0]?.version;
-  // 解釈できない値を公開済みの版として扱うと比較が誤った結論を出すため、応答の形の不一致として扱う。
+  // A value that cannot be read as a version would make the comparison draw a wrong conclusion, so it counts as a
+  // response of the wrong shape.
   if (parseVersion(version) === null) {
-    throw new Error(`Marketplace の応答の版を解釈できない：${String(version)}`);
+    throw new Error(`Cannot read the version in the Marketplace response: ${String(version)}`);
   }
   return { kind: 'found', version };
 }
 
 /**
- * 版・公開済みの版・変更履歴から、公開するかを決める。条件は上から順に当て、最初に当たったものに従う。
+ * Decides from the version, the published version and the changelog whether to publish. The conditions are tried from
+ * the top, and the first one that holds decides.
  *
  * @param {{ version: string, published: { kind: 'found', version: string } | { kind: 'none' } | { kind: 'error', message: string }, changelog: string }} input
- *   package.json の版、公開済みの版の取得結果、CHANGELOG.md の本文。
- * @returns {{ outcome: 'publish' | 'skip' | 'fail', reason: string }} 判定と、その理由。
+ *   The version in package.json, the result of fetching the published version, and the text of CHANGELOG.md.
+ * @returns {{ outcome: 'publish' | 'skip' | 'fail', reason: string }} The decision and its reason.
  */
 export function decidePublish({ version, published, changelog }) {
   if (parseVersion(version) === null) {
-    return { outcome: 'fail', reason: `版 ${String(version)} は major.minor.patch の形でなく、Marketplace が受け付けない。` };
+    return {
+      outcome: 'fail',
+      reason: `Version ${String(version)} is not in the form major.minor.patch, which the Marketplace requires.`,
+    };
   }
   if (published.kind === 'error') {
-    return { outcome: 'fail', reason: `公開済みの版を取得できないため、判定せずに止める（${published.message}）。` };
+    return {
+      outcome: 'fail',
+      reason: `Stopping without a decision because the published version could not be fetched (${published.message}).`,
+    };
   }
   if (published.kind === 'found') {
     const order = compareVersions(version, published.version);
     if (order === 0) {
-      return { outcome: 'skip', reason: `版 ${version} は公開済みのため、公開しない。` };
+      return { outcome: 'skip', reason: `Not publishing: version ${version} is already published.` };
     }
     if (order < 0) {
-      return { outcome: 'skip', reason: `版 ${version} は公開済みの版 ${published.version} より古いため、公開しない。` };
+      return {
+        outcome: 'skip',
+        reason: `Not publishing: version ${version} is older than the published version ${published.version}.`,
+      };
     }
   }
   if (!hasChangelogEntry(changelog, version)) {
-    return { outcome: 'fail', reason: `CHANGELOG.md に版 ${version} の見出しが無いため、公開しない。` };
+    return { outcome: 'fail', reason: `Not publishing: CHANGELOG.md has no heading for version ${version}.` };
   }
-  const previous = published.kind === 'found' ? published.version : '未公開';
-  return { outcome: 'publish', reason: `版 ${version} を公開する（公開済みの版：${previous}）。` };
+
+  const previous = published.kind === 'found' ? published.version : 'none';
+  return { outcome: 'publish', reason: `Publishing version ${version} (published version: ${previous}).` };
 }
 
 /**
- * 実行中のリポジトリと、そのコミットの package.json・CHANGELOG.md から公開するかを決める。
+ * Reads the repository URL from package.json, which may give it as a string or as an object with a url.
+ *
+ * @param {{ repository?: string | { url?: string } }} manifest The contents of package.json.
+ * @returns {string | undefined} The repository URL, or undefined when none is declared.
+ */
+function readRepositoryUrl(manifest) {
+  return typeof manifest.repository === 'string' ? manifest.repository : manifest.repository?.url;
+}
+
+/**
+ * Decides whether to publish from the running repository and from package.json and CHANGELOG.md of its commit.
  *
  * @param {{ repository: string | undefined, manifest: { name?: string, publisher?: string, version: string, repository?: string | { url?: string } }, changelog: string, fetchImpl?: typeof fetch }} input
- *   実行中のリポジトリの owner/repo、package.json の内容、CHANGELOG.md の本文、照会に使う fetch。
- * @returns {Promise<{ outcome: 'publish' | 'skip' | 'fail', reason: string }>} 判定と、その理由。
+ *   The owner/repo of the running repository, the contents of package.json, the text of CHANGELOG.md, and the fetch
+ *   used for the query.
+ * @returns {Promise<{ outcome: 'publish' | 'skip' | 'fail', reason: string }>} The decision and its reason.
  */
 export async function evaluatePublish({ repository, manifest, changelog, fetchImpl = fetch }) {
-  const repositoryUrl = typeof manifest.repository === 'string' ? manifest.repository : manifest.repository?.url;
-  // 開発リポジトリやフォークでは、Marketplace へ照会もせずに終える。
+  const repositoryUrl = readRepositoryUrl(manifest);
+  // The development repository and forks stop here, without even querying the Marketplace.
   if (!isPublicRepository(repository, repositoryUrl)) {
     return {
       outcome: 'skip',
-      reason: `${repository ?? '（不明なリポジトリ）'} は公開リポジトリ（${repositoryUrl ?? '未宣言'}）でないため、公開しない。`,
+      reason: `Not publishing: ${repository ?? '(unknown repository)'} is not the public repository `
+        + `(${repositoryUrl ?? 'not declared'}).`,
     };
   }
+
   /** @type {{ kind: 'found', version: string } | { kind: 'none' } | { kind: 'error', message: string }} */
   let published;
   try {
@@ -194,32 +223,33 @@ export async function evaluatePublish({ repository, manifest, changelog, fetchIm
 }
 
 /**
- * package.json と CHANGELOG.md を読んで判定し、後続のジョブが読む出力へ写す。
+ * Reads package.json and CHANGELOG.md, decides, and writes the decision to the outputs the later jobs read.
  *
- * @returns {Promise<number>} 終了コード。判定が失敗なら 1。
+ * @returns {Promise<number>} The exit code: 1 when the decision is a failure.
  */
 async function main() {
   const manifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
   const changelog = await readFile(new URL('../../CHANGELOG.md', import.meta.url), 'utf8');
   const decision = await evaluatePublish({ repository: process.env.GITHUB_REPOSITORY, manifest, changelog });
-  console.log(`判定：${decision.outcome}。${decision.reason}`);
+  console.log(`Decision: ${decision.outcome}. ${decision.reason}`);
 
-  // 手元で流すときは GITHUB_OUTPUT が無いので、判定の表示だけで終える。
+  // A local run has no GITHUB_OUTPUT, so it only prints the decision.
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath) {
     await appendFile(outputPath, `publish=${decision.outcome === 'publish'}\nversion=${manifest.version}\n`);
   }
 
   if (decision.outcome === 'fail') {
-    // 注釈として出すと、実行の概要に理由が表示される。
+    // As an annotation, the reason appears in the run summary.
     console.log(`::error::${decision.reason}`);
     return 1;
   }
   return 0;
 }
 
-// テストから読み込まれたときは判定を走らせず、直接実行されたときだけ動く。Node.js は自身の URL をシンボリックリンクを
-// 解いた実体のパスで持つので、起動したパスも実体に直して比べる。直さないと、リンク越しの起動で何もせずに終わる。
+// Runs only when executed directly, not when a test imports the module. Node.js keeps its own URL as the real path with
+// symbolic links resolved, so the path it was started with is resolved too; otherwise a start through a link would end
+// without doing anything.
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().then(
     (code) => {
