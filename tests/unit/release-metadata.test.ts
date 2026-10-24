@@ -1,36 +1,38 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import manifest from '../../package.json';
 import { hasChangelogEntry, isPublicRepository } from '../../scripts/release/publish-decision.mjs';
 
-// 公開の判定は、この 2 つの名前を見分けられなければならない。
+// The publish decision has to tell these two names apart.
 const PUBLIC_REPOSITORY = 'Ymmy833y/Agentic-HTML-Visual-Editor';
 const DEVELOPMENT_REPOSITORY = 'Ymmy833y/Agentic-HTML-Visual-Editor-3';
 
-// PNG の先頭 8 バイトの署名。
+// The 8-byte signature at the start of a PNG.
 const PNG_SIGNATURE = '89504e470d0a1a0a';
 
-// 掲載ページのアイコンに求められる最小の縦横。
+// The smallest width and height the listing page accepts for the icon.
 const MINIMUM_ICON_SIZE = 128;
 
 /**
- * リポジトリの直下からの相対パスでファイルを読む。
+ * Reads a file by its path relative to the repository root.
  *
- * @param relativePath リポジトリの直下からの相対パス。
- * @returns ファイルの内容。
+ * @param relativePath The path relative to the repository root.
+ * @returns The contents of the file.
  */
 function readRepositoryFile(relativePath: string): Buffer {
   return readFileSync(fileURLToPath(new URL(`../../${relativePath}`, import.meta.url)));
 }
 
 /**
- * README が相対パスで参照する画像のパスを、出てくる順に取り出す。http(s) の画像（バッジ）は除く。
+ * Takes the paths of the images a README refers to by relative path, in order of appearance. Images over http(s),
+ * the badges, are left out.
  *
- * @param relativePath README のリポジトリの直下からの相対パス。
- * @returns 画像のパスの並び。
+ * @param relativePath The README's path relative to the repository root.
+ * @returns The image paths.
  */
 function readRelativeImages(relativePath: string): string[] {
   const readme = readRepositoryFile(relativePath).toString('utf8');
@@ -40,31 +42,31 @@ function readRelativeImages(relativePath: string): string[] {
 }
 
 /**
- * README の冒頭にある版のバッジが示す版を取り出す。
+ * Takes the version shown by the version badge at the top of a README.
  *
- * @param relativePath README のリポジトリの直下からの相対パス。
- * @returns バッジが示す版。バッジが見つからなければ undefined。
+ * @param relativePath The README's path relative to the repository root.
+ * @returns The version the badge shows, or undefined when there is no badge.
  */
 function readBadgeVersion(relativePath: string): string | undefined {
   const readme = readRepositoryFile(relativePath).toString('utf8');
   return /img\.shields\.io\/badge\/VS%20Marketplace-v(\d+\.\d+\.\d+)-/.exec(readme)?.[1];
 }
 
-describe('版と変更履歴', () => {
-  it('CHANGELOG.md に package.json の版の見出しがある', () => {
+describe('version and changelog', () => {
+  it('has a CHANGELOG.md heading for the version in package.json', () => {
     const changelog = readRepositoryFile('CHANGELOG.md').toString('utf8');
 
     expect(hasChangelogEntry(changelog, manifest.version)).toBe(true);
   });
 
-  it('CHANGELOG.md の最初の版の見出しが package.json の版と一致する', () => {
+  it('has the version in package.json as the first version heading of CHANGELOG.md', () => {
     const changelog = readRepositoryFile('CHANGELOG.md').toString('utf8');
 
     expect(/^## \[([^\]]+)\]/m.exec(changelog)?.[1]).toBe(manifest.version);
   });
 
-  it('README.md と README_ja.md の版のバッジが、package.json の版を示す', () => {
-    // 版を上げたのにバッジを直し忘れると、掲載ページと GitHub が古い版を示し続ける。
+  it('shows the version in package.json on the version badges of README.md and README_ja.md', () => {
+    // A badge left behind after a version bump would keep showing the old version on the listing page and on GitHub.
     expect({
       english: readBadgeVersion('README.md'),
       japanese: readBadgeVersion('README_ja.md'),
@@ -72,18 +74,18 @@ describe('版と変更履歴', () => {
   });
 });
 
-describe('掲載情報', () => {
-  it('repository は、公開リポジトリの名前では公開リポジトリと判定され、開発リポジトリの名前では判定されない', () => {
+describe('listing', () => {
+  it('declares a repository that the publish decision matches to the public repository name and not to the development one', () => {
     expect({
       public: isPublicRepository(PUBLIC_REPOSITORY, manifest.repository.url),
       development: isPublicRepository(DEVELOPMENT_REPOSITORY, manifest.repository.url),
     }).toEqual({ public: true, development: false });
   });
 
-  it('icon が指すファイルが、縦横 128 以上の PNG である', () => {
+  it('points icon at a PNG at least 128 pixels wide and high', () => {
     const icon = readRepositoryFile(manifest.icon);
 
-    // IHDR の幅と高さは、署名とチャンクの見出しに続く 16 バイト目と 20 バイト目にある。
+    // The IHDR width and height sit at bytes 16 and 20, after the signature and the chunk header.
     expect({
       signature: icon.subarray(0, 8).toString('hex'),
       wide: icon.readUInt32BE(16) >= MINIMUM_ICON_SIZE,
@@ -115,13 +117,13 @@ describe('minimum VS Code version', () => {
   });
 });
 
-describe('README の画像', () => {
-  it('README.md と README_ja.md が相対パスで参照する画像がすべて実在する PNG で、2 つの README の画像の並びが一致する', () => {
+describe('README images', () => {
+  it('refers only to existing PNG images by relative path, in the same order in README.md and README_ja.md', () => {
     const english = readRelativeImages('README.md');
     const japanese = readRelativeImages('README_ja.md');
     const distinct = [...new Set(english)];
 
-    // 掲載ページは SVG を拒むので、画像は PNG に限る。
+    // The listing page refuses SVG, so the images have to be PNG.
     expect({
       found: english.length > 0,
       signatures: distinct.map((source) => readRepositoryFile(source).subarray(0, 8).toString('hex')),
@@ -130,11 +132,11 @@ describe('README の画像', () => {
   });
 });
 
-describe('README のリンク', () => {
-  it('README.md の HTML のリンクは、ページ内の見出しか絶対 URL だけを指す', () => {
+describe('README links', () => {
+  it('points the HTML links of README.md only at headings in the page or at absolute URLs', () => {
     const readme = readRepositoryFile('README.md').toString('utf8');
-    // vsce は Markdown のリンクと画像を公開リポジトリの URL へ書き換えるが、HTML の <a href> は書き換えない。
-    // 相対のまま配布物に入ると、掲載ページではリポジトリのファイルを開けない。
+    // vsce rewrites Markdown links and images to URLs in the public repository, but not an HTML <a href>.
+    // Left relative in the package, such a link cannot open the repository file from the listing page.
     const relative = [...readme.matchAll(/<a\s[^>]*href="([^"]*)"/g)]
       .map((match) => match[1] ?? '')
       .filter((href) => !/^(?:https?:\/\/|#)/.test(href));
@@ -143,8 +145,8 @@ describe('README のリンク', () => {
   });
 });
 
-describe('公開に使う vsce', () => {
-  it('@vscode/vsce を範囲でなく 1 つの版で宣言し、package-lock.json に入る vsce の版と一致する', () => {
+describe('vsce for publishing', () => {
+  it('declares @vscode/vsce as one exact version, the same version package-lock.json installs', () => {
     const tools: { dependencies: Record<string, string> } = JSON.parse(
       readRepositoryFile('scripts/release/package.json').toString('utf8'),
     );
@@ -153,10 +155,82 @@ describe('公開に使う vsce', () => {
     );
     const declared = tools.dependencies['@vscode/vsce'];
 
-    // 範囲で宣言すると、ロックファイルを作り直すたびに資格情報を扱う vsce の版が動きうる。
+    // Declared as a range, the vsce that handles the credential could change version whenever the lockfile is regenerated.
     expect({
       exact: /^\d+\.\d+\.\d+$/.test(declared),
       locked: lock.packages['node_modules/@vscode/vsce']?.version,
     }).toEqual({ exact: true, locked: declared });
+  });
+
+  it('installs the @azure/identity stub in place of the real package, so no MSAL library is installed', () => {
+    const lock: { packages: Record<string, { resolved?: string; link?: boolean }> } = JSON.parse(
+      readRepositoryFile('scripts/release/package-lock.json').toString('utf8'),
+    );
+
+    expect({
+      identity: lock.packages['node_modules/@azure/identity'],
+      msal: Object.keys(lock.packages).filter((path) => path.includes('@azure/msal')),
+    }).toEqual({ identity: { resolved: 'stubs/azure-identity', link: true }, msal: [] });
+  });
+
+  it('makes the @azure/identity stub fail with the reason when vsce builds a Microsoft Entra ID credential', () => {
+    const stub: Record<string, new () => unknown> = createRequire(import.meta.url)(
+      '../../scripts/release/stubs/azure-identity/index.js',
+    );
+
+    // The credentials vsce 4.0.0 builds for --azure-credential.
+    const names = [
+      'ChainedTokenCredential',
+      'EnvironmentCredential',
+      'AzureCliCredential',
+      'ManagedIdentityCredential',
+      'AzurePowerShellCredential',
+      'AzureDeveloperCliCredential',
+    ];
+    for (const name of names) {
+      const Credential = stub[name];
+      expect(() => new Credential(), name).toThrow(/personal access token/);
+    }
+  });
+});
+
+/**
+ * Splits a workflow into its jobs.
+ *
+ * @param workflow The workflow text.
+ * @returns The text of each job under `jobs`, keyed by the job id.
+ */
+function readJobs(workflow: string): Record<string, string> {
+  const body = workflow.slice(workflow.search(/^jobs:$/m));
+  const jobs: Record<string, string> = {};
+  for (const match of body.matchAll(/^ {2}([\w-]+):\n((?:(?: {4}.*)?\n)*)/gm)) {
+    jobs[match[1] ?? ''] = match[2] ?? '';
+  }
+  return jobs;
+}
+
+describe('publish workflow', () => {
+  // A Windows checkout may hold CRLF line endings, which the patterns below do not expect.
+  const workflow = readRepositoryFile('.github/workflows/publish.yml').toString('utf8').replace(/\r\n/g, '\n');
+
+  it('pins every action to a full commit SHA', () => {
+    const actions = [...workflow.matchAll(/uses:\s*(\S+)/g)].map((match) => match[1] ?? '');
+
+    // A tag can be moved to other code; a commit cannot.
+    expect(actions.length).toBeGreaterThan(0);
+    expect(actions.filter((action) => !/@[0-9a-f]{40}$/.test(action))).toEqual([]);
+  });
+
+  it('gives the credential only to a job that neither installs the repository dependencies nor builds', () => {
+    const jobs = readJobs(workflow);
+    const holders = Object.entries(jobs).filter(([, job]) => job.includes('secrets.'));
+
+    // Every npm ci in the job that holds the credential installs the release tools only.
+    expect(holders.map(([id, job]) => ({
+      id,
+      installs: (job.match(/run: npm ci\b/g) ?? []).length,
+      releaseToolInstalls: (job.match(/run: npm ci\b.*\n\s+working-directory: scripts\/release\n/g) ?? []).length,
+      builds: /vsce package|npm run/.test(job),
+    }))).toEqual([{ id: 'publish', installs: 1, releaseToolInstalls: 1, builds: false }]);
   });
 });

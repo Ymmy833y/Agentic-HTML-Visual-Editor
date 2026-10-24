@@ -22,10 +22,10 @@ afterEach(() => {
 });
 
 /**
- * 一時ディレクトリの中へ、途中のフォルダーごとファイルを書く。
+ * Writes a file into the temporary directory, creating the folders on the way.
  *
- * @param relativePath 一時ディレクトリから見たパス。
- * @param content ファイルの内容。
+ * @param relativePath The path relative to the temporary directory.
+ * @param content The contents of the file.
  */
 function writeFixture(relativePath: string, content: string): void {
   const path = join(root, relativePath);
@@ -34,8 +34,8 @@ function writeFixture(relativePath: string, content: string): void {
 }
 
 /**
- * 起点のパッケージを 1 つと、そこから届くパッケージ・届かないパッケージを置く。
- * 起点は依存を取り込み済みの配布物で、ソースマップに取り込んだパッケージが現れる。
+ * Puts one starting package in place, along with packages that can and cannot be reached from it.
+ * The starting package is prebuilt with its dependencies embedded, so the embedded package appears in its source map.
  */
 function writeBundledFixture(): void {
   writeFixture(
@@ -68,39 +68,39 @@ function writeBundledFixture(): void {
   writeFixture('node_modules/dev-only/LICENSE', 'dev-only license');
 }
 
-describe('パスからのパッケージの特定', () => {
+describe('package from a path', () => {
   it.each([
     {
-      label: 'スコープ付きのパッケージ',
+      label: 'a scoped package',
       path: 'node_modules/@braintree/sanitize-url/dist/index.js',
       expected: { name: '@braintree/sanitize-url', version: undefined },
     },
     {
-      label: '入れ子の node_modules',
+      label: 'a nested node_modules',
       path: 'node_modules/cytoscape-fcose/node_modules/cose-base/cose-base.js',
       expected: { name: 'cose-base', version: undefined },
     },
     {
-      label: '.pnpm の版',
+      label: 'a .pnpm version',
       path: '../../../../../node_modules/.pnpm/@braintree+sanitize-url@7.1.2/node_modules/@braintree/sanitize-url/dist/index.js',
       expected: { name: '@braintree/sanitize-url', version: '7.1.2' },
     },
     {
-      label: '相手先の接尾辞が付いた .pnpm の版',
+      label: 'a .pnpm version with a peer dependency suffix',
       path: '../../node_modules/.pnpm/cytoscape-cose-bilkent@4.1.0_cytoscape@3.34.0/node_modules/cytoscape-cose-bilkent/index.js',
       expected: { name: 'cytoscape-cose-bilkent', version: '4.1.0' },
     },
-  ])('$label のパスから名前と版を取る', ({ path, expected }) => {
+  ])('takes the name and the version from the path of $label', ({ path, expected }) => {
     expect(packageFromSourcePath(path)).toEqual(expected);
   });
 
-  it('node_modules の外のパスには null を返す', () => {
+  it('returns null for a path outside node_modules', () => {
     expect(packageFromSourcePath('../../../src/diagrams/flowchart/flowDb.ts')).toBeNull();
   });
 });
 
-describe('バンドルに入ったパッケージ', () => {
-  it('出力のバイトが 0 の入力と自前のソースを除いたパッケージだけを返す', () => {
+describe('bundled packages', () => {
+  it('returns only packages, leaving out inputs with no bytes in the output and our own sources', () => {
     const metafile = {
       outputs: {
         'dist/webview.js': {
@@ -121,8 +121,8 @@ describe('バンドルに入ったパッケージ', () => {
   });
 });
 
-describe('第三者のパッケージの収集', () => {
-  it('取り込まれたパッケージをその版で、宣言された依存を導入された版で返し、型定義は返さない', () => {
+describe('collecting third-party packages', () => {
+  it('returns embedded packages at their embedded version and declared dependencies at their installed version, leaving out type definitions', () => {
     writeBundledFixture();
 
     const packages = collectThirdPartyPackages([join(root, 'node_modules/bundled')], {
@@ -168,7 +168,7 @@ describe('第三者のパッケージの収集', () => {
     expect(packages.find(({ name }) => name === 'embedded')?.versions).toEqual(['2.0.0', '3.2.0']);
   });
 
-  it('起点からたどれない開発依存は、node_modules にあっても返さない', () => {
+  it('leaves out a development dependency that cannot be reached from a starting package, even when it is in node_modules', () => {
     writeBundledFixture();
 
     const packages = collectThirdPartyPackages([join(root, 'node_modules/bundled')], {
@@ -178,7 +178,7 @@ describe('第三者のパッケージの収集', () => {
     expect(packages.map(({ name }) => name)).not.toContain('dev-only');
   });
 
-  it('導入物にライセンス文が無いパッケージは、補足のディレクトリのライセンス文で返す', () => {
+  it('returns the license text from the supplement directory for a package installed without one', () => {
     writeFixture(
       'node_modules/bundled/package.json',
       JSON.stringify({ name: 'bundled', version: '1.0.0', license: 'MIT', dependencies: { unlicensed: '^1.0.0' } }),
@@ -195,7 +195,7 @@ describe('第三者のパッケージの収集', () => {
     expect(packages.find(({ name }) => name === 'unlicensed')?.licenseText).toBe('license from the supplement');
   });
 
-  it('ライセンス文がどこにも無いパッケージが 2 つあると、2 つの名前を含む例外を投げる', () => {
+  it('throws an error naming both packages when two packages have no license text anywhere', () => {
     writeFixture(
       'node_modules/bundled/package.json',
       JSON.stringify({
@@ -214,7 +214,7 @@ describe('第三者のパッケージの収集', () => {
     ).toThrow(/missing-one, missing-two/);
   });
 
-  it('補足の package.json が種類だけを持つと、種類は補足から、版は導入物から取る', () => {
+  it('takes the license type from a supplement package.json that holds only the type, and the version from the installed package', () => {
     writeFixture(
       'node_modules/bundled/package.json',
       JSON.stringify({ name: 'bundled', version: '1.0.0', license: 'MIT', dependencies: { typeless: '^2.0.0' } }),
@@ -236,7 +236,7 @@ describe('第三者のパッケージの収集', () => {
     });
   });
 
-  it('ライセンス文はあっても種類がどこにも宣言されていないパッケージがあると、その名前を含む例外を投げる', () => {
+  it('throws an error naming a package that has a license text but declares no license type anywhere', () => {
     writeFixture(
       'node_modules/bundled/package.json',
       JSON.stringify({ name: 'bundled', version: '1.0.0', license: 'MIT', dependencies: { typeless: '^2.0.0' } }),
@@ -251,8 +251,8 @@ describe('第三者のパッケージの収集', () => {
   });
 });
 
-describe('第三者ライセンス表示の本文', () => {
-  it('順不同の項目から、名前順に版・ライセンスの種類・ライセンス文を並べる', () => {
+describe('third-party notices text', () => {
+  it('lists the versions, the license type and the license text of unordered entries in name order', () => {
     const alpha = { name: 'alpha', versions: ['1.0.0', '1.1.0'], license: 'MIT', licenseText: 'alpha license' };
     const beta = { name: 'beta', versions: ['2.0.0'], license: 'ISC', licenseText: 'beta license' };
 

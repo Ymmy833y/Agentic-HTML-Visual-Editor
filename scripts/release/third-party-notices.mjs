@@ -1,11 +1,12 @@
-// 配布物に入る第三者の成果物と、そのライセンス文を THIRD_PARTY_NOTICES.md に書き出す。
+// Writes the third-party software that ships in the package, with its license texts, to THIRD_PARTY_NOTICES.md.
 //
-//   node scripts/release/third-party-notices.mjs           表示を作り直す
-//   node scripts/release/third-party-notices.mjs --check   表示が最新かを確かめる（食い違えば終了コード 1）
+//   node scripts/release/third-party-notices.mjs           regenerates the notices
+//   node scripts/release/third-party-notices.mjs --check   checks that the notices are current (exit code 1 if not)
 //
-// 本番の設定でバンドルをメモリ上に作り、出力に入ったパッケージを起点にする。mermaid のように依存を取り込み済みの
-// 配布物は、取り込んだパッケージがバンドルの入力に現れない。そこで起点の配下のソースマップと、宣言された依存を
-// たどって見つける。宣言された依存には実際には取り込まれていないものも混ざるが、漏らすよりは多めに載せる。
+// The bundle is built in memory with the production options, and the packages that reach its output are the starting
+// points. A prebuilt package such as mermaid has already embedded its dependencies, which then never show up among the
+// bundle's inputs; they are found through the source maps under each starting point and through declared
+// dependencies. Declared dependencies include some that are never embedded, but listing too many beats missing one.
 
 import * as esbuild from 'esbuild';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -17,17 +18,17 @@ import { createBuildOptionsList } from '../../esbuild.mjs';
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const NOTICES_PATH = join(REPOSITORY_ROOT, 'THIRD_PARTY_NOTICES.md');
 
-// 導入物に欠けたライセンス文や項目を補う package.json とライセンス文を、名前ごとのフォルダーに置く場所。
+// Where package.json files and license texts that fill gaps in installed packages are kept, one folder per name.
 const SUPPLEMENT_DIR = fileURLToPath(new URL('./third-party-licenses/', import.meta.url));
 
 const NODE_MODULES_SEGMENT = 'node_modules/';
 
-// ライセンス文のファイル名。LICENSE-MPL のように種類を添えた名前も拾う。
+// License text file names, including names with a qualifier such as LICENSE-MPL.
 const LICENSE_FILE_PATTERN = /^(?:licen[cs]e|copying)(?:[-.][\w.-]*)?$/i;
-// 上の名前に当たっても、cytoscape の license-update.mjs のようなスクリプトはライセンス文ではない。
+// A script such as cytoscape's license-update.mjs matches the names above but is not a license text.
 const SCRIPT_FILE_PATTERN = /\.(?:[cm]?js|ts|json)$/i;
 
-// 表示の冒頭。表示は配布物に入る英語の文書なので、実装の段階から英語で書く。
+// The opening of the notices, which ship in the package.
 const NOTICES_HEADER = [
   '# Third-Party Notices',
   '',
@@ -36,10 +37,18 @@ const NOTICES_HEADER = [
 ].join('\n');
 
 /**
- * パスから、パッケージの名前と、分かれば版を取り出す。
+ * @typedef {{ dirs: Set<string>, embeddedVersions: Set<string> }} FoundPackage
+ *   Where a package was found installed, and the versions that source maps say were embedded.
+ * @typedef {{ name: string, versions: string[], license: string, licenseText: string }} NoticeEntry
+ *   One entry of the notices.
+ */
+
+/**
+ * Takes the package name, and the version when the path shows it, out of a path.
  *
- * @param {string} sourcePath バンドルの入力か、ソースマップの sources の要素。
- * @returns {{ name: string, version: string | undefined } | null} 名前と版。node_modules の外なら null。
+ * @param {string} sourcePath An input of the bundle, or an element of a source map's sources.
+ * @returns {{ name: string, version: string | undefined } | null} The name and the version, or null outside
+ *   node_modules.
  */
 export function packageFromSourcePath(sourcePath) {
   const normalized = sourcePath.replaceAll('\\', '/');
@@ -50,13 +59,13 @@ export function packageFromSourcePath(sourcePath) {
   const segments = normalized.slice(index + NODE_MODULES_SEGMENT.length).split('/');
   const isScoped = segments[0].startsWith('@');
   const name = isScoped ? `${segments[0]}/${segments[1] ?? ''}` : segments[0];
-  // .pnpm や .bin は置き場所であってパッケージではない。
+  // .pnpm and .bin are places, not packages.
   if (name === '' || name.startsWith('.') || (isScoped && name.endsWith('/'))) {
     return null;
   }
 
-  // pnpm で作られた配布物のソースマップは .pnpm/<名前>@<版>/node_modules/<名前>/ を指すので、そこから版が分かる。
-  // スコープの / は + に置き換わり、版の後ろには相手先の依存（_cytoscape@3.34.0 など）が付くことがある。
+  // The source maps of a package built with pnpm point at .pnpm/<name>@<version>/node_modules/<name>/, which gives the
+  // version. The / of a scope becomes +, and the version may be followed by a peer dependency such as _cytoscape@3.34.0.
   const store = normalized.slice(0, index).split('/').filter((segment) => segment !== '');
   let version;
   if (store.length >= 2 && store[store.length - 2] === '.pnpm') {
@@ -70,18 +79,18 @@ export function packageFromSourcePath(sourcePath) {
 }
 
 /**
- * メタファイルから、出力にバイトを持つ第三者のパッケージのディレクトリを取り出す。
+ * Takes the directories of the third-party packages that have bytes in the output out of esbuild metafiles.
  *
  * @param {Array<{ outputs: Record<string, { inputs: Record<string, { bytesInOutput: number }> }> }>} metafiles
- *   esbuild のメタファイル。
- * @returns {string[]} esbuild の作業ディレクトリから見たパッケージのディレクトリ。名前順。
+ *   The esbuild metafiles.
+ * @returns {string[]} The package directories relative to esbuild's working directory, sorted.
  */
 export function collectBundledPackageDirs(metafiles) {
   const dirs = new Set();
   for (const metafile of metafiles) {
     for (const output of Object.values(metafile.outputs)) {
       for (const [inputPath, input] of Object.entries(output.inputs)) {
-        // ツリーシェイキングで落ちた入力は、配布物に入らない。
+        // An input dropped by tree shaking does not ship.
         if (input.bytesInOutput === 0) {
           continue;
         }
@@ -99,33 +108,138 @@ export function collectBundledPackageDirs(metafiles) {
 }
 
 /**
- * 起点のパッケージから、取り込まれた依存と宣言された依存をたどり、ライセンスを集める。
+ * Reads the package.json of a package directory.
  *
- * @param {string[]} rootDirs 起点のパッケージのディレクトリ。
- * @param {{ supplementDir: string }} options 導入物に欠けたライセンス文や項目を補うディレクトリ。
- * @returns {Array<{ name: string, versions: string[], license: string, licenseText: string }>} 名前順の一覧。
+ * @param {string} dir The package directory.
+ * @returns {Record<string, any>} The contents of package.json.
  */
-export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
-  /** @type {Map<string, { dirs: Set<string>, embeddedVersions: Set<string> }>} */
+function readManifest(dir) {
+  return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+}
+
+/**
+ * Finds the installed directory of a package the way Node.js resolves it: in the node_modules of the starting directory
+ * first, then in those of each parent.
+ *
+ * @param {string} name The package name.
+ * @param {string} fromDir The directory to start from.
+ * @returns {string | undefined} The installed directory, or undefined when the package is not installed.
+ */
+function resolveInstalledDir(name, fromDir) {
+  for (let current = fromDir; ; current = dirname(current)) {
+    const candidate = join(current, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) {
+      return candidate;
+    }
+    if (dirname(current) === current) {
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Lists the source maps under a package directory. A nested node_modules holds packages of its own, which are visited
+ * separately.
+ *
+ * @param {string} dir The package directory.
+ * @returns {string[]} The paths of the source maps.
+ */
+function listSourceMaps(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((item) => {
+    if (item.isDirectory()) {
+      return item.name === 'node_modules' ? [] : listSourceMaps(join(dir, item.name));
+    }
+    return item.name.endsWith('.map') ? [join(dir, item.name)] : [];
+  });
+}
+
+/**
+ * Lists the license text files in a directory.
+ *
+ * @param {string} dir The directory, which may not exist.
+ * @returns {string[]} The file names, sorted.
+ */
+function listLicenseFiles(dir) {
+  if (!existsSync(dir)) {
+    return [];
+  }
+  return readdirSync(dir)
+    .filter((name) => LICENSE_FILE_PATTERN.test(name) && !SCRIPT_FILE_PATTERN.test(name))
+    .filter((name) => statSync(join(dir, name)).isFile())
+    .sort();
+}
+
+/**
+ * Reads the license type that a package.json declares, including the old licenses array.
+ *
+ * @param {Record<string, any>} manifest The contents of package.json.
+ * @returns {string | undefined} The license type, or undefined when none is declared.
+ */
+function licenseOf(manifest) {
+  if (typeof manifest.license === 'string') {
+    return manifest.license;
+  }
+  if (Array.isArray(manifest.licenses)) {
+    return manifest.licenses.map((item) => item.type).join(' OR ');
+  }
+  return undefined;
+}
+
+/**
+ * Sorts versions in numeric order, so that 1.10.0 follows 1.9.0.
+ *
+ * @param {Iterable<string>} versions The versions.
+ * @returns {string[]} The sorted versions.
+ */
+function sortVersions(versions) {
+  return [...versions].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
+}
+
+/**
+ * Orders entries by name in code unit order, the same in every locale.
+ *
+ * @param {{ name: string }} left An entry.
+ * @param {{ name: string }} right Another entry.
+ * @returns {number} Negative, 0 or positive.
+ */
+function compareByName(left, right) {
+  if (left.name < right.name) {
+    return -1;
+  }
+  return left.name > right.name ? 1 : 0;
+}
+
+/**
+ * Collects the versions of the packages that the bundle imports straight from node_modules. The installed version is
+ * the one that ships. A copy of the same name in a nested node_modules is bundled too, so each name keeps every version.
+ *
+ * @param {string[]} rootDirs The directories of the starting packages.
+ * @returns {Map<string, Set<string>>} The versions by package name.
+ */
+function collectBundledVersions(rootDirs) {
+  /** @type {Map<string, Set<string>>} */
+  const bundledVersions = new Map();
+  for (const dir of rootDirs) {
+    const { name, version } = readManifest(dir);
+    if (typeof version === 'string') {
+      bundledVersions.set(name, (bundledVersions.get(name) ?? new Set()).add(version));
+    }
+  }
+  return bundledVersions;
+}
+
+/**
+ * Follows the embedded and the declared dependencies from the starting packages and records every package reached.
+ *
+ * @param {string[]} rootDirs The directories of the starting packages.
+ * @returns {Map<string, FoundPackage>} The packages reached, by name.
+ */
+function traversePackages(rootDirs) {
+  /** @type {Map<string, FoundPackage>} */
   const found = new Map();
   /** @type {string[]} */
   const pending = [];
   const visited = new Set();
-
-  const readManifest = (dir) => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-
-  // Node.js の解決と同じく、自分の node_modules から親へ向かって探す。
-  const resolveInstalledDir = (name, fromDir) => {
-    for (let current = fromDir; ; current = dirname(current)) {
-      const candidate = join(current, 'node_modules', name);
-      if (existsSync(join(candidate, 'package.json'))) {
-        return candidate;
-      }
-      if (dirname(current) === current) {
-        return undefined;
-      }
-    }
-  };
 
   const note = (name, installedDir, embeddedVersion) => {
     const entry = found.get(name) ?? { dirs: new Set(), embeddedVersions: new Set() };
@@ -139,33 +253,8 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
     }
   };
 
-  // 配下のソースマップを集める。入れ子の node_modules は、それぞれのパッケージとして別にたどる。
-  const listSourceMaps = (dir) =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((item) => {
-      if (item.isDirectory()) {
-        return item.name === 'node_modules' ? [] : listSourceMaps(join(dir, item.name));
-      }
-      return item.name.endsWith('.map') ? [join(dir, item.name)] : [];
-    });
-
-  const listLicenseFiles = (dir) =>
-    existsSync(dir)
-      ? readdirSync(dir)
-          .filter((name) => LICENSE_FILE_PATTERN.test(name) && !SCRIPT_FILE_PATTERN.test(name))
-          .filter((name) => statSync(join(dir, name)).isFile())
-          .sort()
-      : [];
-
-  // The versions of the packages that the bundle imports straight from node_modules. The installed version is the one
-  // that ships. A copy of the same name in a nested node_modules is bundled too, so each name keeps every version.
-  /** @type {Map<string, Set<string>>} */
-  const bundledVersions = new Map();
   for (const dir of rootDirs) {
-    const { name, version } = readManifest(dir);
-    if (typeof version === 'string') {
-      bundledVersions.set(name, (bundledVersions.get(name) ?? new Set()).add(version));
-    }
-    note(name, dir, undefined);
+    note(readManifest(dir).name, dir, undefined);
   }
 
   while (pending.length > 0) {
@@ -186,75 +275,99 @@ export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
       }
     }
 
-    // 型定義だけのパッケージは実行されるコードを持たず、配布物に入らない。
+    // A package of type definitions only holds no code that runs, so it does not ship.
     for (const name of Object.keys(manifest.dependencies ?? {})) {
       if (!name.startsWith('@types/')) {
         note(name, resolveInstalledDir(name, dir), undefined);
       }
     }
   }
+  return found;
+}
 
-  // package.json が宣言するライセンスの種類。古い形式の licenses の配列も読み、宣言が無ければ undefined を返す。
-  const licenseOf = (manifest) =>
-    typeof manifest.license === 'string'
-      ? manifest.license
-      : Array.isArray(manifest.licenses)
-        ? manifest.licenses.map((item) => item.type).join(' OR ')
-        : undefined;
+/**
+ * Puts together the notice entry of one package.
+ *
+ * @param {string} name The package name.
+ * @param {FoundPackage} entry Where the package was found and the embedded versions.
+ * @param {Set<string> | undefined} bundledVersions The versions the bundle imports straight from node_modules.
+ * @param {string} supplementDir The directory that fills gaps in installed packages.
+ * @returns {NoticeEntry | undefined} The entry, or undefined when the license text, the license type or the version is
+ *   missing.
+ */
+function describePackage(name, entry, bundledVersions, supplementDir) {
+  // The supplement comes first: it exists because what was installed is incomplete.
+  const candidates = [join(supplementDir, name), ...entry.dirs];
+  const licenseDir = candidates.find((dir) => listLicenseFiles(dir).length > 0);
+  // A supplement package.json may hold only the fields the installed one lacks. Without a version in the supplement,
+  // the installed version stays.
+  const manifests = candidates.filter((dir) => existsSync(join(dir, 'package.json'))).map(readManifest);
+  const license = manifests.map(licenseOf).find((value) => value !== undefined);
+  const installedVersion = manifests.map((manifest) => manifest.version).find((value) => typeof value === 'string');
 
+  // The versions the bundle imports straight from node_modules come first. The source maps under a starting package
+  // also name other versions, embedded in prebuilt files that never reach the bundle (such as Mermaid's
+  // mermaid.esm.min), and listing those would show a stale version in place of the one the lockfile fixed. Without a
+  // direct import, the embedded versions the source maps name are listed, and failing that the installed version.
+  let versions;
+  if (bundledVersions !== undefined) {
+    versions = sortVersions(bundledVersions);
+  } else if (entry.embeddedVersions.size > 0) {
+    versions = sortVersions(entry.embeddedVersions);
+  } else {
+    versions = installedVersion === undefined ? [] : [installedVersion];
+  }
+
+  // An entry without a license type could be read as disagreeing with the license text it carries, so it stops the
+  // run the same way a missing license text does.
+  if (licenseDir === undefined || license === undefined || versions.length === 0) {
+    return undefined;
+  }
+  const licenseText = listLicenseFiles(licenseDir)
+    .map((file) => readFileSync(join(licenseDir, file), 'utf8').replaceAll('\r\n', '\n').trimEnd())
+    .join('\n\n');
+  return { name, versions, license, licenseText };
+}
+
+/**
+ * Follows the embedded and the declared dependencies from the starting packages and collects their licenses.
+ *
+ * @param {string[]} rootDirs The directories of the starting packages.
+ * @param {{ supplementDir: string }} options The directory that fills gaps in installed packages.
+ * @returns {NoticeEntry[]} The entries, sorted by name.
+ */
+export function collectThirdPartyPackages(rootDirs, { supplementDir }) {
+  const bundledVersions = collectBundledVersions(rootDirs);
   const missing = [];
   const packages = [];
-  for (const [name, entry] of found) {
-    // 補足を先に見る。導入物にあっても不完全だから補足を置いているためである。
-    const candidates = [join(supplementDir, name), ...entry.dirs];
-    const licenseDir = candidates.find((dir) => listLicenseFiles(dir).length > 0);
-    // 補足の package.json は、導入物に欠けた項目だけを持つことがある。版を書かない補足なら、導入された版が載り続ける。
-    const manifests = candidates.filter((dir) => existsSync(join(dir, 'package.json'))).map(readManifest);
-    const license = manifests.map(licenseOf).find((value) => value !== undefined);
-    const version = manifests.map((manifest) => manifest.version).find((value) => typeof value === 'string');
-    // List the versions that the bundle imports straight from node_modules when there are any. The source maps under a
-    // root also name other versions, embedded in prebuilt files that never reach the bundle (such as Mermaid's
-    // mermaid.esm.min), and listing those would show a stale version in place of the one the lockfile fixed. Without a
-    // direct import, list the embedded versions the source maps name, and failing that the installed version.
-    const sortVersions = (set) => [...set].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }));
-    const bundled = bundledVersions.get(name);
-    const versions =
-      bundled !== undefined
-        ? sortVersions(bundled)
-        : entry.embeddedVersions.size > 0
-          ? sortVersions(entry.embeddedVersions)
-          : version === undefined
-            ? []
-            : [version];
-    // 種類の無い表示は、載せたライセンス文と食い違って読まれうる。ライセンス文が無いときと同じく止めて補足を求める。
-    if (licenseDir === undefined || license === undefined || versions.length === 0) {
+  for (const [name, entry] of traversePackages(rootDirs)) {
+    const described = describePackage(name, entry, bundledVersions.get(name), supplementDir);
+    if (described === undefined) {
       missing.push(name);
-      continue;
+    } else {
+      packages.push(described);
     }
-    const licenseText = listLicenseFiles(licenseDir)
-      .map((file) => readFileSync(join(licenseDir, file), 'utf8').replaceAll('\r\n', '\n').trimEnd())
-      .join('\n\n');
-    packages.push({ name, versions, license, licenseText });
   }
 
   if (missing.length > 0) {
     throw new Error(
-      `ライセンス文・ライセンスの種類・版のどれかが見つからないパッケージがある：${missing.sort().join(', ')}。` +
-        'scripts/release/third-party-licenses/<名前>/ に、取り込まれた版のライセンス文か、欠けた項目を持つ package.json を置く。',
+      `These packages lack a license text, a license type or a version: ${missing.sort().join(', ')}. `
+        + 'Put the license text of the bundled version, or a package.json with the missing fields, in '
+        + 'scripts/release/third-party-licenses/<name>/.',
     );
   }
-  return packages.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  return packages.sort(compareByName);
 }
 
 /**
- * 集めた結果を、名前順の Markdown にする。
+ * Renders the entries as Markdown, sorted by name.
  *
- * @param {Array<{ name: string, versions: string[], license: string, licenseText: string }>} packages 表示の項目。
- * @returns {string} THIRD_PARTY_NOTICES.md の本文。
+ * @param {NoticeEntry[]} packages The entries.
+ * @returns {string} The text of THIRD_PARTY_NOTICES.md.
  */
 export function renderThirdPartyNotices(packages) {
   const sections = [...packages]
-    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+    .sort(compareByName)
     .map(({ name, versions, license, licenseText }) =>
       [`## ${name} ${versions.join(', ')}`, '', `License: ${license}`, '', '```text', licenseText, '```'].join('\n'),
     );
@@ -262,16 +375,17 @@ export function renderThirdPartyNotices(packages) {
 }
 
 /**
- * 本番のバンドルから表示を作り、書き出すか、既存の表示と照合する。
+ * Builds the notices from the production bundle, then writes them or checks them against the current file.
  *
- * @param {string[]} args コマンドの引数。
- * @returns {Promise<number>} 終了コード。
+ * @param {string[]} args The command arguments.
+ * @returns {Promise<number>} The exit code.
  */
 async function main(args) {
   const check = args.includes('--check');
-  // 配布物と同じ入力を数えるため本番の設定を使い、dist/ を書き換えないようメモリ上でビルドする。
+  // The production options count the same inputs as the package, and building in memory leaves dist/ alone.
+  const isDevelopment = false;
   const results = await Promise.all(
-    createBuildOptionsList(false).map((options) =>
+    createBuildOptionsList(isDevelopment).map((options) =>
       esbuild.build({ ...options, absWorkingDir: REPOSITORY_ROOT, write: false, metafile: true, logLevel: 'warning' }),
     ),
   );
@@ -282,23 +396,24 @@ async function main(args) {
   const notices = renderThirdPartyNotices(packages);
 
   if (check) {
-    // Windows で改行が CRLF に変わって取り出されても、内容が同じなら一致とする。
+    // A Windows checkout may turn the line endings into CRLF; the same content still counts as a match.
     const current = existsSync(NOTICES_PATH) ? readFileSync(NOTICES_PATH, 'utf8').replaceAll('\r\n', '\n') : '';
     if (current !== notices) {
-      console.error('THIRD_PARTY_NOTICES.md が本番のバンドルと食い違っている。npm run notices で作り直す。');
+      console.error('THIRD_PARTY_NOTICES.md disagrees with the production bundle. Regenerate it with npm run notices.');
       return 1;
     }
-    console.log(`THIRD_PARTY_NOTICES.md は本番のバンドルと一致している（${packages.length} 件）。`);
+    console.log(`THIRD_PARTY_NOTICES.md matches the production bundle (${packages.length} packages).`);
     return 0;
   }
 
   writeFileSync(NOTICES_PATH, notices);
-  console.log(`THIRD_PARTY_NOTICES.md に ${packages.length} 件のパッケージを書いた。`);
+  console.log(`Wrote ${packages.length} packages to THIRD_PARTY_NOTICES.md.`);
   return 0;
 }
 
-// テストから読み込まれたときはビルドを走らせず、直接実行されたときだけ動く。Node.js は自身の URL をシンボリックリンクを
-// 解いた実体のパスで持つので、起動したパスも実体に直して比べる。直さないと、リンク越しの起動で何もせずに終わる。
+// Runs only when executed directly, not when a test imports the module. Node.js keeps its own URL as the real path with
+// symbolic links resolved, so the path it was started with is resolved too; otherwise a start through a link would end
+// without building anything.
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main(process.argv.slice(2)).then(
     (code) => {
