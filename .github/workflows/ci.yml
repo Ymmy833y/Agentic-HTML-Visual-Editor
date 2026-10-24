@@ -73,7 +73,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,7 +81,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Chromium's own download from cdn.playwright.dev, not apt, is what makes this install slow.
+      # Caching it keyed by the lockfile skips that download on every run except after a version bump.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('package-lock.json') }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       # The shard count must match the length of the matrix above.
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
 
@@ -92,6 +102,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    # A fixed, workspace-relative install path lets one cache step below work across the OS matrix;
+    # Playwright's own per-OS default (~/.cache, ~/Library/Caches, %LOCALAPPDATA%) would not.
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -99,5 +113,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Chromium's own download from cdn.playwright.dev, not the OS dependency step, is what makes this
+      # install slow. Caching it keyed by the lockfile skips that download on every run except after a
+      # version bump.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: .playwright-browsers
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run test:web
