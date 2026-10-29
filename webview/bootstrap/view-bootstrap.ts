@@ -1581,7 +1581,7 @@ async function handleHostMessage(
     }
     case HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport:
       // Not awaited: drawing takes long, and the messages behind it, such as a save, must still be handled.
-      void readPdfExportResponder(view, channel).respond(message.requestId);
+      void readPdfExportResponder(view, channel).respond(message.requestId, message.fonts);
       return;
     case HOST_TO_VIEW_MESSAGE_TYPE.requestCopyHtml: {
       // Before mounting and for an unopenable document there is no editor root, so respond that the HTML cannot be

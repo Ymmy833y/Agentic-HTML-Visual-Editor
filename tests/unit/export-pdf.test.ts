@@ -24,10 +24,13 @@ import {
   toPdfPath,
 } from '../../src/export/export-pdf';
 import type { ExportPdfPorts } from '../../src/export/export-pdf';
+import type { BundledPdfFonts } from '../../src/export/pdf-fonts';
+import { parseTrueTypeFont } from '../../src/export/true-type-font';
 import type { LinkResolveHost } from '../../src/link/relative-link-opener';
 import { countPathDepth } from '../../src/link/link-path';
 import type { SessionRegistry } from '../../src/session/session-registry';
 import { WysiwygSession } from '../../src/session/wysiwyg-session';
+import { readBundledFontFile } from './bundled-font-files';
 
 const FAILED_MESSAGE = englishMessages['exportPdf.failed.message'];
 const NO_TARGET_MESSAGE = englishMessages['exportPdf.noTarget.message'];
@@ -38,8 +41,26 @@ const PROGRESS_TITLE = englishMessages['exportPdf.progress'];
 const JPEG_BASE64 = '/9j/2Q==';
 const JPEG_TEXT = '\xff\xd8\xff\xd9';
 
-// One page image without links.
-const PAGES: readonly PdfPageImage[] = [{ jpeg: JPEG_BASE64, width: 2, height: 3, links: [] }];
+// One page image without links or text.
+const PAGES: readonly PdfPageImage[] = [{ jpeg: JPEG_BASE64, width: 2, height: 3, links: [], text: [] }];
+
+// The body font as the export loads it. The request carries the font as it is, so a stand-in is enough for its data.
+const FONTS: BundledPdfFonts = {
+  request: [{ role: 'sans', data: 'AA==', ranges: [[0x20, 0x7e]] }],
+  embedding: new Map([['sans', { name: 'BIZUDPGothic', font: parseTrueTypeFont(readBundledFontFile('sans')) }]]),
+};
+
+// A line of text the body font has glyphs for.
+const RUN = {
+  role: 'sans',
+  size: 28,
+  top: 10,
+  color: [0, 0, 0],
+  bold: false,
+  italic: false,
+  text: 'A',
+  xs: [0],
+} as const;
 
 interface FakeUri {
   readonly scheme: string;
@@ -75,6 +96,8 @@ interface ExportBehavior {
   readonly unreadable?: readonly string[];
   /** The path of the workspace folder the document belongs to, or `undefined` when it belongs to none. */
   readonly workspaceFolder?: string | undefined;
+  /** The result the font port returns. When omitted, the body font loads. */
+  readonly loadFonts?: () => Promise<BundledPdfFonts>;
 }
 
 /**
@@ -175,6 +198,7 @@ function createExportHarness(behavior: ExportBehavior = { destination: createUri
         trace.push(['status', message, timeoutMs]);
       },
       createLinkHost: (documentUri) => createLinkHost(documentUri.path, behavior, trace),
+      loadFonts: behavior.loadFonts ?? (() => Promise.resolve(FONTS)),
       errorReporter: reporter,
       localizer,
     },
@@ -221,7 +245,7 @@ function createResponse(
  */
 function createLinkedPage(hrefs: readonly string[]): PdfPageImage {
   const links: PdfPageLink[] = hrefs.map((href) => ({ x: 0, y: 0, width: 1, height: 1, target: { kind: 'href', href } }));
-  return { jpeg: JPEG_BASE64, width: 2, height: 3, links };
+  return { jpeg: JPEG_BASE64, width: 2, height: 3, links, text: [] };
 }
 
 /**
@@ -381,6 +405,9 @@ describe('drawing, choosing the location and writing', () => {
     ['the page of a link is not a whole number', [
       { ...PAGES[0], links: [{ x: 0, y: 0, width: 1, height: 1, target: { kind: 'page', pageIndex: 0.5, y: 0 } }] },
     ]],
+    ['a run of text has a role without a font', [{ ...PAGES[0], text: [{ ...RUN, role: 'serif' }] }]],
+    ['a run of text has more characters than positions', [{ ...PAGES[0], text: [{ ...RUN, text: 'AB' }] }]],
+    ['a run of text has a character its font has no glyph for', [{ ...PAGES[0], text: [{ ...RUN, text: 'א' }] }]],
   ])('notifies without opening the dialog when %s', async (_name, pages) => {
     const view = createRequesterHarness();
     const exporter = createExportHarness();
@@ -392,6 +419,32 @@ describe('drawing, choosing the location and writing', () => {
       [FAILED_MESSAGE],
       ['progress', 'progress done'],
     ]);
+  });
+
+  it('sends the bundled fonts with the request', async () => {
+    const view = createRequesterHarness();
+    const exporter = createExportHarness();
+
+    await exportAnswering(view, exporter, PAGES);
+
+    expect(view.requests[0].fonts).toEqual(FONTS.request);
+  });
+
+  it('notifies without sending a request or opening the dialog when the fonts cannot be read', async () => {
+    const view = createRequesterHarness();
+    const exporter = createExportHarness({
+      destination: createUri('/out/a.pdf'),
+      loadFonts: () => Promise.reject(new Error('the font file is missing')),
+    });
+
+    const written = await exportSessionAsPdf(createSession(view.requester), exporter.ports);
+
+    expect([
+      written,
+      view.requests.length,
+      exporter.reporter.readInspection().notifications,
+      exporter.trace.map((call) => call[0]),
+    ]).toEqual([false, 0, [FAILED_MESSAGE], ['progress', 'progress done']]);
   });
 
   it('notifies without opening the dialog when the view is recreated while drawing', async () => {
@@ -551,7 +604,7 @@ describe('the PDF export request', () => {
   it('returns a failure caused by base64 when a page image is not base64', async () => {
     const view = createRequesterHarness();
 
-    const outcome = view.requester.request();
+    const outcome = view.requester.request(FONTS);
     view.requester.settle(createResponse(view.requests[0].requestId, [{ ...PAGES[0], jpeg: '%%%' }]));
 
     expect(await outcome).toEqual({ ok: false, cause: expect.stringContaining('not base64') });
@@ -560,7 +613,7 @@ describe('the PDF export request', () => {
   it('waits up to the export timeout rather than the default response timeout', async () => {
     const view = createRequesterHarness();
     let settled = false;
-    void view.requester.request().then(() => {
+    void view.requester.request(FONTS).then(() => {
       settled = true;
     });
 
@@ -572,7 +625,7 @@ describe('the PDF export request', () => {
   it('returns a failure without waiting for the timeout when the send port rejects', async () => {
     const view = createRequesterHarness(() => Promise.reject(new Error('the send port is closed')));
 
-    const outcome = view.requester.request();
+    const outcome = view.requester.request(FONTS);
     await vi.advanceTimersByTimeAsync(0);
 
     expect(await outcome).toEqual({ ok: false, cause: expect.stringContaining('the send port is closed') });

@@ -3,6 +3,7 @@ import { CELL_RANGE_MARK_NAME, CELL_RANGE_MARK_NAMESPACE } from '../editing/cell
 import { CHANGE_OPEN_MARK_NAME, CHANGE_OPEN_MARK_NAMESPACE } from '../ui/change-popup';
 import { COMMENT_CARET_MARK_NAME, COMMENT_CARET_MARK_NAMESPACE } from '../ui/comment-caret';
 import { COMMENT_OPEN_MARK_NAME, COMMENT_OPEN_MARK_NAMESPACE } from '../ui/comment-popup';
+import { PDF_FONT_FAMILIES } from './pdf-fonts';
 import { PDF_STYLESHEET_TEXT } from './pdf-stylesheet';
 
 /**
@@ -24,9 +25,10 @@ const PSEUDO_AFTER_CLASS = '___html2canvas___pseudoelement_after';
 const PSEUDO_HIDE_RULES = `.${PSEUDO_BEFORE_CLASS}::before, .${PSEUDO_AFTER_CLASS}::after `
   + '{ content: "" !important; display: none !important; }';
 
-// The properties of a stand-in that carry colors. html2canvas-pro copies them from the view before the theme is taken
-// out of the copy, so they are read again from the copy.
-const COLOR_PROPERTIES = [
+// The properties of a stand-in that carry colors, and its font family. html2canvas-pro copies them from the view before
+// the theme is taken out of the copy and the bundled fonts are put in, so they are read again from the copy.
+const RESTYLED_PROPERTIES = [
+  'font-family',
   'color',
   'background-color',
   'border-top-color',
@@ -43,6 +45,11 @@ const COLOR_PROPERTIES = [
 // document.
 const PLAIN_COMMENT_RULES = '#editor-root comment '
   + '{ background: none !important; outline: none !important; text-decoration: none !important; }';
+
+// The text of the PDF is set in the bundled fonts, which the PDF embeds, so the copy is laid out in them as well. A
+// character they lack falls back to a font of the system and stays in the page image.
+const PDF_FONT_RULES = `:root { --ahve-font-family: "${PDF_FONT_FAMILIES.sans}", sans-serif !important; `
+  + `--ahve-font-family-mono: "${PDF_FONT_FAMILIES.mono}", monospace !important; }`;
 
 // Marks that follow the selection, the caret or an open popup. They show the state of the editing, not the document.
 const TRANSIENT_MARKS: readonly (readonly [namespace: string, name: string])[] = [
@@ -94,8 +101,8 @@ export function preparePdfClone(document: Document, root: HTMLElement, options: 
 }
 
 /**
- * Gives the copy the document's rules, without the look of the comments, and the colors of the copy to the stand-ins
- * of the pseudo elements.
+ * Gives the copy the document's rules, without the look of the comments and with the bundled fonts, and the colors and
+ * the fonts of the copy to the stand-ins of the pseudo elements.
  *
  * The rules go in as constructed stylesheets, which the content security policy allows, where a style element would be
  * blocked. Called after {@link preparePdfClone}, so the stand-ins read the colors without the theme.
@@ -105,8 +112,8 @@ export function preparePdfClone(document: Document, root: HTMLElement, options: 
  * @throws When the copy cannot be given its stylesheet; drawing without it would give an unstyled PDF.
  */
 export function stylePdfClone(document: Document, root: HTMLElement): void {
-  adoptStylesheet(document, `${PDF_STYLESHEET_TEXT}\n${PLAIN_COMMENT_RULES}`);
-  recolorPseudoElements(document, root);
+  adoptStylesheet(document, `${PDF_STYLESHEET_TEXT}\n${PLAIN_COMMENT_RULES}\n${PDF_FONT_RULES}`);
+  restylePseudoElements(document, root);
   adoptStylesheet(document, PSEUDO_HIDE_RULES);
 }
 
@@ -225,12 +232,12 @@ function removeTransientMarks(root: HTMLElement): void {
 }
 
 /**
- * Gives the stand-ins of the pseudo elements the colors of the copy.
+ * Gives the stand-ins of the pseudo elements the colors and the fonts of the copy.
  *
  * @param document The copied document.
  * @param root The copy of the editor root.
  */
-function recolorPseudoElements(document: Document, root: HTMLElement): void {
+function restylePseudoElements(document: Document, root: HTMLElement): void {
   const view = document.defaultView;
   if (view === null) {
     return;
@@ -243,7 +250,7 @@ function recolorPseudoElements(document: Document, root: HTMLElement): void {
     // The stand-in for ::before is inserted first and the one for ::after last.
     const pseudo = owner.firstChild === standIn && owner.classList.contains(PSEUDO_BEFORE_CLASS) ? '::before' : '::after';
     const computed = view.getComputedStyle(owner, pseudo);
-    for (const name of COLOR_PROPERTIES) {
+    for (const name of RESTYLED_PROPERTIES) {
       const value = computed.getPropertyValue(name);
       if (value !== '') {
         standIn.style.setProperty(name, value);

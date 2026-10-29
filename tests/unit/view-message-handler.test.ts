@@ -574,7 +574,7 @@ describe('the PDF export response', () => {
     const response: PdfExportResponseMessage = {
       type: VIEW_TO_HOST_MESSAGE_TYPE.pdfExportResponse,
       requestId: '1',
-      pages: [{ jpeg: '/9j/2Q==', width: 1, height: 1, links: [] }],
+      pages: [{ jpeg: '/9j/2Q==', width: 1, height: 1, links: [], text: [] }],
       refusal: null,
     };
 

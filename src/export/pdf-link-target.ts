@@ -1,5 +1,5 @@
 import { trimHref } from '../../common/index';
-import type { PdfPageLink } from '../../common/index';
+import type { PdfPageLink, PdfTextRun } from '../../common/index';
 import type { InternalErrorSink } from '../diagnostics/error-reporter';
 import { readHrefSuffix, toPathSegments } from '../link/link-path';
 import { LINK_OPEN_FAILURE, formatLinkOpenFailure, resolveLinkTarget } from '../link/relative-link-opener';
@@ -33,6 +33,8 @@ export interface DrawnPage {
   readonly height: number;
   /** The links on the page, in the pixels of the image. */
   readonly links: readonly PdfPageLink[];
+  /** The text drawn over the image, in the pixels of the image. */
+  readonly text: readonly PdfTextRun[];
 }
 
 /** Where an href leads, decided before the save location is known. */
@@ -168,7 +170,7 @@ export function toRelativeLinkReference(
 /**
  * Turns the links the view sent into the link annotations of the PDF saved at a location.
  *
- * A link with no target, or a file no relative path reaches, is dropped; the page image still shows its text.
+ * A link with no target, or a file no relative path reaches, is dropped; the page still shows its text.
  *
  * @param pages The drawn pages.
  * @param targets The target of each href that leads somewhere.
@@ -201,6 +203,7 @@ export function attachLinkTargets(
       const uri = toRelativeLinkReference(pdf, documentUri, target.targetPath, target.suffix);
       return uri === undefined ? [] : [{ x, y, width, height, target: { kind: 'uri', uri } }];
     }),
+    text: page.text,
   }));
 }
 

@@ -39,6 +39,8 @@ export default defineConfig({
         'src/export/export-pdf.ts',
         'src/export/pdf-link-target.ts',
         'src/export/pdf-writer.ts',
+        'src/export/pdf-fonts.ts',
+        'src/export/true-type-font.ts',
         'src/save/document-operation-queue.ts',
         'src/save/save-coordinator.ts',
         'src/save/buffer-follow.ts',

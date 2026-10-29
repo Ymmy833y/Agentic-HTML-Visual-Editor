@@ -460,14 +460,39 @@ export interface CopyHtmlResponseMessage extends ResponseMessage {
   readonly html: string | null;
 }
 
+/** The roles of the fonts the PDF export sets text in. The values themselves are transmitted. */
+export const PDF_FONT_ROLE = {
+  /** The proportional font of the body text. */
+  sans: 'sans',
+  /** The monospaced font of code. */
+  mono: 'mono',
+} as const;
+
+/** A role of a font the PDF export sets text in. */
+export type PdfFontRole = (typeof PDF_FONT_ROLE)[keyof typeof PDF_FONT_ROLE];
+
+/** A font the extension bundles for the PDF export, as the host hands it to the view. */
+export interface PdfExportFont {
+  readonly role: PdfFontRole;
+  /**
+   * The bytes of the TrueType file encoded as base64. The frame the copy is laid out in cannot load a font from a URL,
+   * so the view builds the font from these bytes.
+   */
+  readonly data: string;
+  /** The code points the font has a glyph for, as ranges of first and last code point in ascending order. */
+  readonly ranges: readonly (readonly [first: number, last: number])[];
+}
+
 /**
- * Host → view request for the document drawn as page images for "Export as PDF".
+ * Host → view request for the document drawn as pages for "Export as PDF".
  *
  * Carries no options. The paper, the colors and what is left out are fixed by the view, so the PDF does not depend on
- * which entry point asked for it.
+ * which entry point asked for it. It carries the bundled fonts, because the text of the PDF is set in them.
  */
 export interface RequestPdfExportMessage extends RequestMessage {
   readonly type: typeof HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport;
+  /** The bundled fonts, one per role. */
+  readonly fonts: readonly PdfExportFont[];
 }
 
 /**
@@ -491,7 +516,29 @@ export interface PdfPageLink {
   readonly target: PdfPageLinkTarget;
 }
 
-/** One page drawn as a JPEG image, with the links on it. */
+/**
+ * One line of text set in a bundled font, with one style, measured from the top-left corner of the page image in its
+ * pixels.
+ */
+export interface PdfTextRun {
+  readonly role: PdfFontRole;
+  /** The font size. */
+  readonly size: number;
+  /** The top of the characters as laid out, which the ascent of the font puts above the baseline. */
+  readonly top: number;
+  /** The color as red, green and blue from 0 to 255. */
+  readonly color: readonly [red: number, green: number, blue: number];
+  /** Whether the text is bold. The fonts have one weight, so bold is drawn by thickening the outlines. */
+  readonly bold: boolean;
+  /** Whether the text is italic. The fonts have no italic, so it is drawn by slanting the glyphs. */
+  readonly italic: boolean;
+  /** The characters in order. */
+  readonly text: string;
+  /** The left edge of each character of the text, one per code point. */
+  readonly xs: readonly number[];
+}
+
+/** One page drawn as a JPEG image without the text the bundled fonts set, with the links and that text on it. */
 export interface PdfPageImage {
   /**
    * The bytes of the JPEG file encoded as base64. Every other message is a plain JSON-shaped value, and keeping this
@@ -504,6 +551,8 @@ export interface PdfPageImage {
   readonly height: number;
   /** The links on the page, in the pixels of the image. */
   readonly links: readonly PdfPageLink[];
+  /** The text drawn over the image, in document order, in the pixels of the image. */
+  readonly text: readonly PdfTextRun[];
 }
 
 /** Reasons the view declines to draw the PDF. The values themselves are transmitted. */
