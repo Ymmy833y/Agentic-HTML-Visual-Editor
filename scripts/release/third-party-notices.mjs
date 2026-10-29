@@ -23,8 +23,9 @@ const SUPPLEMENT_DIR = fileURLToPath(new URL('./third-party-licenses/', import.m
 
 const NODE_MODULES_SEGMENT = 'node_modules/';
 
-// License text file names, including names with a qualifier such as LICENSE-MPL.
-const LICENSE_FILE_PATTERN = /^(?:licen[cs]e|copying)(?:[-.][\w.-]*)?$/i;
+// License text file names, including names with a qualifier such as LICENSE-MPL or LICENSE_FONT. A font package keeps
+// the license of its fonts apart from the license of its code, and both ship.
+const LICENSE_FILE_PATTERN = /^(?:licen[cs]e|copying)(?:[-._][\w.-]*)?$/i;
 // A script such as cytoscape's license-update.mjs matches the names above but is not a license text.
 const SCRIPT_FILE_PATTERN = /\.(?:[cm]?js|ts|json)$/i;
 

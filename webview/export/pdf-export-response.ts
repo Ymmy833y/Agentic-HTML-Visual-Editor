@@ -1,6 +1,7 @@
 import { PDF_EXPORT_REFUSAL, VIEW_TO_HOST_MESSAGE_TYPE } from '../../common/index';
 import type { PdfExportRefusal, PdfExportResponseMessage, PdfPageImage, RequestId } from '../../common/index';
 import { readChanges } from '../editing/change-read';
+import { readPdfFonts } from './pdf-fonts';
 import { renderPdfPages } from './pdf-pages';
 import type { PdfPagePorts } from './pdf-pages';
 
@@ -51,21 +52,22 @@ export class PdfExportResponder {
   /**
    * Draws the pages of the PDF and sends them to the host, after the requests before it are answered.
    *
-   * Never rejects. When no body is shown, the drawing fails, or the document is replaced while it is drawn, the
-   * response carries `null`, so the host can report the failure without waiting for the timeout. A document that still
-   * has change marks is declined without stopping the editing: a PDF is meant to be shared, and pending changes would
-   * go out as if they were decided.
+   * Never rejects. When no body is shown, the fonts cannot be read, the drawing fails, or the document is replaced while
+   * it is drawn, the response carries `null`, so the host can report the failure without waiting for the timeout. A
+   * document that still has change marks is declined without stopping the editing: a PDF is meant to be shared, and
+   * pending changes would go out as if they were decided.
    *
    * @param requestId The request id of the request being answered.
+   * @param fonts The bundled fonts the request carries, as received.
    * @returns Resolves once the response has been sent and the editing goes on again.
    */
-  respond(requestId: RequestId): Promise<void> {
-    const answered = this.queue.then(() => this.answer(requestId));
+  respond(requestId: RequestId, fonts: unknown): Promise<void> {
+    const answered = this.queue.then(() => this.answer(requestId, fonts));
     this.queue = answered;
     return answered;
   }
 
-  private async answer(requestId: RequestId): Promise<void> {
+  private async answer(requestId: RequestId, fonts: unknown): Promise<void> {
     const root = this.ports.readEditorRoot();
     if (root === undefined) {
       this.send(requestId, null, null);
@@ -83,7 +85,7 @@ export class PdfExportResponder {
     try {
       let pages: PdfPageImage[] | null = null;
       try {
-        const drawn = await renderPdfPages(root, this.ports);
+        const drawn = await renderPdfPages(root, this.ports, readPdfFonts(fonts));
         if (this.ports.readReplacementCount() === replacements) {
           pages = drawn;
         } else {

@@ -4,9 +4,13 @@ import type { DiagramImage, DiagramResult } from '../diagram/diagram-render';
 import { isDiagramSource, readDiagramSource } from '../diagram/diagram-source';
 import { PDF_CONTENT_WIDTH_PX, preparePdfClone, stylePdfClone } from './pdf-clone';
 import type { PdfCloneOptions } from './pdf-clone';
+import { loadPdfFonts, unloadPdfFonts } from './pdf-fonts';
+import type { PdfFonts } from './pdf-fonts';
 import { assignLinksToPages, collectLinkAreas } from './pdf-links';
 import type { PdfLinkArea } from './pdf-links';
 import { choosePageBreaks, collectBlockBottoms } from './pdf-page-breaks';
+import { assignTextToPages, hidePdfText, measurePdfText } from './pdf-text';
+import type { PdfHiddenText, PdfTextLine } from './pdf-text';
 
 /** Height of one page in CSS pixels at the width the document is laid out at. */
 export const PDF_PAGE_HEIGHT_PX = PDF_CONTENT_WIDTH_PX * (CONTENT_HEIGHT_PT / CONTENT_WIDTH_PT);
@@ -36,7 +40,8 @@ export interface PdfCanvasOptions {
   readonly useCORS: boolean;
   readonly logging: boolean;
   readonly signal?: AbortSignal;
-  readonly onclone: (document: Document, element: HTMLElement) => void;
+  /** Called with the copy before it is drawn. The renderer waits for the promise it returns. */
+  readonly onclone: (document: Document, element: HTMLElement) => Promise<void>;
 }
 
 /** Draws an element of the view onto a canvas, as html2canvas-pro does. */
@@ -66,6 +71,8 @@ export interface PdfLayout {
   readonly bottoms: readonly number[];
   /** The links of the document, measured from its top-left corner. */
   readonly links: readonly PdfLinkArea[];
+  /** The text the bundled fonts set, measured from its top-left corner. */
+  readonly text: readonly PdfTextLine[];
 }
 
 /**
@@ -88,15 +95,16 @@ export async function loadPdfCanvasRenderer(): Promise<PdfCanvasRenderer> {
  *
  * @param root The editor root.
  * @param ports Ports for drawing.
+ * @param fonts The bundled fonts.
  * @returns The layout.
  */
-export async function measurePdfLayout(root: HTMLElement, ports: PdfPagePorts): Promise<PdfLayout> {
+export async function measurePdfLayout(root: HTMLElement, ports: PdfPagePorts, fonts: PdfFonts): Promise<PdfLayout> {
   const renderer = await ports.loadRenderer();
-  return measure(root, renderer, await readCloneOptions(root, ports));
+  return measure(root, renderer, await readCloneOptions(root, ports), fonts);
 }
 
 /**
- * Draws the document as page images, each with the links on it.
+ * Draws the document as page images without the text the bundled fonts set, each with the links and that text on it.
  *
  * The layout is measured once and every copy after it is cut at the same page starts. The editing is stopped meanwhile,
  * but the host can still replace the document, so the caller checks that no replacement happened before using the
@@ -104,39 +112,54 @@ export async function measurePdfLayout(root: HTMLElement, ports: PdfPagePorts): 
  *
  * @param root The editor root.
  * @param ports Ports for drawing.
+ * @param fonts The bundled fonts.
  * @returns The pages in order.
  */
-export async function renderPdfPages(root: HTMLElement, ports: PdfPagePorts): Promise<PdfPageImage[]> {
+export async function renderPdfPages(root: HTMLElement, ports: PdfPagePorts, fonts: PdfFonts): Promise<PdfPageImage[]> {
   const renderer = await ports.loadRenderer();
   const options = await readCloneOptions(root, ports);
-  const layout = await measure(root, renderer, options);
+  const layout = await measure(root, renderer, options, fonts);
   const links = assignLinksToPages(layout.links, layout.starts, layout.total, PDF_SCALE);
+  const text = assignTextToPages(layout.text, layout.starts, layout.total, PDF_SCALE);
 
+  // html2canvas-pro draws on a canvas of the view, and a canvas takes its fonts from its own document. The text left in
+  // the image is laid out in the bundled fonts, so the view has them while the pages are drawn.
+  const faces = await loadPdfFonts(root.ownerDocument, fonts);
   const pages: PdfPageImage[] = [];
-  let index = 0;
-  while (index < layout.starts.length) {
-    const top = layout.starts[index];
-    const height = Math.max(1, Math.ceil(Math.min(MAX_CHUNK_HEIGHT_PX, layout.total - top)));
-    const canvas = await renderer(root, {
-      ...baseOptions(),
-      y: top,
-      height,
-      onclone: (document, element) => prepareCopy(document, element, options),
-    });
-    // Every page fits in a chunk, because a page is never taller than the chunk.
-    do {
-      const start = layout.starts[index];
-      const end = layout.starts[index + 1] ?? layout.total;
-      if (end - top > height + 0.5) {
-        break;
-      }
-      pages.push({ ...cutPage(root.ownerDocument, canvas, start - top, end - start), links: links[index] });
-      index += 1;
-    } while (index < layout.starts.length);
-    // Hand the thread back between chunks, so the view still answers the host while a long document is drawn.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
+  try {
+    let index = 0;
+    while (index < layout.starts.length) {
+      const top = layout.starts[index];
+      const height = Math.max(1, Math.ceil(Math.min(MAX_CHUNK_HEIGHT_PX, layout.total - top)));
+      const canvas = await renderer(root, {
+        ...baseOptions(),
+        y: top,
+        height,
+        onclone: async (document, element) => {
+          await prepareCopy(document, element, options, fonts);
+        },
+      });
+      // Every page fits in a chunk, because a page is never taller than the chunk.
+      do {
+        const start = layout.starts[index];
+        const end = layout.starts[index + 1] ?? layout.total;
+        if (end - top > height + 0.5) {
+          break;
+        }
+        pages.push({
+          ...cutPage(root.ownerDocument, canvas, start - top, end - start),
+          links: links[index],
+          text: text[index],
+        });
+        index += 1;
+      } while (index < layout.starts.length);
+      // Hand the thread back between chunks, so the view still answers the host while a long document is drawn.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+  } finally {
+    unloadPdfFonts(root.ownerDocument, faces);
   }
   return pages;
 }
@@ -183,8 +206,14 @@ async function drawLightDiagrams(root: HTMLElement, ports: PdfPagePorts): Promis
  * @param root The editor root.
  * @param renderer The renderer.
  * @param options What the copies need from the view.
+ * @param fonts The bundled fonts.
  */
-async function measure(root: HTMLElement, renderer: PdfCanvasRenderer, options: PdfCloneOptions): Promise<PdfLayout> {
+async function measure(
+  root: HTMLElement,
+  renderer: PdfCanvasRenderer,
+  options: PdfCloneOptions,
+  fonts: PdfFonts,
+): Promise<PdfLayout> {
   const controller = new AbortController();
   let layout: PdfLayout | undefined;
   try {
@@ -193,12 +222,12 @@ async function measure(root: HTMLElement, renderer: PdfCanvasRenderer, options: 
       y: 0,
       height: 1,
       signal: controller.signal,
-      onclone: (document, element) => {
-        prepareCopy(document, element, options);
+      onclone: async (document, element) => {
+        const hidden = await prepareCopy(document, element, options, fonts);
         const total = element.getBoundingClientRect().height;
         const bottoms = collectBlockBottoms(element);
         const starts = choosePageBreaks(bottoms, total, PDF_PAGE_HEIGHT_PX);
-        layout = { starts, total, bottoms, links: collectLinkAreas(element) };
+        layout = { starts, total, bottoms, links: collectLinkAreas(element), text: measurePdfText(element, hidden) };
         // Aborting stops the renderer right after the copy, before it parses and draws the tree.
         controller.abort();
       },
@@ -215,15 +244,27 @@ async function measure(root: HTMLElement, renderer: PdfCanvasRenderer, options: 
 }
 
 /**
- * Turns a copy into the document as it is printed.
+ * Turns a copy into the document as it is printed, laid out in the bundled fonts, and takes the text they set out of
+ * what is drawn.
+ *
+ * Every copy goes through the same steps, so the copies that are drawn lay out as the copy that was measured.
  *
  * @param document The copied document.
  * @param root The copy of the editor root.
  * @param options What the copies need from the view.
+ * @param fonts The bundled fonts.
+ * @returns The text taken out of the drawing.
  */
-function prepareCopy(document: Document, root: HTMLElement, options: PdfCloneOptions): void {
+async function prepareCopy(
+  document: Document,
+  root: HTMLElement,
+  options: PdfCloneOptions,
+  fonts: PdfFonts,
+): Promise<PdfHiddenText[]> {
   preparePdfClone(document, root, options);
   stylePdfClone(document, root);
+  await loadPdfFonts(document, fonts);
+  return hidePdfText(root, fonts);
 }
 
 /**
@@ -255,14 +296,14 @@ function baseOptions(): Omit<PdfCanvasOptions, 'y' | 'height' | 'onclone' | 'sig
  * @param chunk The drawn chunk.
  * @param offset The top of the page within the chunk, in CSS pixels.
  * @param height The height of the page in CSS pixels.
- * @returns The page, without its links.
+ * @returns The page, without its links and text.
  */
 function cutPage(
   document: Document,
   chunk: HTMLCanvasElement,
   offset: number,
   height: number,
-): Omit<PdfPageImage, 'links'> {
+): Omit<PdfPageImage, 'links' | 'text'> {
   const canvas = document.createElement('canvas');
   canvas.width = chunk.width;
   canvas.height = Math.max(1, Math.round(height * PDF_SCALE));

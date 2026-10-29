@@ -195,6 +195,21 @@ describe('collecting third-party packages', () => {
     expect(packages.find(({ name }) => name === 'unlicensed')?.licenseText).toBe('license from the supplement');
   });
 
+  it('takes both the LICENSE and the LICENSE_FONT of a font package as its license text', () => {
+    writeFixture(
+      'node_modules/fonts/package.json',
+      JSON.stringify({ name: 'fonts', version: '1.0.0', license: 'MIT AND OFL-1.1' }),
+    );
+    writeFixture('node_modules/fonts/LICENSE', 'code license');
+    writeFixture('node_modules/fonts/LICENSE_FONT', 'font license');
+
+    const packages = collectThirdPartyPackages([join(root, 'node_modules/fonts')], {
+      supplementDir: join(root, 'supplement'),
+    });
+
+    expect(packages.find(({ name }) => name === 'fonts')?.licenseText).toBe('code license\n\nfont license');
+  });
+
   it('throws an error naming both packages when two packages have no license text anywhere', () => {
     writeFixture(
       'node_modules/bundled/package.json',

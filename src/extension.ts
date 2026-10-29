@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   // activation.
   context.subscriptions.push(registerCopyAsHtmlCommand(sessionRegistry, copyAsHtmlPorts));
   // One set of ports for the command and the toolbar path, so the file is written from one place.
-  const exportPdfPorts = createExportPdfPorts(errorReporter, localizer);
+  const exportPdfPorts = createExportPdfPorts(errorReporter, localizer, context.extensionUri);
   context.subscriptions.push(registerExportAsPdfCommand(sessionRegistry, exportPdfPorts));
   context.subscriptions.push(registerSplitNotice(errorReporter));
   // Receive the restricted backup access only when registration completes. This keeps the test support API from
