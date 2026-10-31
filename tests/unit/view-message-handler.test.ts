@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { HOST_TO_VIEW_MESSAGE_TYPE, VIEW_TO_HOST_MESSAGE_TYPE, createLocalizer } from '../../common/index';
+import {
+  COMMENT_POPUP_MIN_WIDTH,
+  HOST_TO_VIEW_MESSAGE_TYPE,
+  VIEW_TO_HOST_MESSAGE_TYPE,
+  createLocalizer,
+} from '../../common/index';
 import type {
   CopyHtmlResponseMessage,
   HostToViewMessage,
@@ -67,6 +72,8 @@ interface Harness {
   readonly codeBlockCopyCalls: unknown[][];
   /** The sidebar layout changes passed to the receiver, in the order received. */
   readonly sidebarLayouts: SidebarLayoutChange[];
+  /** The comment popup widths passed to the receiver, in the order received. */
+  readonly commentPopupWidths: number[];
   /** Creates no initialize message (the restore coordinator has already sent one or is waiting for settlement). */
   setInitializeMissing(missing: boolean): void;
 }
@@ -96,6 +103,7 @@ function createHarness(unreadable = false): Harness {
   let pdfExportRequestCount = 0;
   const codeBlockCopyCalls: unknown[][] = [];
   const sidebarLayouts: SidebarLayoutChange[] = [];
+  const commentPopupWidths: number[] = [];
   const reporter = new ErrorReporter(
     { appendLine: (): void => undefined, show: (): void => undefined },
     {
@@ -129,6 +137,7 @@ function createHarness(unreadable = false): Harness {
     readPdfExportRequestCount: () => pdfExportRequestCount,
     codeBlockCopyCalls,
     sidebarLayouts,
+    commentPopupWidths,
     context: {
       createInitializeMessage: () => {
         trace.push('createInitializeMessage');
@@ -176,6 +185,7 @@ function createHarness(unreadable = false): Harness {
         codeBlockCopyCalls.push(args);
       },
       receiveSidebarLayout: (change) => sidebarLayouts.push(change),
+      receiveCommentPopupWidth: (width) => commentPopupWidths.push(width),
       settleResponse: (response) => settled.push(response),
       errorReporter: reporter,
     },
@@ -649,5 +659,35 @@ describe('the sidebar layout change', () => {
     }
 
     expect([harness.sidebarLayouts, harness.reporter.readInspection().logLines.length]).toEqual([[], 3]);
+  });
+});
+
+describe('the comment popup width change', () => {
+  it('passes the width the message carries to the receiver, in whole pixels and no narrower than the floor, and logs nothing', async () => {
+    const harness = createHarness();
+
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width: 320.4 }, harness.context);
+    await handleViewMessage({ type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width: 100 }, harness.context);
+
+    expect([harness.commentPopupWidths, harness.reporter.readInspection().logLines]).toEqual([
+      [320, COMMENT_POPUP_MIN_WIDTH],
+      [],
+    ]);
+  });
+
+  it('records one line without calling the receiver when the width is not a finite number or is missing', async () => {
+    const harness = createHarness();
+    // The type requires a number, but the view can send any value at runtime.
+    const malformed = [
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width: '320' },
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width: Number.NaN },
+      { type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged },
+    ] as unknown as ViewToHostMessage[];
+
+    for (const message of malformed) {
+      await handleViewMessage(message, harness.context);
+    }
+
+    expect([harness.commentPopupWidths, harness.reporter.readInspection().logLines.length]).toEqual([[], 3]);
   });
 });

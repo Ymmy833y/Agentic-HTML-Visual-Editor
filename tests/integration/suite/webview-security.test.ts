@@ -13,6 +13,8 @@ const MESSAGE_CATALOG_ELEMENT_ID = 'ahve-message-catalog';
 // These must match the meta names and the message type in common, repeated for the same reason as the catalog id.
 const SIDEBAR_LAYOUT_META_NAME = { open: 'ahve-sidebar-open', width: 'ahve-sidebar-width' } as const;
 const SIDEBAR_LAYOUT_CHANGED = 'sidebarLayoutChanged';
+const COMMENT_POPUP_WIDTH_META_NAME = 'ahve-comment-popup-width';
+const COMMENT_POPUP_WIDTH_CHANGED = 'commentPopupWidthChanged';
 
 const STATE_TIMEOUT_MS = 20000;
 const POLLING_INTERVAL_MS = 50;
@@ -150,6 +152,19 @@ describe('Webview hosting and security', () => {
       // The layout is kept for every file across the run, so the suites after this one start closed again.
       await deliverViewMessage(next, { type: SIDEBAR_LAYOUT_CHANGED, open: false });
     }
+  });
+
+  it('keeps the comment popup width a view sends and declares it in the document of the next view', async () => {
+    const first = insideWorkspaceUri('sample.html');
+    const next = insideWorkspaceUri('empty.html');
+    await openInWysiwyg(first);
+    await deliverViewMessage(first, { type: COMMENT_POPUP_WIDTH_CHANGED, width: 360 });
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+    // No message drops the width again, and no later suite reads it, so it stays stored for the rest of the run.
+    const html = (await openInWysiwyg(next)).html;
+
+    assert.strictEqual(readMetaContent(html, COMMENT_POPUP_WIDTH_META_NAME), '360');
   });
 
   it('writes a document containing a CSP with a nonce', async () => {

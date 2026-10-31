@@ -21,6 +21,7 @@ export type {
   BodyOutputResponseMessage,
   CodeBlockCopyRequestedMessage,
   CodeBlockCopySucceededMessage,
+  CommentPopupWidthChangedMessage,
   ConflictSides,
   ConflictsResolvedMessage,
   CopyHtmlResponseMessage,
@@ -118,6 +119,11 @@ export type {
   TestViewToHostMessage,
 } from './messaging/test-message';
 export { EDITOR_ROOT_ELEMENT_ID } from './view/editor-root';
+export {
+  COMMENT_POPUP_MIN_WIDTH,
+  COMMENT_POPUP_WIDTH_META_NAME,
+  parseCommentPopupWidth,
+} from './view/comment-popup-width';
 export {
   DEFAULT_SIDEBAR_LAYOUT,
   SIDEBAR_LAYOUT_META_NAME,

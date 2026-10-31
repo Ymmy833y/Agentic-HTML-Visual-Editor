@@ -36,6 +36,13 @@ export function parseSidebarLayoutChange(value: unknown): SidebarLayoutChange | 
   };
 }
 
+/** A layout written to the global state, with the stored value it replaces. */
+interface PendingLayout {
+  readonly layout: SidebarLayout;
+  /** The stored value when the write started, as JSON, so that a copy of it compares equal. */
+  readonly replaced: string | undefined;
+}
+
 /**
  * Keeps the last sidebar layout for every file.
  *
@@ -43,6 +50,12 @@ export function parseSidebarLayoutChange(value: unknown): SidebarLayoutChange | 
  * the files they happen to open.
  */
 export class SidebarLayoutStore {
+  // The global state can go on returning the value a write replaces for a while, even after the write settles, and a
+  // change laid over that value would undo the one before it. The written layout is kept until the stored value is
+  // anything else, which also lets a layout another window stores afterwards apply. It is dropped as soon as the
+  // global state returns it, since the replaced value coming back after that is another window's change.
+  private pending: PendingLayout | undefined;
+
   /**
    * @param state The extension's global state. Only reading and updating are used.
    */
@@ -51,14 +64,20 @@ export class SidebarLayoutStore {
   /**
    * Returns the stored layout.
    *
-   * @returns The stored layout, or the default when none is stored or the stored value is not a layout.
+   * @returns The layout being written while the global state still returns the value it replaces, or else the stored
+   *   one, or the default when none is stored or the stored value is not a layout.
    */
   read(): SidebarLayout {
-    return parseSidebarLayout(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) ?? DEFAULT_SIDEBAR_LAYOUT;
+    const stored = this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY);
+    if (this.pending !== undefined && JSON.stringify(stored) === this.pending.replaced) {
+      return this.pending.layout;
+    }
+    this.pending = undefined;
+    return parseSidebarLayout(stored) ?? DEFAULT_SIDEBAR_LAYOUT;
   }
 
   /**
-   * Lays a change over the stored layout and stores the result.
+   * Lays a change over the stored layout and stores the result. The next read returns it at once.
    *
    * The half the change does not carry keeps its stored value, so that opening or closing in one view does not undo a
    * width set in another, and the other way round.
@@ -71,6 +90,13 @@ export class SidebarLayoutStore {
     const open = change.open ?? stored.open;
     const width = change.width ?? stored.width;
     // Only the fields of the contract are stored, so that nothing else ends up in the global state.
-    await this.state.update(SIDEBAR_LAYOUT_STATE_KEY, width === undefined ? { open } : { open, width });
+    const layout: SidebarLayout = width === undefined ? { open } : { open, width };
+    const pending = { layout, replaced: JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) };
+    this.pending = pending;
+    await this.state.update(SIDEBAR_LAYOUT_STATE_KEY, layout);
+    const returned = JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) === JSON.stringify(layout);
+    if (this.pending === pending && returned) {
+      this.pending = undefined;
+    }
   }
 }
