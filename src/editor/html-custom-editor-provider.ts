@@ -68,6 +68,7 @@ import { HtmlCustomDocument } from './html-custom-document';
 import { createInitializeMessage } from './initialize-message';
 import { handleViewMessage } from './view-message-handler';
 import { SidebarLayoutStore } from './sidebar-layout-store';
+import { CommentPopupWidthStore } from './comment-popup-width-store';
 import { buildWebviewContent } from './webview-content';
 import { HTML_EDITOR_ENTRY_VIEW_TYPE, HTML_EDITOR_VIEW_TYPE, isEditorResource, resolveEditorSource } from './editor-resource';
 import { HtmlEditorEntryProvider } from './html-editor-entry-provider';
@@ -225,6 +226,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     private readonly protectionParentUri: vscode.Uri,
     private readonly testMode: boolean,
     private readonly sidebarLayoutStore: SidebarLayoutStore,
+    private readonly commentPopupWidthStore: CommentPopupWidthStore,
   ) {
     this.localizer = createLocalizer(messages.catalog);
     this.backupFileHost = createBackupFileHost();
@@ -292,6 +294,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, PROTECTION_BACKUP_FOLDER),
       context.extensionMode === vscode.ExtensionMode.Test,
       new SidebarLayoutStore(context.globalState),
+      new CommentPopupWidthStore(context.globalState),
     );
 
     const registration = vscode.window.registerCustomEditorProvider(HTML_EDITOR_VIEW_TYPE, provider, {
@@ -616,6 +619,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       this.messages,
       this.testMode,
       this.sidebarLayoutStore.read(),
+      this.commentPopupWidthStore.read(),
     );
   }
 
@@ -630,6 +634,17 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
   private receiveSidebarLayout(change: SidebarLayoutChange): void {
     this.sidebarLayoutStore.write(change).catch((error: unknown) => {
       this.errorReporter.reportInternalError(`Could not store the sidebar layout: ${String(error)}`);
+    });
+  }
+
+  /**
+   * Stores a comment popup width for the views created afterwards, without waiting, as with the sidebar layout.
+   *
+   * @param width The width received from a view.
+   */
+  private receiveCommentPopupWidth(width: number): void {
+    this.commentPopupWidthStore.write(width).catch((error: unknown) => {
+      this.errorReporter.reportInternalError(`Could not store the comment popup width: ${String(error)}`);
     });
   }
 
@@ -1620,7 +1635,8 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
     // no session exists. Recording here would leave a failure-looking line even for a request that did its job.
     const needsSaveCoordinator = message.type !== VIEW_TO_HOST_MESSAGE_TYPE.relativeLinkRequested
       && message.type !== VIEW_TO_HOST_MESSAGE_TYPE.codeBlockCopyRequested
-      && message.type !== VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged;
+      && message.type !== VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged
+      && message.type !== VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged;
     if (coordinator === undefined && needsSaveCoordinator) {
       // There is no save coordinator only before the session is registered or after it is disposed.
       // The user can do nothing about it, but without a record there is no way to notice that an
@@ -1684,6 +1700,7 @@ export class HtmlCustomEditorProvider implements vscode.CustomEditorProvider<Htm
       // Bound to the panel that received the message, so the success message returns to the pressed button.
       receiveCodeBlockCopyRequest: (text) => this.receiveCodeBlockCopyRequest(document, webview, text),
       receiveSidebarLayout: (change) => this.receiveSidebarLayout(change),
+      receiveCommentPopupWidth: (width) => this.receiveCommentPopupWidth(width),
       receiveEditTransaction: (received) => {
         if (transactionBridge === undefined) {
           this.errorReporter.reportInternalError(

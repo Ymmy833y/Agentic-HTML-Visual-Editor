@@ -1,4 +1,5 @@
 import {
+  COMMENT_POPUP_WIDTH_META_NAME,
   DEFAULT_SIDEBAR_LAYOUT,
   EDITOR_ROOT_ELEMENT_ID,
   MESSAGE_CATALOG_ELEMENT_ID,
@@ -31,6 +32,8 @@ export function serializeCatalogForEmbedding(catalog: MessageCatalog): string {
  * @param messages The resolved messages, whose locale is declared on the root element.
  * @param testMode True only when launched in Test mode. Makes the view accept test-only controls.
  * @param sidebarLayout The sidebar layout the view starts with: the last one stored for every file.
+ * @param commentPopupWidth The comment popup width the view starts with: the last one stored for every file, or
+ *   `undefined` to keep the stylesheet's default.
  * @returns A string containing the complete HTML document.
  */
 export function buildWebviewContent(
@@ -41,6 +44,7 @@ export function buildWebviewContent(
   messages: ResolvedMessages,
   testMode = false,
   sidebarLayout: SidebarLayout = DEFAULT_SIDEBAR_LAYOUT,
+  commentPopupWidth?: number,
 ): string {
   // The test mode meta is decided only from the extension mode. If it could be read from the document or
   // settings, an opened HTML file could trigger unresponsiveness or unsent edits.
@@ -51,6 +55,10 @@ export function buildWebviewContent(
     + (sidebarLayout.width === undefined
       ? ''
       : `\n<meta name="${SIDEBAR_LAYOUT_META_NAME.width}" content="${String(Math.round(sidebarLayout.width))}">`);
+  // Written the same way as the sidebar width, and left out under the same condition.
+  const commentPopupDeclaration = commentPopupWidth === undefined
+    ? ''
+    : `\n<meta name="${COMMENT_POPUP_WIDTH_META_NAME}" content="${String(Math.round(commentPopupWidth))}">`;
   // The root declaration carries the UI locale, not the language of the file being edited: the text
   // read at this level is the toolbar and dialog wording. The language of the opened file is
   // declared on the element the body content is mounted into, overriding this one for that subtree.
@@ -72,7 +80,7 @@ export function buildWebviewContent(
 <html lang="${messages.locale}">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="${buildContentSecurityPolicy(webviewSource, nonce)}">${testModeDeclaration}${sidebarDeclaration}
+<meta http-equiv="Content-Security-Policy" content="${buildContentSecurityPolicy(webviewSource, nonce)}">${testModeDeclaration}${sidebarDeclaration}${commentPopupDeclaration}
 <link rel="stylesheet" href="${styleUri}">
 <script type="application/json" id="${MESSAGE_CATALOG_ELEMENT_ID}" nonce="${nonce}">${serializeCatalogForEmbedding(messages.catalog)}</script>
 <script nonce="${nonce}" src="${bundleUri}" defer></script>

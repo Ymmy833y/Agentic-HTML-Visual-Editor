@@ -55,6 +55,7 @@ export const VIEW_TO_HOST_MESSAGE_TYPE = {
   conflictsResolved: 'conflictsResolved',
   pdfExportResponse: 'pdfExportResponse',
   pdfExportRequested: 'pdfExportRequested',
+  commentPopupWidthChanged: 'commentPopupWidthChanged',
 } as const;
 
 /** A message indicating that the view is ready to receive messages. */
@@ -635,6 +636,18 @@ export interface SidebarLayoutChangedMessage extends SidebarLayoutChange {
   readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.sidebarLayoutChanged;
 }
 
+/**
+ * View → host message without a response that carries the width the user dragged the comment popup to.
+ *
+ * The host stores it for every file and hands it to every view it creates afterwards, a reload of an open view
+ * included. A view already running is not changed by it.
+ */
+export interface CommentPopupWidthChangedMessage {
+  readonly type: typeof VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged;
+  /** The width in CSS pixels. */
+  readonly width: number;
+}
+
 /** The two sides of one conflict region, as the lines of the full document text (LF). */
 export interface ConflictSides {
   /** The lines from the file on disk. */
@@ -720,4 +733,5 @@ export type ViewToHostMessage =
   | SidebarLayoutChangedMessage
   | ConflictsResolvedMessage
   | PdfExportResponseMessage
-  | PdfExportRequestedMessage;
+  | PdfExportRequestedMessage
+  | CommentPopupWidthChangedMessage;

@@ -746,7 +746,10 @@
    Placed in view coordinates; on scroll the trigger places it again. Stacked above the body and below the strip, overlays and
    dialogs. Background, text and border colors come from theme tokens so it stays readable where it overlaps the body in all
    three themes. display is not set: setting it would take precedence over the hidden attribute, and the popup would stay
-   visible after closing. With many entries it scrolls vertically inside instead of covering the whole body. */
+   visible after closing. With many entries it scrolls vertically inside instead of covering the whole body.
+   The width is the one the user dragged it to (the custom property set from comment-popup-resize.ts), or 30em until
+   then, and never more than the view less 1em, the same room as in comment-popup-resize.ts. Bounding it here rather
+   than only while dragging keeps a stored width usable in a view narrower than the one it was set in. */
 #editor-comment-popup {
   /* The thread's accent: the first entry's author color (orange for human, blue for AI), or green once resolved. It
      tints the top of the card and the cap of the header, tying the popup to the highlight it belongs to. */
@@ -757,7 +760,7 @@
   position: fixed;
   z-index: 0;
   box-sizing: border-box;
-  width: min(30em, calc(100% - 1em));
+  width: min(var(--ahve-comment-popup-width, 30em), calc(100% - 1em));
   max-height: min(52vh, 36em);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -793,6 +796,37 @@
   #editor-comment-popup {
     animation: none;
   }
+}
+
+/* The strip along the popup's right edge that is dragged to resize it. The class and the height property are spelled
+   the same as the constants in comment-popup-resize.ts, which sets the height to the popup's visible area. It is the
+   popup's first child and sticks to the top of that area, so that it stays on the visible edge while a long thread
+   scrolls. The negative bottom margin as tall as the strip lets the thread header start at the top as before, and the
+   strip, never lower than the end of the thread, keeps nothing scrollable that the thread does not fill. It stacks above
+   the sticky thread header. It is drawn only while the pointer is on it or dragging, as an accent line along the edge.
+   touch-action keeps a touch drag from scrolling the popup instead. */
+#editor-comment-popup > .comment-popup-resizer {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 6px;
+  height: var(--comment-popup-resizer-height, 0px);
+  margin: 0 0 calc(-1 * var(--comment-popup-resizer-height, 0px)) auto;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+#editor-comment-popup > .comment-popup-resizer:hover,
+:root[data-comment-popup-resizing] #editor-comment-popup > .comment-popup-resizer {
+  background: linear-gradient(to left, var(--ahve-accent) 2px, transparent 2px);
+}
+
+/* While dragging, the pointer runs over the body and the toolbar. The resize cursor stays, and the drag does not
+   select text on its way. The attribute is spelled the same as the constant in comment-popup-resize.ts. */
+:root[data-comment-popup-resizing] body {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* The entries container. The spacing lives here so that the header and the composers can reach the card's edges. */
