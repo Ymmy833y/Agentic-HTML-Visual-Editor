@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor：AI エージェントと人間をつなぐ WYSIWYG エディタ" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.1-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.1.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 以降" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT ライセンス" /></a>
 </p>
@@ -88,7 +88,7 @@ AI エージェントと人間が共同で編集・レビューする設計メ�
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプトと、コメントのマークアップを検査するスクリプトが付いていて、動かすには Python 3.11 以上が必要です。
+導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプト（`list_comments.py`）と、コメントのマークアップを検査するスクリプト（`check_comments.py`）が付いていて、動かすには Python 3.11 以上が必要です。
 
 ## 👀 機能の一覧
 
@@ -99,7 +99,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 | 🧮 **表** | グリッドからの挿入、行と列、ヘッダーセル、セルの結合、px か % の列幅 |
 | 🔽 **折りたたみ** | 画面上で開閉でき、状態も保存される `<details>` |
 | 💡 **アラート** | GitHub 風の引用（note・tip・important・warning・caution） |
-| 💬 **レビューコメント** | HTML の中に残るスレッド。書いた人と日時、解決済みかどうかも記録 |
+| 💬 **レビューコメント** | HTML の中に残るスレッド。書いた人と日時、解決済みかどうか、書式付きの文章、幅を変えられるポップアップ |
 | 🔄 **変更のレビュー** | エージェントが記した挿入・削除・置換のマーク。個別または一括で承認・却下 |
 | 🔗 **リンクと画像** | ダイアログでの挿入と編集。`Ctrl`+クリックでリンクを開く |
 | 📊 **Mermaid の図** | VS Code のテーマに合わせて表示し、ファイルにはソースを残す |
@@ -108,7 +108,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 | 📋 **クリップボード** | きれいな HTML でのコピー、余計なスタイルを除いた貼り付け、コードブロックのコピーボタン |
 | 💾 **保存と競合の解決** | 編集していない行はそのまま残し、ディスク上の変更とはマージ。競合した部分は残す内容を選択 |
 | ⏪ **元に戻す操作と復旧** | 保存後も使える元に戻す・やり直し。再読み込みや再起動のあとも復元できる退避済みの編集 |
-| 📄 **PDF 出力** | 未保存の編集を含む現在の文書を、リンク付きの A4 PDF として出力 |
+| 📄 **PDF 出力** | 未保存の編集を含む現在の文書を、リンク付きの A4 PDF として出力。文字は選択・検索できる |
 | 🌐 **言語とアクセシビリティ** | 英語と日本語の表示。キーボードでの操作 |
 
 ## 🧩 機能の詳細
@@ -167,6 +167,8 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 
 - `<comment>` の注釈は HTML の中にあるので、人間でも AI でも、マークアップからスレッド全体を読めます。
 - 文字を選び、ツールバーかフローティングメニューからコメントを付けます。色の付いた文字を押すか、その中にキャレットを置いて `Alt+Enter` を押すと、スレッドが開きます。
+- 本文と返信には、文書と同じ書式（インラインの書式、リンク、見出し、リスト、コードブロック、表などのブロック）を付けて書けます。入力欄でも、ツールバー、フローティングメニュー、キーボードショートカットを使えます。
+- ポップアップの右端をドラッグすると、幅を変えられます。幅は表示範囲の内側に収まり、ほかのコメントにもほかのファイルにも引き継がれます。
 - 本文と返信は、追加・編集・削除ができます。書き込みごとに書いた人と日時が記録され、アバターの色で人間と AI エージェントの書き込みを見分けられます。
 - スレッドは解決済みにでき、解決済みのスレッドは目立たない表示になります。
 - AI エージェントの書き込みを編集・削除するときは、先に確認のダイアログが出ます。
@@ -244,9 +246,11 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 
 - ツールバーの **PDF に書き出す** か、コマンドパレットの **Visual Editor: PDF に書き出す** を実行し、保存先を選びます。HTML を保存せずに、現在の未保存の編集も PDF に含めます。
 - A4 縦、白背景、ライトテーマで出力し、表、画像、Mermaid の図も含めます。閉じた折りたたみはタイトルだけ、コメントは注釈を付けた文字だけを出力します。
+- 文字は同梱の BIZ UDPゴシックと BIZ UDゴシックで組むため、PDF リーダーで選択、コピー、検索できます。背景、枠、画像、図、リストの印は、ページの画像のままです。
+- 絵文字、ヘブライ文字、ハングルなど同梱の書体にない文字と、スタイルで透明、変形、影などが指定された文字は、画像のままで、選択も検索もできません。
 - 外部の画像は、配信元がオリジンをまたぐ読み込み（CORS）を許可していないと、出力されない場合があります。
 - Web、メール、文書内のアンカーへのリンクはクリックできます。ファイルへのリンクはエディタと同じ規則で解決し、PDF の保存先から参照できる場合は相対パスで出力します。
-- 出力前に、すべての変更マークを承認または却下してください。ページは画像として出力するため、PDF リーダーで文字を選択・検索できません。
+- 出力前に、すべての変更マークを承認または却下してください。
 
 ### 🧰 ツールバーとメニュー
 

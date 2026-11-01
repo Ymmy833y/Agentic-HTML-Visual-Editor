@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor: a WYSIWYG bridge between AI agents and humans" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.0.1-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.1.0-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 or later" />
   <a href="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/blob/HEAD/LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT License" /></a>
 </p>
@@ -88,7 +88,7 @@ This repository provides an Agent Skill that teaches an AI agent how to write HT
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-The command installs the skill `agentic-html-visual-editor-authoring`. The scripts in it that list the comments of a document and check their markup require Python 3.11 or later.
+The command installs the skill `agentic-html-visual-editor-authoring`. The scripts in it that list the comments of a document and check their markup (`list_comments.py` and `check_comments.py`) require Python 3.11 or later.
 
 ## 👀 Features at a Glance
 
@@ -99,7 +99,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 | 🧮 **Tables** | Grid picker, rows and columns, header cells, merged cells, and column widths in px or % |
 | 🔽 **Collapsible sections** | `<details>` blocks that open and close, with the state saved |
 | 💡 **Alerts** | GitHub-style Note, Tip, Important, Warning, and Caution blockquotes |
-| 💬 **Review comments** | Threads stored in the HTML, with authors, times, and a resolved state |
+| 💬 **Review comments** | Threads stored in the HTML, with authors, times, a resolved state, formatted text, and a resizable popup |
 | 🔄 **Change review** | Agent-written insertion, deletion, and replacement marks; accept or reject individually or all at once |
 | 🔗 **Links and images** | Dialogs to insert and edit them; `Ctrl`+click follows a link |
 | 📊 **Mermaid diagrams** | Rendered in your VS Code theme, while the file keeps the source |
@@ -108,7 +108,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 | 📋 **Clipboard** | Clean HTML on copy, sanitized paste, and a copy button on code blocks |
 | 💾 **Safe saving** | Unedited lines stay as they are; changes on disk are merged, with choices for conflicts |
 | ⏪ **Undo and recovery** | Undo across saves, and recovery of backed-up unsaved edits after a reload or restart |
-| 📄 **PDF export** | Export the current document, including unsaved edits, as an A4 PDF with clickable links |
+| 📄 **PDF export** | Export the current document, including unsaved edits, as an A4 PDF with clickable links and selectable, searchable text |
 | 🌐 **Languages and accessibility** | English and Japanese UI, and keyboard operation |
 
 ## 🧩 Features in Detail
@@ -167,6 +167,8 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 
 - `<comment>` annotations live in the HTML itself, so any reader, human or AI, can follow the whole thread from the markup.
 - Select text and add a comment from the toolbar or floating menu. Click the highlighted text, or press `Alt+Enter` with the caret inside it, to open its thread.
+- Write the body and the replies with the document's formatting: inline styles, links, headings, lists, code blocks, tables, and the other blocks. The toolbar, the floating menu, and the keyboard shortcuts work inside the comment fields.
+- Drag the popup's right edge to resize it. The width stays within the view and carries over to other comments and other files.
 - Add, edit, and delete the body and the replies. Each entry records its author and time and shows an avatar in the author's color, so entries by people and by AI agents are easy to tell apart.
 - Mark a thread as resolved; resolved threads recede visually.
 - Editing or deleting an entry that an AI agent wrote asks for confirmation first.
@@ -244,9 +246,11 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 
 - Click **Export as PDF** in the toolbar, or run **Visual Editor: Export as PDF** from the Command Palette, then choose where to save. The PDF includes the current unsaved edits without saving the HTML.
 - Pages use A4 portrait, a white background, and the light theme. Tables, images, and Mermaid diagrams are included. Closed collapsible sections show only their titles; comments show only their annotated text.
+- Text is set in the bundled BIZ UDPGothic and BIZ UDGothic fonts, so you can select, copy, and search it in a PDF reader. Backgrounds, borders, images, diagrams, and list markers stay in the page image.
+- Text that the fonts do not cover, such as emoji, Hebrew, and Hangul, and text that a style makes transparent, transformed, or shadowed, stays in the image and cannot be selected or searched.
 - Remote images may be omitted if their server does not allow cross-origin loading (CORS).
 - Web, email, and document-anchor links remain clickable. File links are resolved with the editor's rules and written relative to the PDF's save location when that location can reach them.
-- Accept or reject all change marks before exporting. Pages are rendered as images, so their text cannot be selected or searched in a PDF reader.
+- Accept or reject all change marks before exporting.
 
 ### 🧰 Toolbar and Menus
 
