@@ -13,7 +13,7 @@ import {
 const PUBLIC_REPOSITORY = 'Ymmy833y/Agentic-HTML-Visual-Editor';
 const DEVELOPMENT_REPOSITORY = 'Ymmy833y/Agentic-HTML-Visual-Editor-3';
 
-// 公開リポジトリを指す package.json。
+// A package.json that names the public repository.
 const MANIFEST = {
   name: 'agentic-html-visual-editor',
   publisher: 'YuyaMiyamoto',
@@ -36,18 +36,18 @@ const CHANGELOG_WITH_ENTRY = [
 const CHANGELOG_WITHOUT_ENTRY = ['# Changelog', '', '## [0.1.12] - 2026-09-23'].join('\n');
 
 /**
- * 決まった応答を返す fetch を作る。
+ * Makes a fetch that returns a fixed response.
  *
- * @param body 応答の本文として JSON にする値。
- * @param status HTTP の状態コード。
- * @returns 代わりの fetch。
+ * @param body The value sent as the JSON body of the response.
+ * @param status The HTTP status code.
+ * @returns The fetch to use instead.
  */
 function respondWith(body: unknown, status = 200): typeof fetch {
   return async () => new Response(JSON.stringify(body), { status });
 }
 
-describe('公開の判定', () => {
-  it('版が公開済みより新しく、変更履歴に項目があると公開すると判定する', () => {
+describe('publish decision', () => {
+  it('publishes a version newer than the published one when the changelog has its entry', () => {
     const decision = decidePublish({
       version: '1.0.0',
       published: { kind: 'found', version: '0.1.12' },
@@ -57,7 +57,7 @@ describe('公開の判定', () => {
     expect(decision.outcome).toBe('publish');
   });
 
-  it('版が公開済みと同じなら公開不要と判定する', () => {
+  it('skips a version that is already published', () => {
     const decision = decidePublish({
       version: '1.0.0',
       published: { kind: 'found', version: '1.0.0' },
@@ -67,7 +67,7 @@ describe('公開の判定', () => {
     expect(decision.outcome).toBe('skip');
   });
 
-  it('版が公開済みより古いと公開不要と判定し、理由に 2 つの版が入る', () => {
+  it('skips a version older than the published one and names both versions in the reason', () => {
     const decision = decidePublish({
       version: '1.0.0',
       published: { kind: 'found', version: '1.2.0' },
@@ -80,7 +80,7 @@ describe('公開の判定', () => {
     });
   });
 
-  it('未公開で変更履歴に項目があると公開すると判定する', () => {
+  it('publishes when nothing is published yet and the changelog has the entry', () => {
     const decision = decidePublish({
       version: '1.0.0',
       published: { kind: 'none' },
@@ -90,7 +90,7 @@ describe('公開の判定', () => {
     expect(decision.outcome).toBe('publish');
   });
 
-  it('版が公開済みより新しくても、変更履歴に項目が無ければ失敗と判定する', () => {
+  it('fails when the changelog has no entry, even for a version newer than the published one', () => {
     const decision = decidePublish({
       version: '1.0.0',
       published: { kind: 'found', version: '0.1.12' },
@@ -101,10 +101,10 @@ describe('公開の判定', () => {
   });
 
   it.each([
-    { label: '公開済みの版がある', published: { kind: 'found', version: '0.1.12' } as const },
-    { label: '未公開', published: { kind: 'none' } as const },
-    { label: '取得に失敗した', published: { kind: 'error', message: '通信の失敗' } as const },
-  ])('接尾辞の付いた版は、$label ときも失敗と判定する', ({ published }) => {
+    { label: 'a version is published', published: { kind: 'found', version: '0.1.12' } as const },
+    { label: 'nothing is published', published: { kind: 'none' } as const },
+    { label: 'the fetch failed', published: { kind: 'error', message: 'network failure' } as const },
+  ])('fails for a version with a suffix when $label', ({ published }) => {
     const decision = decidePublish({
       version: '1.0.0-beta.1',
       published,
@@ -114,10 +114,10 @@ describe('公開の判定', () => {
     expect(decision.outcome).toBe('fail');
   });
 
-  it('公開済みの版の取得に失敗していると、公開せずに失敗と判定する', () => {
+  it('fails without publishing when the published version could not be fetched', () => {
     const decision = decidePublish({
       version: '1.0.0',
-      published: { kind: 'error', message: '通信の失敗' },
+      published: { kind: 'error', message: 'network failure' },
       changelog: CHANGELOG_WITH_ENTRY,
     });
 
@@ -125,8 +125,8 @@ describe('公開の判定', () => {
   });
 });
 
-describe('実行中のリポジトリを含めた公開の判定', () => {
-  it('開発リポジトリの名前では、Marketplace へ照会せずに公開不要を返す', async () => {
+describe('publish decision including the running repository', () => {
+  it('skips in the development repository without querying the Marketplace', async () => {
     const fetchImpl = vi.fn(respondWith({ results: [{ extensions: [] }] }));
 
     const decision = await evaluatePublish({
@@ -139,7 +139,7 @@ describe('実行中のリポジトリを含めた公開の判定', () => {
     expect({ outcome: decision.outcome, calls: fetchImpl.mock.calls.length }).toEqual({ outcome: 'skip', calls: 0 });
   });
 
-  it('公開リポジトリで照会が例外を投げると、失敗を返す', async () => {
+  it('fails in the public repository when the query throws', async () => {
     const fetchImpl: typeof fetch = async () => {
       throw new TypeError('fetch failed');
     };
@@ -155,46 +155,46 @@ describe('実行中のリポジトリを含めた公開の判定', () => {
   });
 });
 
-describe('変更履歴の見出し', () => {
-  it('版と日付の見出しを見つける', () => {
+describe('changelog heading', () => {
+  it('finds a heading with the version and a date', () => {
     expect(hasChangelogEntry('# Changelog\n\n## [1.0.0] - 2026-10-01\n', '1.0.0')).toBe(true);
   });
 
   it.each([
-    { label: '接尾辞の付いた版の見出し', changelog: '## [1.0.0-beta] - 2026-10-01' },
-    { label: '1 段深い見出し', changelog: '### [1.0.0] - 2026-10-01' },
-    { label: '本文の中の版', changelog: '- Links to [1.0.0] in the text.' },
-  ])('$label は見つけない', ({ changelog }) => {
+    { label: 'a heading for a version with a suffix', changelog: '## [1.0.0-beta] - 2026-10-01' },
+    { label: 'a heading one level deeper', changelog: '### [1.0.0] - 2026-10-01' },
+    { label: 'a version in the body text', changelog: '- Links to [1.0.0] in the text.' },
+  ])('does not find $label', ({ changelog }) => {
     expect(hasChangelogEntry(changelog, '1.0.0')).toBe(false);
   });
 });
 
-describe('版の比較', () => {
-  it('各部分を数として比べ、1.10.0 を 1.9.0 より新しいとする', () => {
+describe('version comparison', () => {
+  it('compares each part as a number, so 1.10.0 is newer than 1.9.0', () => {
     expect(compareVersions('1.10.0', '1.9.0')).toBeGreaterThan(0);
   });
 
-  it('同じ版を等しいとする', () => {
+  it('treats the same version as equal', () => {
     expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
   });
 });
 
-describe('公開リポジトリの判定', () => {
+describe('public repository check', () => {
   it.each([
-    { label: '大文字と小文字が違う', repository: 'ymmy833y/agentic-html-visual-editor', url: 'https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git' },
-    { label: '.git が無い', repository: PUBLIC_REPOSITORY, url: 'https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor' },
-    { label: 'git+https の形', repository: PUBLIC_REPOSITORY, url: 'git+https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git' },
-  ])('$label ときも公開リポジトリと判定する', ({ repository, url }) => {
+    { label: 'the letter case differs', repository: 'ymmy833y/agentic-html-visual-editor', url: 'https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git' },
+    { label: 'the URL has no .git', repository: PUBLIC_REPOSITORY, url: 'https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor' },
+    { label: 'the URL is in the git+https form', repository: PUBLIC_REPOSITORY, url: 'git+https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git' },
+  ])('recognizes the public repository when $label', ({ repository, url }) => {
     expect(isPublicRepository(repository, url)).toBe(true);
   });
 
-  it('名前の異なるリポジトリは公開リポジトリと判定しない', () => {
+  it('does not take a repository with another name for the public repository', () => {
     expect(isPublicRepository(DEVELOPMENT_REPOSITORY, 'https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor.git')).toBe(false);
   });
 });
 
-describe('公開済みの版の取得', () => {
-  it('応答に版が含まれていれば、その版を返す', async () => {
+describe('fetching the published version', () => {
+  it('returns the version that the response holds', async () => {
     const fetchImpl = respondWith({ results: [{ extensions: [{ versions: [{ version: '0.1.12' }] }] }] });
 
     await expect(fetchPublishedVersion('YuyaMiyamoto.agentic-html-visual-editor', fetchImpl)).resolves.toEqual({
@@ -203,7 +203,7 @@ describe('公開済みの版の取得', () => {
     });
   });
 
-  it('拡張が 0 件の応答では未公開を返す', async () => {
+  it('returns none for a response with no extensions', async () => {
     const fetchImpl = respondWith({ results: [{ extensions: [] }] });
 
     await expect(fetchPublishedVersion('YuyaMiyamoto.agentic-html-visual-editor', fetchImpl)).resolves.toEqual({
@@ -214,13 +214,13 @@ describe('公開済みの版の取得', () => {
   it.each([
     { label: 'HTTP 500', fetchImpl: respondWith({ message: 'Internal Server Error' }, 500) },
     {
-      label: '通信の失敗',
+      label: 'a network failure',
       fetchImpl: (async () => {
         throw new TypeError('fetch failed');
       }) satisfies typeof fetch,
     },
-    { label: '形の合わない応答', fetchImpl: respondWith({ count: 0 }) },
-  ])('$label では例外を投げる', async ({ fetchImpl }) => {
+    { label: 'a response of the wrong shape', fetchImpl: respondWith({ count: 0 }) },
+  ])('throws on $label', async ({ fetchImpl }) => {
     await expect(fetchPublishedVersion('YuyaMiyamoto.agentic-html-visual-editor', fetchImpl)).rejects.toThrow();
   });
 });

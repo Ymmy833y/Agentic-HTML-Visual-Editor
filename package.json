@@ -211,11 +211,14 @@
     "esbuild": "^0.25.0",
     "eslint": "^10.5.0",
     "jsdom": "^26.0.0",
+    "pdfjs-dist": "6.4.299",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
     "vitest": "^4.1.12"
   },
   "dependencies": {
+    "@expo-google-fonts/biz-udgothic": "0.4.0",
+    "@expo-google-fonts/biz-udpgothic": "0.4.2",
     "html2canvas-pro": "2.5.2",
     "mermaid": "11.17.2",
     "node-diff3": "3.2.1"

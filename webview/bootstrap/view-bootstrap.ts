@@ -114,6 +114,7 @@ import type { ColumnResize } from '../ui/column-resize';
 import { registerCommentButton } from '../ui/comment-button';
 import { attachCommentCaret } from '../ui/comment-caret';
 import { COMMENT_POPUP_ELEMENT_ID, attachCommentPopup } from '../ui/comment-popup';
+import { attachCommentPopupResize, readEmbeddedCommentPopupWidth } from '../ui/comment-popup-resize';
 import type { CommentPopup } from '../ui/comment-popup';
 import { attachCommentPopupPress } from '../ui/comment-popup-press';
 import { attachCommentPopupTrigger } from '../ui/comment-popup-trigger';
@@ -1124,6 +1125,10 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       startEdit: (entry) => commentThread?.startEdit(entry),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
     });
+    attachCommentPopupResize(view, popupElement, {
+      place: () => popup.place(),
+      saveWidth: (width) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width }),
+    }, readEmbeddedCommentPopupWidth(view.document));
   }
   // Attached after the cell navigation shortcuts, the column resize and the menu, regardless of whether a toolbar
   // exists. The ports are read on every call, because replacement replaces the editing session.
@@ -1581,7 +1586,7 @@ async function handleHostMessage(
     }
     case HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport:
       // Not awaited: drawing takes long, and the messages behind it, such as a save, must still be handled.
-      void readPdfExportResponder(view, channel).respond(message.requestId);
+      void readPdfExportResponder(view, channel).respond(message.requestId, message.fonts);
       return;
     case HOST_TO_VIEW_MESSAGE_TYPE.requestCopyHtml: {
       // Before mounting and for an unopenable document there is no editor root, so respond that the HTML cannot be

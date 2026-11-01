@@ -7,6 +7,7 @@ declare const crypto: {
 
 const NONCE_LENGTH = 32;
 const NONCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const UNBIASED_BYTE_LIMIT = 256 - (256 % NONCE_ALPHABET.length);
 
 /**
  * Creates a single-use nonce for authorizing scripts.
@@ -16,11 +17,15 @@ const NONCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123
 export function createNonce(): string {
   // If the random value were predictable, the HTML being opened could include the same value and
   // defeat the policy that denies all other scripts.
-  const bytes = crypto.getRandomValues(new Uint8Array(NONCE_LENGTH));
-
   let nonce = '';
-  for (const byte of bytes) {
-    nonce += NONCE_ALPHABET[byte % NONCE_ALPHABET.length];
+  while (nonce.length < NONCE_LENGTH) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(NONCE_LENGTH))) {
+      // Bytes at or above the largest multiple of the alphabet size are discarded, because taking
+      // their remainder would make the first characters of the alphabet more likely.
+      if (byte < UNBIASED_BYTE_LIMIT && nonce.length < NONCE_LENGTH) {
+        nonce += NONCE_ALPHABET[byte % NONCE_ALPHABET.length];
+      }
+    }
   }
   return nonce;
 }

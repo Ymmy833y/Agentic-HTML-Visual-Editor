@@ -6,6 +6,7 @@
 !dist/extension.js
 !dist/webview.js
 !dist/webview.css
+!dist/fonts/*.ttf
 !icons/ahve-light.svg
 !icons/ahve-dark.svg
 !assets/icon.png

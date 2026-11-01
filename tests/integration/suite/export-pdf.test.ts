@@ -177,6 +177,19 @@ describe('running "Export as PDF"', () => {
       [true, '%PDF-', []],
     );
   });
+
+  it('embeds a subset of the body font it reads from the extension, with a character map, in the written PDF', async () => {
+    const uri = fixtureUri('pdf-export.html');
+    await openWysiwyg(uri);
+
+    const written = await (await api()).exportPdfForTest(uri.toString(), destination.toString());
+    const pdf = new TextDecoder('latin1').decode(await vscode.workspace.fs.readFile(destination));
+
+    assert.deepStrictEqual(
+      [written, /\/BaseFont \/[A-Z]{6}\+BIZUDPGothic /u.test(pdf), pdf.includes('/FontFile2'), pdf.includes('/ToUnicode')],
+      [true, true, true, true],
+    );
+  });
 });
 
 describe('the links of an exported PDF', () => {

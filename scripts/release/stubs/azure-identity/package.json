@@ -1,0 +1,8 @@
+{
+  "name": "@azure/identity",
+  "version": "0.0.0-stub",
+  "private": true,
+  "description": "Stands in for @azure/identity so that the release tools do not install it",
+  "license": "MIT",
+  "main": "index.js"
+}

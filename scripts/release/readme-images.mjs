@@ -1,10 +1,11 @@
-// README に載せる画像を作る。ヘッダーとフッターのバナーを描き、VS Code で見本の文書を開いて画面を撮る。
+// Makes the images in the README: draws the header and footer banners, opens a sample document in VS Code and takes
+// screenshots of it.
 //
-//   npm run readme:images   先にビルドしてから、このスクリプトで assets/readme/ の画像を作り直す
+//   npm run readme:images   builds first, then runs this script to remake the images in assets/readme/
 //
-// 画面の見た目を変えたら撮り直す。撮るのは開発中のビルド（dist/）の画面で、手元の VS Code の設定や拡張は
-// 一時ディレクトリに切り離して使わない。画面の無い Linux では Xvfb を自分で起動する。窓は 2 倍の倍率で
-// 3200×2000 ピクセルになるので、画面のある環境ではそれより広い画面で撮る。
+// Retake the screenshots whenever the look of the view changes. They show the development build (dist/), in a VS Code
+// whose settings and extensions are kept apart in a temporary directory. On Linux without a display the script starts
+// Xvfb itself. The window is 3200×2000 pixels at twice the scale, so on a machine with a display, use a larger screen.
 
 import { spawn } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,18 +17,18 @@ const REPOSITORY_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SAMPLE_DIR = fileURLToPath(new URL('./readme-images/', import.meta.url));
 const OUTPUT_DIR = join(REPOSITORY_ROOT, 'assets', 'readme');
 
-// 手元に VS Code が無いときに取得する版。統合テストの .vscode-test.mjs と揃える。
-const VSCODE_VERSION = '1.138.0';
+// The integration test configuration, which pins the VS Code version fetched when none is installed.
+const INTEGRATION_TEST_CONFIG_URL = new URL('../../.vscode-test.mjs', import.meta.url);
 const LINUX_VSCODE_EXECUTABLE = '/usr/share/code/code';
 
-// 撮る窓の大きさ（CSS ピクセル）と倍率。エクスプローラーとサイドバーを開いてもツールバーが 1 段に収まる幅にし、
-// README で縮めて表示しても文字が潰れないよう 2 倍で撮る。
+// The window size in CSS pixels, and its scale. The width keeps the toolbar on one row with the explorer and the
+// sidebar open, and twice the scale keeps the text sharp when the README shows the image smaller.
 const WINDOW_SIZE = { width: 1600, height: 1000 };
 const SCALE = 2;
-// Xvfb の画面は、2 倍にした窓が収まる大きさにする。
+// The Xvfb screen is large enough for the window at twice the scale.
 const XVFB_SCREEN = '3400x2200x24';
 
-// バナーの文言と配色。プロトタイプの README のヘッダーと同じにする。
+// The banner wording and colors, the same as the header of the prototype's README.
 const BANNER_TITLE = 'Agentic HTML Visual Editor';
 const BANNER_TAGLINE = 'A WYSIWYG bridge between AI agents and humans';
 const AMBER = '#F59E0B';
@@ -36,43 +37,52 @@ const BANNER_WIDTH = 1280;
 const HEADER_HEIGHT = 220;
 const FOOTER_HEIGHT = 120;
 
-// 撮影で開く文書と、そこに書いてある目印。
+// The document opened for the screenshots, and the marks written in it.
 const SAMPLE_FILE = 'design-notes.html';
 const SAMPLE_HEADING = 'Checkout Redesign';
 const SAMPLE_COMMENT_ID = 'c-k3n8x2qa';
 
-// 切り抜く画像の周りに残す余白の既定値（CSS ピクセル）。
+// The default margin, in CSS pixels, left around a cropped image.
 const CROP_MARGIN = 24;
 
-// 文書のツールバーの要素。webview の toolbar.ts の TOOLBAR_ELEMENT_ID と同じ綴りにする。
+// The document toolbar, spelled as TOOLBAR_ELEMENT_ID in the view's toolbar.ts.
 const TOOLBAR_SELECTOR = '#editor-toolbar';
-// 見出しをツールバーの下へ送るときに、ツールバーの下端との間に空ける幅（CSS ピクセル）。切り抜きの余白に加え、
-// 文書をスクロールすると浮き上がるツールバーの影が写らない分を取る。
+// The space, in CSS pixels, left between the bottom of the toolbar and a heading scrolled up to it. Beyond the crop
+// margin, it keeps out the shadow the toolbar casts once the document scrolls.
 const HEADING_GAP = 32;
-// VS Code が窓の右下に出す通知の要素。
+// The notifications VS Code shows at the bottom right of the window.
 const NOTIFICATION_SELECTOR = '.notification-toast';
 
 /**
- * 文字列を HTML の本文と属性値に置けるよう逃がす。
+ * @typedef {{ x: number, y: number, width: number, height: number }} Box A rectangle in CSS pixels of the window.
+ * @typedef {{ page: import('@playwright/test').Page, editor: import('@playwright/test').Frame }} Screen
+ *   The VS Code window, and the frame that holds the WYSIWYG document.
+ * @typedef {{ electron: import('@playwright/test').Electron, executable: string, workDir: string, env: Record<string, string> }} LaunchOptions
+ *   Playwright's Electron, the VS Code executable, the working directory, and environment variables to add.
+ */
+
+/**
+ * Escapes text for HTML content and attribute values.
  *
- * @param {string} text 文字列。
- * @returns {string} 逃がした文字列。
+ * @param {string} text The text.
+ * @returns {string} The escaped text.
  */
 function escapeHtml(text) {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
 /**
- * バナー 1 枚分の HTML を作る。ヘッダーは下辺を、フッターは上辺を波形にした帯で、ヘッダーだけが文言を持つ。
+ * Makes the HTML of one banner: a band whose bottom edge (header) or top edge (footer) is a wave. Only the header
+ * carries wording.
  *
- * @param {{ kind: 'header' | 'footer', title?: string, tagline?: string }} options バナーの種類と文言。
- * @returns {string} Chromium で開いて撮る HTML。背景は透明にする。
+ * @param {{ kind: 'header' | 'footer', title?: string, tagline?: string }} options The kind of banner and its wording.
+ * @returns {string} HTML for Chromium to open and capture, on a transparent background.
  */
 export function renderBannerHtml({ kind, title = '', tagline = '' }) {
   const width = BANNER_WIDTH;
   const isHeader = kind === 'header';
   const height = isHeader ? HEADER_HEIGHT : FOOTER_HEIGHT;
-  // 奥の波を薄く重ね、手前の波との差で奥行きを出す。
+  // A faint wave behind the front one gives the band some depth.
   const waves = isHeader
     ? [
         `M0 0H${width}V172C1090 214 930 128 720 160S330 214 0 150Z`,
@@ -82,7 +92,7 @@ export function renderBannerHtml({ kind, title = '', tagline = '' }) {
         `M0 42C210 4 380 76 610 40S1040 6 ${width} 48V${height}H0Z`,
         `M0 64C230 26 420 96 650 60S1060 30 ${width} 70V${height}H0Z`,
       ];
-  // フッターはヘッダーと逆向きのグラデーションにして、上下で対になるようにする。
+  // The footer runs the gradient the other way, so that the two banners pair up.
   const [from, to] = isHeader ? [AMBER, ORANGE] : [ORANGE, AMBER];
   const text = isHeader
     ? [
@@ -106,15 +116,29 @@ export function renderBannerHtml({ kind, title = '', tagline = '' }) {
 }
 
 /**
- * 画面の無い Linux では Xvfb を起動し、VS Code に渡す環境変数を返す。
+ * Reads the VS Code version that the integration tests pin, so that the screenshots and the tests use the same build.
  *
- * @returns {Promise<{ env: Record<string, string>, stop: () => void }>} 足す環境変数と、Xvfb を止める関数。
+ * @returns {Promise<string>} The version.
+ */
+export async function readIntegrationTestVsCodeVersion() {
+  const { default: config } = await import(INTEGRATION_TEST_CONFIG_URL.href);
+  if (typeof config?.version !== 'string') {
+    throw new Error('.vscode-test.mjs pins no VS Code version.');
+  }
+  return config.version;
+}
+
+/**
+ * Starts Xvfb on Linux without a display, and returns the environment variables to give VS Code.
+ *
+ * @returns {Promise<{ env: Record<string, string>, stop: () => void }>} The environment variables to add, and a
+ *   function that stops Xvfb.
  */
 async function ensureDisplay() {
   if (process.platform !== 'linux' || process.env.DISPLAY) {
     return { env: {}, stop: () => {} };
   }
-  // -displayfd で空いている番号を Xvfb に選ばせ、決まった番号を 3 番目の出力で受け取る。
+  // -displayfd lets Xvfb pick a free display number and write it to the fourth stream.
   const xvfb = spawn('Xvfb', ['-displayfd', '3', '-screen', '0', XVFB_SCREEN, '-nolisten', 'tcp'], {
     stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
   });
@@ -126,16 +150,17 @@ async function ensureDisplay() {
         resolve(received.trim());
       }
     });
-    xvfb.on('error', (error) => reject(new Error(`画面が無く、Xvfb も起動できない：${error.message}`)));
-    xvfb.on('exit', (code) => reject(new Error(`Xvfb が終了した（終了コード ${code}）`)));
+    xvfb.on('error', (error) => reject(new Error(`There is no display, and Xvfb could not start: ${error.message}`)));
+    xvfb.on('exit', (code) => reject(new Error(`Xvfb exited (exit code ${code}).`)));
   });
   return { env: { DISPLAY: `:${display}` }, stop: () => xvfb.kill() };
 }
 
 /**
- * 撮影に使う VS Code の実行ファイルを探す。統合テストと同じ順に探し、無ければ同じ版を取得する。
+ * Finds the VS Code executable for the screenshots, looking in the same places as the integration tests and fetching
+ * the same version when none is installed.
  *
- * @returns {Promise<string>} 実行ファイルのパス。
+ * @returns {Promise<string>} The path of the executable.
  */
 async function findVsCode() {
   const installed = [process.env.AHVE_VSCODE_EXECUTABLE, LINUX_VSCODE_EXECUTABLE].find(
@@ -145,14 +170,15 @@ async function findVsCode() {
     return installed;
   }
   const { downloadAndUnzipVSCode } = await import('@vscode/test-electron');
-  return downloadAndUnzipVSCode(VSCODE_VERSION);
+  return downloadAndUnzipVSCode(await readIntegrationTestVsCodeVersion());
 }
 
 /**
- * 撮影用の VS Code の利用者設定。拡張と関係の無い UI を隠し、HTML を最初から WYSIWYG で開く。
+ * The VS Code user settings for the screenshots. They hide the UI that has nothing to do with the extension and open
+ * HTML in the WYSIWYG editor from the start.
  *
- * @param {'light' | 'dark'} theme 色のテーマ。
- * @returns {Record<string, unknown>} settings.json の内容。
+ * @param {'light' | 'dark'} theme The color theme.
+ * @returns {Record<string, unknown>} The contents of settings.json.
  */
 function vsCodeSettings(theme) {
   return {
@@ -161,7 +187,7 @@ function vsCodeSettings(theme) {
     'workbench.startupEditor': 'none',
     'workbench.tips.enabled': false,
     'workbench.secondarySideBar.defaultVisibility': 'hidden',
-    // タイトルバーは OS が描く形にし、撮る範囲（窓の中身）に入れない。
+    // The operating system draws the title bar, so it stays out of the captured window content.
     'window.titleBarStyle': 'native',
     'window.customTitleBarVisibility': 'never',
     'window.commandCenter': false,
@@ -178,12 +204,11 @@ function vsCodeSettings(theme) {
 }
 
 /**
- * VS Code を一時ディレクトリの利用者データで起動し、見本の文書を WYSIWYG で開く。
+ * Starts VS Code with user data in the temporary directory and opens the sample document in the WYSIWYG editor.
  *
- * @param {{ electron: import('@playwright/test').Electron, executable: string, workDir: string, theme: 'light' | 'dark', env: Record<string, string> }} options
- *   Playwright の Electron、VS Code の実行ファイル、作業ディレクトリ、色のテーマ、足す環境変数。
- * @returns {Promise<{ app: import('@playwright/test').ElectronApplication, page: import('@playwright/test').Page, editor: import('@playwright/test').Frame }>}
- *   起動した VS Code、その窓、WYSIWYG の文書を持つフレーム。
+ * @param {LaunchOptions & { theme: 'light' | 'dark' }} options How to start VS Code, and the color theme.
+ * @returns {Promise<Screen & { app: import('@playwright/test').ElectronApplication }>} The running VS Code, its window,
+ *   and the frame that holds the WYSIWYG document.
  */
 async function openSample({ electron, executable, workDir, theme, env }) {
   const userData = join(workDir, `user-${theme}`);
@@ -197,7 +222,7 @@ async function openSample({ electron, executable, workDir, theme, env }) {
   const app = await electron.launch({
     executablePath: executable,
     args: [
-      // コンテナの root や Xvfb でも起動できるようにする。GPU の無い画面では GPU を使わない。
+      // Lets VS Code start as root in a container and under Xvfb, and keeps it off the GPU where there is none.
       ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : []),
       `--force-device-scale-factor=${SCALE}`,
       `--user-data-dir=${userData}`,
@@ -213,7 +238,8 @@ async function openSample({ electron, executable, workDir, theme, env }) {
     env: { ...process.env, ...env },
     timeout: 60_000,
   });
-  // 撮る前に失敗しても VS Code を閉じる。閉じないと窓が残り、画面のある環境では理由を出した後もスクリプトが終わらない。
+  // Close VS Code even when something fails before the screenshots. Otherwise its window stays open, and on a machine
+  // with a display the script does not end after giving the reason.
   try {
     const page = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }, size) => {
@@ -226,17 +252,18 @@ async function openSample({ electron, executable, workDir, theme, env }) {
     await clearNotifications(page);
     return { app, page, editor };
   } catch (error) {
-    // 閉じるのに失敗しても、利用者に見せるのは撮れなかった理由のほうである。
+    // Even if closing fails, the reason the screenshots could not be taken is what the user needs to see.
     await app.close().catch(() => {});
     throw error;
   }
 }
 
 /**
- * WYSIWYG の文書を持つフレームが現れるまで待つ。webview は入れ子のフレームなので、見出しの目印で探す。
+ * Waits for the frame that holds the WYSIWYG document. The webview is a nested frame, so it is found by the heading
+ * of the sample.
  *
- * @param {import('@playwright/test').Page} page VS Code の窓。
- * @returns {Promise<import('@playwright/test').Frame>} 文書を持つフレーム。
+ * @param {import('@playwright/test').Page} page The VS Code window.
+ * @returns {Promise<import('@playwright/test').Frame>} The frame that holds the document.
  */
 async function waitForEditor(page) {
   const deadline = Date.now() + 60_000;
@@ -247,25 +274,26 @@ async function waitForEditor(page) {
         .count()
         .catch(() => 0);
       if (found > 0) {
-        // 読み込み直後のちらつきが収まるのを待ってから撮る。
+        // Let the flicker right after loading settle before taking pictures.
         await page.waitForTimeout(1500);
         return frame;
       }
     }
     await page.waitForTimeout(500);
   }
-  throw new Error(`${SAMPLE_FILE} が WYSIWYG で開かなかった。`);
+  throw new Error(`${SAMPLE_FILE} did not open in the WYSIWYG editor.`);
 }
 
 /**
- * 通知を消す。root で動かすと出る警告のように、拡張と関係の無い通知を写さないためである。
- * root の警告は文書が開いた後に遅れて出ることがあり、消した後に出ると写り込むので、出るのを待ってから消す。
+ * Clears the notifications, so that ones unrelated to the extension, such as the warning about running as root, stay
+ * out of the pictures. The root warning can appear after the document has opened, and would show up if it came after
+ * the clearing, so the clearing waits for it.
  *
- * @param {import('@playwright/test').Page} page VS Code の窓。
+ * @param {import('@playwright/test').Page} page The VS Code window.
  */
 async function clearNotifications(page) {
   if (process.getuid?.() === 0) {
-    // 待っても出なければ、消すものが無いだけなので、そのまま進む。
+    // If nothing appears, there is simply nothing to clear.
     await page
       .locator(NOTIFICATION_SELECTOR)
       .first()
@@ -280,11 +308,11 @@ async function clearNotifications(page) {
 }
 
 /**
- * コマンドパレットを開く。F1 は webview にフォーカスがあっても VS Code へ渡るが、フォーカスが移る途中に押すと
- * 取りこぼされることがあるので、開いたのを確かめ、開かなければ押し直す。開かないまま文字を打つと文字が webview に
- * 入り、空白のたびに文書がスクロールする。
+ * Opens the command palette. F1 reaches VS Code even while the webview has the focus, but a press made while the focus
+ * moves can be lost, so the palette is checked and F1 pressed again. Typing while the palette is closed would put the
+ * text into the webview and scroll the document at every space.
  *
- * @param {import('@playwright/test').Page} page VS Code の窓。
+ * @param {import('@playwright/test').Page} page The VS Code window.
  */
 async function openCommandPalette(page) {
   const palette = page.locator('.quick-input-widget');
@@ -298,20 +326,20 @@ async function openCommandPalette(page) {
       return;
     }
   }
-  throw new Error('コマンドパレットが開かず、通知を消せない。');
+  throw new Error('The command palette did not open, so the notifications cannot be cleared.');
 }
 
 /**
- * 複数の要素を囲む範囲に余白を足し、窓からはみ出さないように切り詰める。
+ * Takes the rectangle around several elements, adds a margin, and keeps it inside the window.
  *
- * @param {Array<{ x: number, y: number, width: number, height: number } | null>} boxes 要素の範囲。
- * @param {number} [margin] 周りに残す余白。隣の文や見出しの切れ端が写るときは狭くする。
- * @returns {{ x: number, y: number, width: number, height: number }} 切り抜く範囲。
+ * @param {Array<Box | null>} boxes The rectangles of the elements.
+ * @param {number} [margin] The margin around them. Make it narrower when a neighboring sentence or heading would show.
+ * @returns {Box} The rectangle to crop.
  */
 function unionClip(boxes, margin = CROP_MARGIN) {
   const present = boxes.filter((box) => box !== null);
   if (present.length === 0) {
-    throw new Error('切り抜く要素が見つからない。');
+    throw new Error('None of the elements to crop were found.');
   }
   const left = Math.max(0, Math.min(...present.map((box) => box.x)) - margin);
   const top = Math.max(0, Math.min(...present.map((box) => box.y)) - margin);
@@ -321,18 +349,19 @@ function unionClip(boxes, margin = CROP_MARGIN) {
 }
 
 /**
- * 切り抜きの下端にかかった 1 行ぶんの要素を、その下端まで含める。文字が上下に切れていると、撮り損ないに見えるためである。
+ * Extends the crop down to the bottom of any single line it cuts through. Text cut through the middle looks like a
+ * failed screenshot.
  *
- * @param {import('@playwright/test').Frame} editor WYSIWYG の文書を持つフレーム。
- * @param {{ x: number, y: number, width: number, height: number }} clip 切り抜く範囲。
- * @returns {Promise<{ x: number, y: number, width: number, height: number }>} 下端を広げた範囲。
+ * @param {import('@playwright/test').Frame} editor The frame that holds the WYSIWYG document.
+ * @param {Box} clip The rectangle to crop.
+ * @returns {Promise<Box>} The rectangle with its bottom extended.
  */
 async function includeCutLines(editor, clip) {
   const bottom = clip.y + clip.height;
   let extended = bottom;
   for (const line of await editor.locator('h1, h2, h3, p, li, summary, tr').all()) {
     const box = await line.boundingBox();
-    // 表や図のような高さのある塊は、切れていても何の画像かは分かるので広げない。
+    // A tall block such as a table or a diagram is still recognizable when cut, so the crop does not grow for it.
     if (box !== null && box.height < 60 && box.y < bottom && box.y + box.height > bottom) {
       extended = Math.max(extended, box.y + box.height);
     }
@@ -341,57 +370,59 @@ async function includeCutLines(editor, clip) {
 }
 
 /**
- * 切り抜く範囲が、文書の見えている範囲に収まっているかを確かめる。上端がツールバーの下端より上ならツールバーや
- * VS Code のタブの帯が、下端が webview の下端より下なら VS Code のステータスバーが写る。どちらも文書のスクロールが
- * ずれたときに起きる撮り損ないなので、撮る前に理由を出して止める。
+ * Checks that the crop lies within the visible part of the document. A top above the bottom of the toolbar takes in
+ * the toolbar or the VS Code tab strip, and a bottom below the webview takes in the VS Code status bar. Both happen when
+ * the document scrolled to the wrong place, so the run stops with the reason before taking the picture.
  *
- * @param {string} name 書き出す画像のファイル名。例外の理由に含める。
- * @param {{ x: number, y: number, width: number, height: number }} clip 切り抜く範囲。
- * @param {{ top: number, bottom: number }} view 文書の見えている範囲（ツールバーの下端と webview の下端）。
+ * @param {string} name The file name of the image, given in the reason.
+ * @param {Box} clip The rectangle to crop.
+ * @param {{ top: number, bottom: number }} view The visible part of the document: the bottom of the toolbar and the
+ *   bottom of the webview.
  */
 export function assertClipInView(name, clip, view) {
   if (clip.y < view.top) {
     throw new Error(
-      `${name} を撮れない：切り抜く範囲の上端（${clip.y}）がツールバーの下端（${view.top}）より上にあり、ツールバーが写る。`,
+      `Cannot take ${name}: the top of the crop (${clip.y}) is above the bottom of the toolbar (${view.top}), `
+        + 'so the toolbar would show.',
     );
   }
   if (clip.y + clip.height > view.bottom) {
     throw new Error(
-      `${name} を撮れない：切り抜く範囲の下端（${clip.y + clip.height}）が webview の下端（${view.bottom}）より下にあり、` +
-        'VS Code の画面が写る。',
+      `Cannot take ${name}: the bottom of the crop (${clip.y + clip.height}) is below the bottom of the webview `
+        + `(${view.bottom}), so VS Code itself would show.`,
     );
   }
 }
 
 /**
- * 文書の見えている範囲の上端と下端を、窓の座標で返す。上端はスクロールしても上に留まるツールバーの下端、下端は
- * webview の下端である。
+ * Returns the top and the bottom of the visible part of the document, in window coordinates. The top is the bottom of
+ * the toolbar, which stays at the top when the document scrolls, and the bottom is the bottom of the webview.
  *
- * @param {import('@playwright/test').Frame} editor WYSIWYG の文書を持つフレーム。
- * @returns {Promise<{ top: number, bottom: number }>} 見えている範囲。
+ * @param {import('@playwright/test').Frame} editor The frame that holds the WYSIWYG document.
+ * @returns {Promise<{ top: number, bottom: number }>} The visible part.
  */
 async function readDocumentView(editor) {
   const toolbar = await editor.locator(TOOLBAR_SELECTOR).boundingBox();
   const frame = await (await editor.frameElement()).boundingBox();
   if (toolbar === null || frame === null) {
-    throw new Error('ツールバーか webview の位置を読めない。');
+    throw new Error('Cannot read where the toolbar or the webview is.');
   }
   return { top: toolbar.y + toolbar.height, bottom: frame.y + frame.height };
 }
 
 /**
- * 見出しの上端がツールバーの下端から HEADING_GAP だけ下に来るよう、文書をスクロールする。ツールバーはスクロールしても
- * 上端に留まるため、表示領域の上端へ揃えると見出しがその下に隠れる。文書の末尾の近くではスクロールが足りず、見出しは
- * それより下に残る。
+ * Scrolls the document so that the top of a heading sits HEADING_GAP below the toolbar. The toolbar stays at the top
+ * while the document scrolls, so a heading aligned with the top of the view would hide under it. Near the end of the
+ * document the scroll runs out and the heading stays lower.
  *
- * @param {import('@playwright/test').Locator} heading 見出し。
+ * @param {import('@playwright/test').Locator} heading The heading.
  */
 async function alignBelowToolbar(heading) {
   await heading.evaluate(
     (element, { selector, gap }) => {
       const toolbar = element.ownerDocument.querySelector(selector);
       if (toolbar === null) {
-        throw new Error('ツールバーが見つからない。');
+        throw new Error('The toolbar was not found.');
       }
       const offset = element.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom - gap;
       element.ownerDocument.defaultView?.scrollBy(0, offset);
@@ -401,24 +432,25 @@ async function alignBelowToolbar(heading) {
 }
 
 /**
- * VS Code の通知が出ていないことを確かめる。通知は窓の右下に重なるので、出ていれば拡張と関係の無い UI が写る。
+ * Checks that no VS Code notification is showing. Notifications overlap the bottom right of the window, so one would
+ * put UI unrelated to the extension in the picture.
  *
- * @param {import('@playwright/test').Page} page VS Code の窓。
- * @param {string} name 書き出す画像のファイル名。例外の理由に含める。
+ * @param {import('@playwright/test').Page} page The VS Code window.
+ * @param {string} name The file name of the image, given in the reason.
  */
 async function assertNoNotifications(page, name) {
   const shown = await page.locator(NOTIFICATION_SELECTOR).filter({ visible: true }).allInnerTexts();
   if (shown.length > 0) {
-    throw new Error(`${name} を撮れない：VS Code の通知が出ていて、写り込む（${shown.join('／')}）。`);
+    throw new Error(`Cannot take ${name}: VS Code notifications are showing and would appear (${shown.join(' / ')}).`);
   }
 }
 
 /**
- * 通知が出ていないことを確かめてから、窓の全体を撮る。
+ * Takes the whole window, after checking that no notification is showing.
  *
- * @param {import('@playwright/test').Page} page VS Code の窓。
- * @param {string} outputDir 書き出すディレクトリ。
- * @param {string} name 書き出す画像のファイル名。
+ * @param {import('@playwright/test').Page} page The VS Code window.
+ * @param {string} outputDir The directory to write to.
+ * @param {string} name The file name of the image.
  */
 async function captureWindow(page, outputDir, name) {
   await assertNoNotifications(page, name);
@@ -426,13 +458,13 @@ async function captureWindow(page, outputDir, name) {
 }
 
 /**
- * 切り抜く範囲が文書の見えている範囲に収まり、通知が出ていないことを確かめてから、その範囲を撮る。
+ * Takes a crop, after checking that it lies within the visible part of the document and that no notification is
+ * showing.
  *
- * @param {{ page: import('@playwright/test').Page, editor: import('@playwright/test').Frame }} screen VS Code の窓と、
- *   WYSIWYG の文書を持つフレーム。
- * @param {string} outputDir 書き出すディレクトリ。
- * @param {string} name 書き出す画像のファイル名。
- * @param {{ x: number, y: number, width: number, height: number }} clip 切り抜く範囲。
+ * @param {Screen} screen The VS Code window and the frame that holds the WYSIWYG document.
+ * @param {string} outputDir The directory to write to.
+ * @param {string} name The file name of the image.
+ * @param {Box} clip The rectangle to crop.
  */
 async function captureClip({ page, editor }, outputDir, name, clip) {
   assertClipInView(name, clip, await readDocumentView(editor));
@@ -441,10 +473,10 @@ async function captureClip({ page, editor }, outputDir, name, clip) {
 }
 
 /**
- * バナー 2 枚を Chromium で PNG にする。
+ * Renders the two banners to PNG with Chromium.
  *
- * @param {import('@playwright/test').BrowserType} chromium Playwright の Chromium。
- * @param {string} outputDir 書き出すディレクトリ。
+ * @param {import('@playwright/test').BrowserType} chromium Playwright's Chromium.
+ * @param {string} outputDir The directory to write to.
  */
 async function renderBanners(chromium, outputDir) {
   const browser = await chromium.launch();
@@ -467,113 +499,131 @@ async function renderBanners(chromium, outputDir) {
 }
 
 /**
- * ライトの配色で、全体・コメント・表の 3 枚を撮る。
+ * Takes the overview: the sidebar open on the headings and comments, and the thread of a comment open.
  *
- * @param {Parameters<typeof openSample>[0]} options VS Code の起動に渡すもの。
- * @param {string} outputDir 書き出すディレクトリ。
+ * @param {Screen} screen The VS Code window and the frame that holds the WYSIWYG document.
+ * @param {string} outputDir The directory to write to.
  */
-async function captureLightScreens(options, outputDir) {
-  const { app, page, editor } = await openSample({ ...options, theme: 'light' });
+async function captureOverview({ page, editor }, outputDir) {
+  await editor.getByRole('button', { name: 'Sidebar', exact: true }).click();
+  await editor.locator(`comment#${SAMPLE_COMMENT_ID}`).click();
+  await editor.getByRole('dialog', { name: 'Comment Thread' }).waitFor({ state: 'visible' });
+  await page.waitForTimeout(600);
+  await captureWindow(page, outputDir, 'overview.png');
+}
+
+/**
+ * Crops the annotated sentence together with its open thread, then closes the thread. Expects the thread that
+ * {@link captureOverview} opened.
+ *
+ * @param {Screen} screen The VS Code window and the frame that holds the WYSIWYG document.
+ * @param {string} outputDir The directory to write to.
+ */
+async function captureComments({ page, editor }, outputDir) {
+  const paragraph = editor.locator('p', { has: editor.locator(`comment#${SAMPLE_COMMENT_ID}`) });
+  const popup = editor.getByRole('dialog', { name: 'Comment Thread' });
+  const clip = unionClip([await paragraph.boundingBox(), await popup.boundingBox()]);
+  await captureClip({ page, editor }, outputDir, 'comments.png', await includeCutLines(editor, clip));
+  await page.keyboard.press('Escape');
+}
+
+/**
+ * Crops a table with its table actions menu open. The table is scrolled up below the toolbar first, so that the menu
+ * opens downward: a menu pushed upward over the diagram would leave the picture unclear about what it shows.
+ *
+ * @param {Screen} screen The VS Code window and the frame that holds the WYSIWYG document.
+ * @param {string} outputDir The directory to write to.
+ */
+async function captureTables({ page, editor }, outputDir) {
+  const heading = editor.locator('h2', { hasText: 'Options Compared' });
+  await alignBelowToolbar(heading);
+  const table = editor.locator('table').first();
+  await table.locator('td').nth(2).click({ button: 'right' });
+  const menu = editor.getByRole('menu', { name: 'Table Actions' });
+  await menu.waitFor({ state: 'visible' });
+  await page.waitForTimeout(400);
+  // A narrow margin keeps out the frame of the diagram above the heading.
+  const clip = unionClip([await heading.boundingBox(), await table.boundingBox(), await menu.boundingBox()], 12);
+  await captureClip({ page, editor }, outputDir, 'tables.png', await includeCutLines(editor, clip));
+}
+
+/**
+ * Waits until a Mermaid diagram has been drawn. The diagram is the background image of the pre's ::after, and its
+ * height changes once it is drawn, so its position is read only afterwards.
+ *
+ * @param {import('@playwright/test').Locator} diagram The pre that holds the diagram source.
+ */
+async function waitForDiagram(diagram) {
+  await diagram.evaluate(
+    (element) =>
+      new Promise((resolve, reject) => {
+        const started = Date.now();
+        const poll = () => {
+          if (getComputedStyle(element, '::after').backgroundImage.startsWith('url(')) {
+            resolve(undefined);
+          } else if (Date.now() - started > 30_000) {
+            reject(new Error('The Mermaid diagram was not drawn.'));
+          } else {
+            setTimeout(poll, 200);
+          }
+        };
+        poll();
+      }),
+  );
+}
+
+/**
+ * Crops a Mermaid diagram with its heading. It is taken in the dark theme, to show that diagrams follow the VS Code
+ * colors.
+ *
+ * @param {Screen} screen The VS Code window and the frame that holds the WYSIWYG document.
+ * @param {string} outputDir The directory to write to.
+ */
+async function captureDiagrams({ page, editor }, outputDir) {
+  const diagram = editor.locator('pre.mermaid').first();
+  await waitForDiagram(diagram);
+  // Scroll the heading up below the toolbar. At the position it opened in, the heading hides under the toolbar
+  // whenever the document has scrolled.
+  const heading = editor.locator('h2', { hasText: 'Flow' });
+  await alignBelowToolbar(heading);
+  await page.waitForTimeout(600);
+  // A narrow margin keeps out the paragraph above the heading and the edge of the heading below the diagram.
+  const clip = unionClip([await heading.boundingBox(), await diagram.boundingBox()], 8);
+  await captureClip({ page, editor }, outputDir, 'diagrams.png', clip);
+}
+
+/**
+ * Opens the sample in one theme, runs the captures in order, and closes VS Code whatever happens.
+ *
+ * @param {LaunchOptions} options How to start VS Code.
+ * @param {'light' | 'dark'} theme The color theme.
+ * @param {Array<(screen: Screen, outputDir: string) => Promise<void>>} captures The captures, run in this order.
+ * @param {string} outputDir The directory to write to.
+ */
+async function captureScreens(options, theme, captures, outputDir) {
+  const { app, page, editor } = await openSample({ ...options, theme });
   try {
-    // 全体：サイドバーで見出しとコメントの一覧を開き、コメントのスレッドを開いた状態にする。
-    await editor.getByRole('button', { name: 'Sidebar', exact: true }).click();
-    const target = editor.locator(`comment#${SAMPLE_COMMENT_ID}`);
-    await target.click();
-    const popup = editor.getByRole('dialog', { name: 'Comment Thread' });
-    await popup.waitFor({ state: 'visible' });
-    await page.waitForTimeout(600);
-    await captureWindow(page, outputDir, 'overview.png');
-
-    // コメント：注釈の付いた文と、開いたスレッドを切り抜く。
-    const paragraph = editor.locator('p', { has: target });
-    await captureClip(
-      { page, editor },
-      outputDir,
-      'comments.png',
-      await includeCutLines(editor, unionClip([await paragraph.boundingBox(), await popup.boundingBox()])),
-    );
-    await page.keyboard.press('Escape');
-
-    // 表：表をツールバーのすぐ下まで送り、メニューが下へ開くようにしてから、セルを右クリックして表の操作の
-    // メニューを開く。上へずれて開いたメニューが図に重なると、何を撮った画像か分からなくなるためである。
-    const heading = editor.locator('h2', { hasText: 'Options Compared' });
-    await alignBelowToolbar(heading);
-    const table = editor.locator('table').first();
-    await table.locator('td').nth(2).click({ button: 'right' });
-    const menu = editor.getByRole('menu', { name: 'Table Actions' });
-    await menu.waitFor({ state: 'visible' });
-    await page.waitForTimeout(400);
-    // 見出しの上にある図の枠が入らないよう、余白を狭くする。
-    await captureClip(
-      { page, editor },
-      outputDir,
-      'tables.png',
-      await includeCutLines(
-        editor,
-        unionClip([await heading.boundingBox(), await table.boundingBox(), await menu.boundingBox()], 12),
-      ),
-    );
+    for (const capture of captures) {
+      await capture({ page, editor }, outputDir);
+    }
   } finally {
     await app.close();
   }
 }
 
 /**
- * ダークの配色で、Mermaid の図を撮る。図が VS Code の配色に従うことを見せるため、ダークで撮る。
+ * Draws the banners, takes the screenshots, and copies them to assets/readme/ only when all of them are ready.
  *
- * @param {Parameters<typeof openSample>[0]} options VS Code の起動に渡すもの。
- * @param {string} outputDir 書き出すディレクトリ。
- */
-async function captureDarkScreens(options, outputDir) {
-  const { app, page, editor } = await openSample({ ...options, theme: 'dark' });
-  try {
-    const diagram = editor.locator('pre.mermaid').first();
-    // 図は pre の ::after に背景の画像として描かれる。描き終わると図の高さが変わるので、待ってから位置を決める。
-    await diagram.evaluate(
-      (element) =>
-        new Promise((resolve, reject) => {
-          const started = Date.now();
-          const poll = () => {
-            if (getComputedStyle(element, '::after').backgroundImage.startsWith('url(')) {
-              resolve(undefined);
-            } else if (Date.now() - started > 30_000) {
-              reject(new Error('Mermaid の図が描かれなかった。'));
-            } else {
-              setTimeout(poll, 200);
-            }
-          };
-          poll();
-        }),
-    );
-    // 見出しをツールバーのすぐ下まで送る。開いたときの位置のまま撮ると、文書がスクロールしていれば見出しが
-    // ツールバーの下に隠れる。
-    const heading = editor.locator('h2', { hasText: 'Flow' });
-    await alignBelowToolbar(heading);
-    await page.waitForTimeout(600);
-    // 見出しの上の段落と、図の下の見出しの切れ端が入らないよう、余白を狭くする。
-    await captureClip(
-      { page, editor },
-      outputDir,
-      'diagrams.png',
-      unionClip([await heading.boundingBox(), await diagram.boundingBox()], 8),
-    );
-  } finally {
-    await app.close();
-  }
-}
-
-/**
- * バナーを描いて画面を撮り、揃ったものだけを assets/readme/ へ写す。
- *
- * @returns {Promise<number>} 終了コード。
+ * @returns {Promise<number>} The exit code.
  */
 async function main() {
   if (!existsSync(join(REPOSITORY_ROOT, 'dist', 'extension.js'))) {
-    console.error('dist/ が無い。npm run readme:images で、ビルドしてから流す。');
+    console.error('dist/ is missing. Run npm run readme:images, which builds first.');
     return 1;
   }
   const { chromium, _electron: electron } = await import('@playwright/test');
-  // VS Code は利用者データの下にソケットを作り、そのパスは 107 文字までなので、短い一時ディレクトリに置く。
+  // VS Code creates a socket under its user data, and the socket path is limited to 107 characters, so the temporary
+  // directory has to keep the path short.
   const workDir = mkdtempSync(join(tmpdir(), 'ahve-readme-'));
   const staging = join(workDir, 'images');
   mkdirSync(staging);
@@ -582,16 +632,16 @@ async function main() {
     display = await ensureDisplay();
     await renderBanners(chromium, staging);
     const options = { electron, executable: await findVsCode(), workDir, env: display.env };
-    await captureLightScreens(options, staging);
-    await captureDarkScreens(options, staging);
+    await captureScreens(options, 'light', [captureOverview, captureComments, captureTables], staging);
+    await captureScreens(options, 'dark', [captureDiagrams], staging);
 
-    // 途中で失敗したときに、古い画像と新しい画像が混ざらないよう、全部そろってから書き換える。
+    // Replace the images only once all of them are ready, so that a failure halfway leaves no mix of old and new.
     mkdirSync(OUTPUT_DIR, { recursive: true });
     const files = readdirSync(staging).sort();
     for (const file of files) {
       copyFileSync(join(staging, file), join(OUTPUT_DIR, file));
     }
-    console.log(`assets/readme/ に ${files.length} 枚の画像を書いた：${files.join('、')}`);
+    console.log(`Wrote ${files.length} images to assets/readme/: ${files.join(', ')}`);
     return 0;
   } finally {
     display?.stop();
@@ -599,8 +649,9 @@ async function main() {
   }
 }
 
-// テストから読み込まれたときは撮らず、直接実行されたときだけ動く。Node.js は自身の URL をシンボリックリンクを
-// 解いた実体のパスで持つので、起動したパスも実体に直して比べる。直さないと、リンク越しの起動で何もせずに終わる。
+// Runs only when executed directly, not when a test imports the module. Node.js keeps its own URL as the real path with
+// symbolic links resolved, so the path it was started with is resolved too; otherwise a start through a link would end
+// without taking any pictures.
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main().then(
     (code) => {

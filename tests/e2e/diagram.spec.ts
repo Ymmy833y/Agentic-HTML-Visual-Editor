@@ -21,7 +21,7 @@ const SELECTED_MARK = 'data-ahve-diagram-selected';
 
 const FLOWCHART = 'flowchart TD\n  A[Start] --> B[End]';
 // The same source as written in HTML, where the arrow's angle bracket is escaped.
-const FLOWCHART_MARKUP = FLOWCHART.replace('>', '&gt;');
+const FLOWCHART_MARKUP = FLOWCHART.replace(/>/g, '&gt;');
 const DIAGRAM = `${EDITOR_ROOT} pre`;
 const BODY = `\n<p>before</p>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>after</p>\n`;
 const DIAGRAM_ITEM = `#${TOOLBAR_ELEMENT_ID} [data-slot="${TOOLBAR_SLOT.diagram}"] > button`;

@@ -17,6 +17,10 @@ function createExtensionOptions(isDevelopment) {
     format: 'cjs',
     // vscode is supplied by the runtime, so it is not pulled into the bundle.
     external: ['vscode'],
+    // The fonts the PDF export embeds are read at run time, so an imported font becomes a file next to the bundle
+    // and the import its path. Keeping the original name keeps the allow list of the package stable.
+    loader: { '.ttf': 'file' },
+    assetNames: 'fonts/[name]',
     sourcemap: isDevelopment,
     minify: !isDevelopment,
     logLevel: 'info',
