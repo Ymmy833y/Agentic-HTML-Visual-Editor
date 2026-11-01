@@ -1,6 +1,6 @@
 {
   "name": "@azure/identity",
-  "version": "0.0.0-stub",
+  "version": "4.13.2-stub",
   "private": true,
   "description": "Stands in for @azure/identity so that the release tools do not install it",
   "license": "MIT",
