@@ -19,6 +19,8 @@ const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect 
 /** The set a test drives. */
 interface Harness {
   readonly root: HTMLElement;
+  /** An element outside the editor root whose diagrams are shown too. */
+  readonly other: HTMLElement;
   readonly view: DiagramView;
   /** The sources and themes the renderer was asked to draw, in order. */
   readonly drawn: string[];
@@ -33,15 +35,19 @@ interface Harness {
  *
  * @param html The body.
  * @param load How the renderer loads. Defaults to a fake renderer.
+ * @param other The diagrams of an element outside the editor root, shown too. Empty when omitted.
  * @returns The harness.
  */
-function createHarness(html: string, load?: () => Promise<DiagramRenderer>): Harness {
+function createHarness(html: string, load?: () => Promise<DiagramRenderer>, other = ''): Harness {
   document.body.replaceChildren();
   document.body.className = '';
   const root = document.createElement('div');
   root.id = EDITOR_ROOT_ELEMENT_ID;
   root.innerHTML = html;
-  document.body.append(root);
+  const otherRoot = document.createElement('div');
+  otherRoot.className = 'other-root';
+  otherRoot.innerHTML = other;
+  document.body.append(root, otherRoot);
 
   const drawn: string[] = [];
   const rules: string[] = [];
@@ -61,11 +67,13 @@ function createHarness(html: string, load?: () => Promise<DiagramRenderer>): Har
   };
   const view = new DiagramView(window, createLocalizer({}), document.documentElement, {
     readEditorRoot: () => root,
+    readOtherRoots: () => [otherRoot],
+    ruleScope: `:is(#${EDITOR_ROOT_ELEMENT_ID}, .other-root)`,
     loadRenderer: load ?? (() => Promise.resolve(renderer)),
     applyRules: (text) => rules.push(text),
     reportDiagnostic: (detail) => diagnostics.push(detail),
   });
-  return { root, view, drawn, rules, diagnostics };
+  return { root, other: otherRoot, view, drawn, rules, diagnostics };
 }
 
 /** An editing session that only takes listeners. */
@@ -92,6 +100,17 @@ describe('drawing diagram source blocks', () => {
     await vi.waitFor(() => expect(readMark(root, DIAGRAM_MARK_NAME)).not.toBeNull());
     const token = readMark(root, DIAGRAM_MARK_NAME);
     expect([marked, rules.at(-1)?.includes(`pre[*|${DIAGRAM_MARK_NAME}="${String(token)}"]::after`)]).toEqual([[true, false], true]);
+  });
+
+  it('draws the diagrams of an element outside the editor root too, with a rule under the scope given', async () => {
+    const { other, view, rules } = createHarness('<p>a</p>', undefined, '<pre class="mermaid">flowchart LR</pre>');
+
+    view.refresh();
+
+    await vi.waitFor(() => expect(readMark(other, DIAGRAM_MARK_NAME)).not.toBeNull());
+    const token = String(readMark(other, DIAGRAM_MARK_NAME));
+    expect(rules.at(-1)?.startsWith(`:is(#${EDITOR_ROOT_ELEMENT_ID}, .other-root) pre[*|${DIAGRAM_MARK_NAME}="${token}"]`))
+      .toBe(true);
   });
 
   it('marks a block that could not be drawn as an error and applies no rule for it', async () => {

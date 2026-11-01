@@ -1,11 +1,18 @@
 import type * as vscode from 'vscode';
 
-import { HOST_TO_VIEW_MESSAGE_TYPE, PDF_EXPORT_REFUSAL, VIEW_TO_HOST_MESSAGE_TYPE } from '../../common/index';
+import {
+  HOST_TO_VIEW_MESSAGE_TYPE,
+  PDF_EXPORT_REFUSAL,
+  PDF_FONT_ROLE,
+  VIEW_TO_HOST_MESSAGE_TYPE,
+} from '../../common/index';
 import type {
   Localizer,
   PdfExportRefusal,
   PdfExportResponseMessage,
+  PdfFontRole,
   PdfPageLink,
+  PdfTextRun,
   RequestFailure,
   RequestOutcome,
   RequestPdfExportMessage,
@@ -15,9 +22,11 @@ import type { LinkResolveHost } from '../link/relative-link-opener';
 import { PendingRequests } from '../messaging/pending-requests';
 import type { SessionRegistry } from '../session/session-registry';
 import type { WysiwygSession } from '../session/wysiwyg-session';
+import type { BundledPdfFonts } from './pdf-fonts';
 import { attachLinkTargets, resolvePdfLinkTargets } from './pdf-link-target';
 import type { DrawnPage, PdfHrefTarget } from './pdf-link-target';
 import { writePdf } from './pdf-writer';
+import type { PdfTextFont } from './pdf-writer';
 
 // atob is global in both extension hosts, but this layer has no DOM types. Declare only the part used here, because
 // Buffer does not exist in the web extension host.
@@ -83,6 +92,13 @@ export interface ExportPdfPorts {
    */
   createLinkHost(documentUri: vscode.Uri): LinkResolveHost;
 
+  /**
+   * Loads the fonts the extension bundles for the text of the PDF.
+   *
+   * @returns The fonts. Rejects when they cannot be read.
+   */
+  loadFonts(): PromiseLike<BundledPdfFonts>;
+
   /** Outlet for failure notifications and for logging their causes. */
   readonly errorReporter: ErrorReporter;
 
@@ -127,9 +143,10 @@ export class PdfExportRequester {
    * Never throws and never rejects. A request that could not be sent will never get a response, so it fails without
    * waiting for the timeout.
    *
+   * @param fonts The bundled fonts, which the request carries and the text of the response must be set in.
    * @returns The page images, the reason the view declined, or the cause of failure.
    */
-  async request(): Promise<PdfExportOutcome> {
+  async request(fonts: BundledPdfFonts): Promise<PdfExportOutcome> {
     let reportSendFailure = (_cause: string): void => undefined;
     const sendFailed = new Promise<string>((resolve) => {
       reportSendFailure = resolve;
@@ -141,7 +158,7 @@ export class PdfExportRequester {
         this.pending.send<PdfExportResponseMessage>(
           VIEW_TO_HOST_MESSAGE_TYPE.pdfExportResponse,
           (requestId) => {
-            this.postToView({ type: HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport, requestId }).then(
+            this.postToView({ type: HOST_TO_VIEW_MESSAGE_TYPE.requestPdfExport, requestId, fonts: fonts.request }).then(
               undefined,
               (error: unknown) => reportSendFailure(describeSendFailure(error)),
             );
@@ -170,7 +187,7 @@ export class PdfExportRequester {
     if (pages === null) {
       return { ok: false, cause: 'The view could not create the PDF' };
     }
-    const read = readDrawnPages(pages);
+    const read = readDrawnPages(pages, fonts.embedding);
     return typeof read === 'string' ? { ok: false, cause: read } : { ok: true, pages: read };
   }
 
@@ -281,7 +298,7 @@ export async function exportSessionAsPdf(session: WysiwygSession, ports: ExportP
     ? { ok: false, cause: `Could not request the PDF because there is no requester: ${documentUri.toString()}` }
     : await ports.withProgress(
       ports.localizer.getMessage('exportPdf.progress'),
-      () => drawAndResolve(requester, ports.createLinkHost(documentUri), ports.errorReporter),
+      () => drawAndResolve(requester, ports, ports.createLinkHost(documentUri)),
     );
   if (!drawn.ok) {
     if ('refusal' in drawn) {
@@ -300,7 +317,8 @@ export async function exportSessionAsPdf(session: WysiwygSession, ports: ExportP
   }
 
   try {
-    await ports.writeFile(destination, writePdf(attachLinkTargets(drawn.pages, drawn.targets, destination, documentUri)));
+    const pages = attachLinkTargets(drawn.pages, drawn.targets, destination, documentUri);
+    await ports.writeFile(destination, writePdf(pages, drawn.fonts.embedding));
   } catch (error) {
     void ports.errorReporter.reportUserError(
       'exportPdf.failed.message',
@@ -327,36 +345,44 @@ export function toPdfPath(documentPath: string): string {
   return `${stem}.pdf`;
 }
 
-/** The drawn pages with the target of each href, or why there are none. */
+/** The drawn pages with the target of each href and the fonts of their text, or why there are none. */
 type DrawnOutcome =
   | {
     readonly ok: true;
     readonly pages: readonly DrawnPage[];
     readonly targets: ReadonlyMap<string, PdfHrefTarget>;
+    readonly fonts: BundledPdfFonts;
   }
   | { readonly ok: false; readonly refusal: PdfExportRefusal }
   | { readonly ok: false; readonly cause: string };
 
 /**
- * Requests the pages and looks up where their links lead.
+ * Loads the bundled fonts, requests the pages and looks up where their links lead.
  *
- * Looking the files up here keeps the slow part inside the progress notification, so after the dialog only the write
- * can still fail.
+ * Doing all of it here keeps the slow parts inside the progress notification, so after the dialog only the write can
+ * still fail. Without the fonts the text cannot be drawn, so no request is sent.
  *
  * @param requester The requester of the session.
+ * @param ports The ports, for the fonts and for recording a file that could not be checked.
  * @param linkHost Ports bound to the document, for resolving and checking files.
- * @param errorSink Where a file that could not be checked is recorded.
  */
 async function drawAndResolve(
   requester: PdfExportRequester,
+  ports: Pick<ExportPdfPorts, 'loadFonts' | 'errorReporter'>,
   linkHost: LinkResolveHost,
-  errorSink: InternalErrorSink,
 ): Promise<DrawnOutcome> {
-  const outcome = await requester.request();
+  let fonts: BundledPdfFonts;
+  try {
+    fonts = await ports.loadFonts();
+  } catch (error) {
+    return { ok: false, cause: `Could not read the fonts of the PDF: ${String(error)}` };
+  }
+  const outcome = await requester.request(fonts);
   if (!outcome.ok) {
     return outcome;
   }
-  return { ok: true, pages: outcome.pages, targets: await resolvePdfLinkTargets(outcome.pages, linkHost, errorSink) };
+  const targets = await resolvePdfLinkTargets(outcome.pages, linkHost, ports.errorReporter);
+  return { ok: true, pages: outcome.pages, targets, fonts };
 }
 
 /**
@@ -364,12 +390,13 @@ async function drawAndResolve(
  *
  * The type is fixed, but at runtime the view can send any value. Writing anything other than what the view drew would
  * leave a file that is not the document, and a size or a page number that is not a whole number would write a PDF a
- * reader cannot open.
+ * reader cannot open. Text in a character its font has no glyph for could not be drawn at all.
  *
  * @param value The pages of the response.
+ * @param fonts The fonts the text must be set in, by role.
  * @returns The decoded pages, or a one-sentence cause when the value is outside the contract.
  */
-function readDrawnPages(value: unknown): DrawnPage[] | string {
+function readDrawnPages(value: unknown, fonts: ReadonlyMap<PdfFontRole, PdfTextFont>): DrawnPage[] | string {
   if (!Array.isArray(value) || value.length === 0) {
     return 'The pages of the PDF export response were outside the contract';
   }
@@ -384,13 +411,41 @@ function readDrawnPages(value: unknown): DrawnPage[] | string {
     if (!Array.isArray(links) || !links.every(isPageLink)) {
       return 'A link of the PDF export response was outside the contract';
     }
+    const text: unknown = page.text;
+    if (!Array.isArray(text) || !text.every((run) => isTextRun(run, fonts))) {
+      return 'The text of the PDF export response was outside the contract';
+    }
     const jpeg = decodeBase64(page.jpeg);
     if (jpeg === undefined) {
       return 'A page image of the PDF export response was not base64';
     }
-    pages.push({ jpeg, width: page.width, height: page.height, links });
+    pages.push({ jpeg, width: page.width, height: page.height, links, text });
   }
   return pages;
+}
+
+/**
+ * Returns whether a value is a run of text as the contract describes it, in characters its font has glyphs for.
+ *
+ * @param value The value.
+ * @param fonts The fonts by role.
+ */
+function isTextRun(value: unknown, fonts: ReadonlyMap<PdfFontRole, PdfTextFont>): value is PdfTextRun {
+  if (!isRecord(value) || typeof value.text !== 'string' || !Array.isArray(value.xs) || !Array.isArray(value.color)) {
+    return false;
+  }
+  const role = Object.values(PDF_FONT_ROLE).find((candidate) => candidate === value.role);
+  const font = role === undefined ? undefined : fonts.get(role);
+  const characters = [...value.text];
+  const xs: readonly unknown[] = value.xs;
+  const color: readonly unknown[] = value.color;
+  return font !== undefined
+    && typeof value.size === 'number' && Number.isFinite(value.size) && value.size > 0
+    && Number.isFinite(value.top)
+    && typeof value.bold === 'boolean' && typeof value.italic === 'boolean'
+    && color.length === 3 && color.every((channel) => Number.isInteger(channel) && Number(channel) >= 0 && Number(channel) <= 255)
+    && xs.length === characters.length && xs.every(Number.isFinite)
+    && characters.every((character) => font.font.glyphIdOf(character.codePointAt(0) ?? 0) !== undefined);
 }
 
 /**

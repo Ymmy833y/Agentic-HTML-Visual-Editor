@@ -22,7 +22,7 @@ describe('inserting a diagram source block', () => {
     const next = root.querySelectorAll('p')[1];
     expect([inserted, root.innerHTML, readCaret()]).toEqual([
       true,
-      `\n<p>ab</p>\n<pre class="mermaid">${DIAGRAM_SAMPLE_SOURCE.replace('>', '&gt;')}</pre>\n<p>cd</p>`,
+      `\n<p>ab</p>\n<pre class="mermaid">${DIAGRAM_SAMPLE_SOURCE.replace(/>/g, '&gt;')}</pre>\n<p>cd</p>`,
       { node: next.firstChild, offset: 0 },
     ]);
   });

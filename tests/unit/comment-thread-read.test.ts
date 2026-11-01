@@ -6,7 +6,6 @@ import {
   isAiEntry,
   isCommentResolved,
   readEntryAuthorName,
-  readEntryText,
   readEntryUpdated,
 } from '../../webview/editing/comment-thread-read';
 import { createRoot, readElement } from './helpers/format-dom';
@@ -111,13 +110,5 @@ describe('Whether it contains an AI entry', () => {
     );
 
     expect([hasAiEntry(readElement(root, '#d')), hasAiEntry(readElement(root, '#n'))]).toEqual([true, false]);
-  });
-});
-
-describe('Entry text', () => {
-  it('line breaks and indentation at both ends are removed, and the characters of code and line breaks inside are kept', () => {
-    const root = createRoot('<comment>x<comment-body>\n  see <code>a</code>\nnext  \n</comment-body></comment>');
-
-    expect(readEntryText(readElement(root, 'comment-body'))).toBe('see a\nnext');
   });
 });

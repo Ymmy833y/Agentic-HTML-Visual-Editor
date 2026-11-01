@@ -50,6 +50,18 @@ describe('serialization state', () => {
     expect(state.createBodyOutput().body).toBe('<img src="a.png"/>\n<p>b</p>');
   });
 
+  it('keeps a body whose comment in a paragraph holds blocks in a template in one paragraph, and writes it back unchanged', () => {
+    const disk = '<p>a <comment id="c-a1b2c3d4">t<comment-body contenteditable="false" data-author="ai"'
+      + ' data-updated="2026-01-01T00:00:00.000Z"><template>\n<h2>x</h2>\n<ul><li>y</li></ul>\n</template>'
+      + '</comment-body></comment> b</p>';
+    const root = createRoot(disk);
+    const state = SerializationState.create(root, disk, parse(disk));
+
+    expect([root.querySelectorAll('p').length, root.querySelector('p comment comment-body') !== null])
+      .toEqual([1, true]);
+    expect(state.createBodyOutput().body).toBe(disk);
+  });
+
   it('builds the baseline from the tree before mounting, excluding elements added only after it', () => {
     const mounted = parse('<p>a</p>');
     const root = createRoot('<p>a</p><span data-ui="true"></span>');

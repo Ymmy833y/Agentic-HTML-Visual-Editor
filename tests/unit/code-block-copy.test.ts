@@ -108,6 +108,30 @@ describe('sending the code block copy request', () => {
   });
 });
 
+describe('a second editing area', () => {
+  it('shows the button over a code block of an added area, right after the element given for it', () => {
+    const root = mountRoot('<p>a</p>');
+    const copy = attachCodeBlockCopy(window, root, {
+      localizer: createLocalizer({}),
+      registerTooltip: () => undefined,
+      readAreaTop: () => 0,
+      requestCopy: () => undefined,
+      reportDiagnostic: () => undefined,
+    });
+    const popup = document.createElement('div');
+    const field = document.createElement('div');
+    field.innerHTML = '<pre><code>x</code></pre>';
+    popup.append(field);
+    document.body.append(popup);
+    copy.addRoot(field, popup);
+
+    readElement(field, 'code').dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+
+    const button = document.getElementById(CODE_BLOCK_COPY_ELEMENT_ID);
+    expect([button?.hidden, popup.nextElementSibling === button]).toEqual([false, true]);
+  });
+});
+
 describe('showing the check mark on the copy button', () => {
   beforeEach(() => {
     vi.useFakeTimers();

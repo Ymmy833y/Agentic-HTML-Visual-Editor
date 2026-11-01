@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { createLocalizer } from '../../common/index';
+import { CommentField } from '../../webview/ui/comment-field';
 import type { AdjacentComments } from '../../webview/ui/comment-navigation';
 import type { CommentThreadInputState } from '../../webview/ui/comment-thread-input';
 import { CommentThreadView } from '../../webview/ui/comment-thread-view';
+import { createFieldPorts } from './helpers/comment-field';
 import { mountRoot, readElement } from './helpers/format-dom';
 
 /** Thread view, where it is placed, and its fields. */
@@ -11,7 +13,7 @@ interface ViewHarness {
   readonly view: CommentThreadView;
   readonly popup: HTMLElement;
   readonly entries: HTMLElement;
-  readonly fields: { readonly body: HTMLTextAreaElement; readonly reply: HTMLTextAreaElement; readonly edit: HTMLTextAreaElement };
+  readonly fields: { readonly body: CommentField; readonly reply: CommentField; readonly edit: CommentField };
 }
 
 // Lookup result with no move target in either direction.
@@ -29,13 +31,14 @@ function createView(): ViewHarness {
   popup.append(entries);
   document.body.append(popup);
   const fields = {
-    body: document.createElement('textarea'),
-    reply: document.createElement('textarea'),
-    edit: document.createElement('textarea'),
+    body: new CommentField(document, 'body', createFieldPorts(), () => undefined),
+    reply: new CommentField(document, 'reply', createFieldPorts(), () => undefined),
+    edit: new CommentField(document, 'edit', createFieldPorts(), () => undefined),
   };
   const view = new CommentThreadView(popup, entries, createState(fields), {
     localizer: createLocalizer({}),
     formatDate: () => 'date',
+    prepareContent: () => undefined,
     registerTooltip: () => undefined,
     move: () => undefined,
     toggleResolved: () => undefined,
@@ -89,6 +92,27 @@ describe('Drawing a thread', () => {
     ]);
   });
 
+  it('an entry in the line form is drawn as one paragraph per line, with its elements and without an id', () => {
+    const root = mountRoot('<p><comment id="c-1">ab<comment-body>see <code id="x">a</code><br><span>b</span>'
+      + ' <a href="https://example.com/" class="k">c</a></comment-body></comment></p>');
+    const harness = createView();
+
+    harness.view.render(readElement(root, 'comment'), NO_ADJACENT, createState(harness.fields));
+
+    expect(readElement(harness.entries, '.comment-popup-entry').innerHTML)
+      .toBe('<p>see <code>a</code></p><p><span>b</span> <a href="https://example.com/" class="k">c</a></p>');
+  });
+
+  it('an entry in the block form is drawn with the heading and the list of its template', () => {
+    const root = mountRoot('<p><comment id="c-1">ab<comment-body><template>\n<h2>t</h2>\n<ul><li>a</li></ul>\n'
+      + '</template></comment-body></comment></p>');
+    const harness = createView();
+
+    harness.view.render(readElement(root, 'comment'), NO_ADJACENT, createState(harness.fields));
+
+    expect(readElement(harness.entries, '.comment-popup-entry').innerHTML).toBe('<h2>t</h2><ul><li>a</li></ul>');
+  });
+
   it('for a comment without entries, the empty message and the body field are visible and the reply field is hidden', () => {
     const root = mountRoot('<p><comment id="c-1">ab</comment></p>');
     const harness = createView();
@@ -97,8 +121,8 @@ describe('Drawing a thread', () => {
 
     expect([
       harness.entries.querySelector('.comment-popup-empty')?.textContent,
-      harness.fields.body.closest('[hidden]') === null,
-      harness.fields.reply.closest('[hidden]') === null,
+      harness.fields.body.element.closest('[hidden]') === null,
+      harness.fields.reply.element.closest('[hidden]') === null,
     ]).toEqual(['commentPopup.empty', true, false]);
   });
 
@@ -110,8 +134,8 @@ describe('Drawing a thread', () => {
 
     expect([
       [...harness.entries.querySelectorAll('.comment-popup-entry')].map((entry) => entry.textContent),
-      harness.fields.body.closest('[hidden]') === null,
-      harness.fields.reply.closest('[hidden]') === null,
+      harness.fields.body.element.closest('[hidden]') === null,
+      harness.fields.reply.element.closest('[hidden]') === null,
     ]).toEqual([['one', 'two'], false, true]);
   });
 
@@ -123,7 +147,7 @@ describe('Drawing a thread', () => {
     harness.view.render(readElement(root, 'comment'), NO_ADJACENT, createState(harness.fields, { edit: body }));
 
     const row = harness.entries.children[0];
-    expect([row.contains(harness.fields.edit), row.querySelector('.comment-popup-entry'), readButtonNames(row)])
+    expect([row.contains(harness.fields.edit.element), row.querySelector('.comment-popup-entry'), readButtonNames(row)])
       .toEqual([true, null, ['commentThread.save', 'commentThread.cancel']]);
   });
 
@@ -142,7 +166,8 @@ describe('Drawing a thread', () => {
     harness.view.render(comment, NO_ADJACENT, state);
 
     const after = harness.popup.querySelector('button[aria-pressed]');
-    const placed = [harness.fields.body, harness.fields.reply, harness.fields.edit].map((field) => harness.popup.contains(field));
+    const placed = [harness.fields.body, harness.fields.reply, harness.fields.edit]
+      .map((field) => harness.popup.contains(field.element));
     expect([placed, after !== before, document.activeElement === after]).toEqual([[true, true, true], true, true]);
   });
 
@@ -216,7 +241,7 @@ describe('Looking up entries from entry texts', () => {
     expect([
       harness.view.readEntryAt(readElement(harness.entries, '.comment-thread-meta')),
       harness.view.readEntryAt(readElement(harness.entries, 'button')),
-      harness.view.readEntryAt(harness.fields.edit),
+      harness.view.readEntryAt(harness.fields.edit.element),
     ]).toEqual([undefined, undefined, undefined]);
   });
 

@@ -29,9 +29,11 @@ const COMMENT_ITEM = `#${TOOLBAR_ELEMENT_ID} [data-slot="${TOOLBAR_SLOT.comment}
 const DIALOG = `#${ACTION_DIALOG_ELEMENT_ID}`;
 const TOOLTIP = `#${TOOLTIP_ELEMENT_ID}`;
 const ENTRY_ROW = `${POPUP} .comment-thread-entry`;
-const BODY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.bodyField']}"]`;
-const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
-const EDIT_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.editField']}"]`;
+const BODY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.bodyField']}"]`;
+const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
+const EDIT_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.editField']}"]`;
+// The frame of the reply field, which draws its border and colors.
+const REPLY_FRAME = `${POPUP} .comment-thread-field:has(> [aria-label="${englishMessages['commentThread.replyField']}"])`;
 const PREVIOUS = `${POPUP} button[aria-label="${englishMessages['commentThread.previous']}"]`;
 const NEXT = `${POPUP} button[aria-label="${englishMessages['commentThread.next']}"]`;
 const RESOLVED = `${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`;
@@ -122,6 +124,27 @@ declare global {
     /** IDs of details sections in the order their open attribute was set. */
     __openedDetails?: string[];
   }
+}
+
+/**
+ * Reads the text of a field and the offset of the caret in that text.
+ *
+ * @param page Page to operate.
+ * @param selector Selector of the editable text of the field.
+ * @returns The text, and the number of characters before the start of the selection. -1 without a selection.
+ */
+async function readFieldCaret(page: Page, selector: string): Promise<[string, number]> {
+  return page.locator(selector).evaluate((field): [string, number] => {
+    const selection = window.getSelection();
+    if (selection === null || selection.rangeCount === 0) {
+      return [field.textContent ?? '', -1];
+    }
+    const range = selection.getRangeAt(0);
+    const before = document.createRange();
+    before.selectNodeContents(field);
+    before.setEnd(range.startContainer, range.startOffset);
+    return [field.textContent ?? '', before.toString().length];
+  });
 }
 
 /**
@@ -576,7 +599,7 @@ test.describe('Drawing a thread', () => {
       const human = await readAvatar(`${ENTRY_ROW}:not(.comment-thread-entry-ai)`);
       const ai = await readAvatar(`${POPUP} .comment-thread-entry-ai`);
       const [pressed] = await readComputed(page, RESOLVED, ['border-top-color']);
-      const [field] = await readComputed(page, REPLY_FIELD, ['border-top-color']);
+      const [field] = await readComputed(page, REPLY_FRAME, ['border-top-color']);
       drawn.push([human.includes(HUMAN_COLOR), ai.includes(AI_COLOR), pressed !== background, field !== background]);
     }
 
@@ -666,7 +689,7 @@ test.describe('Drawing a thread', () => {
 
     await openByClick(page);
 
-    expect(await readComputed(page, REPLY_FIELD, ['background-color', 'color', 'border-top-color']))
+    expect(await readComputed(page, REPLY_FRAME, ['background-color', 'color', 'border-top-color']))
       .toEqual(['rgb(254, 254, 254)', 'rgb(58, 58, 58)', 'rgb(206, 206, 206)']);
   });
 
@@ -734,8 +757,7 @@ test.describe('Drawing a thread', () => {
     await editTree(page, `${EDITOR_ROOT} #tail`, 'append');
 
     await expect(page.locator(REPLY_FIELD)).toBeFocused();
-    expect(await page.locator(REPLY_FIELD).evaluate((field: HTMLTextAreaElement) => [field.value, field.selectionStart]))
-      .toEqual(['abc', 1]);
+    expect(await readFieldCaret(page, REPLY_FIELD)).toEqual(['abc', 1]);
   });
 
   test('starting and committing an IME composition in an empty reply field leaves the committed text in the field', async ({ page }) => {
@@ -747,7 +769,7 @@ test.describe('Drawing a thread', () => {
     await ime.send('Input.imeSetComposition', { text: 'あ', selectionStart: 1, selectionEnd: 1 });
     await ime.send('Input.insertText', { text: '亜' });
 
-    await expect(page.locator(REPLY_FIELD)).toHaveValue('亜');
+    await expect(page.locator(REPLY_FIELD)).toHaveText('亜');
   });
 
   test('after opening with the comment button, Tab and Enter alone can toggle resolved, edit and delete an entry, and delete the comment', async ({ page }) => {
@@ -827,7 +849,7 @@ test.describe('Managing inputs', () => {
     await page.keyboard.press('Escape');
 
     await expect(page.locator(POPUP)).toBeVisible();
-    expect([await readBodyHtml(page), await page.locator(REPLY_FIELD).inputValue()]).toEqual([before, '']);
+    expect([await readBodyHtml(page), await page.locator(REPLY_FIELD).textContent()]).toEqual([before, '']);
   });
 
   test('Esc in an empty reply field closes the popup', async ({ page }) => {
@@ -864,7 +886,7 @@ test.describe('Managing inputs', () => {
     await page.keyboard.type('abc');
     await stopInput(page);
     await page.keyboard.press('Enter');
-    const whileStopped = [await page.locator(`${COMMENT} > comment-reply`).count(), await page.locator(REPLY_FIELD).inputValue()];
+    const whileStopped = [await page.locator(`${COMMENT} > comment-reply`).count(), await page.locator(REPLY_FIELD).textContent()];
     await resumeInput(page);
 
     await page.keyboard.press('Enter');
@@ -926,7 +948,7 @@ test.describe('Managing inputs', () => {
     await openByClick(page, `${EDITOR_ROOT} #b`);
     expect([
       await page.locator(`${EDITOR_ROOT} comment-reply`).count(),
-      await page.locator(REPLY_FIELD).inputValue(),
+      await page.locator(REPLY_FIELD).textContent(),
     ]).toEqual([0, '']);
   });
 
@@ -940,7 +962,7 @@ test.describe('Managing inputs', () => {
     await page.keyboard.type('c');
 
     await expect(page.locator(REPLY_FIELD)).toBeFocused();
-    expect([await page.locator(REPLY_FIELD).inputValue(), await readPopupEntries(page)]).toEqual(['abc', ['changed']]);
+    expect([await page.locator(REPLY_FIELD).textContent(), await readPopupEntries(page)]).toEqual(['abc', ['changed']]);
   });
 
   test('editing a human entry and pressing Enter replaces its content, keeps the author, and renews only the update time', async ({ page }) => {
@@ -1008,7 +1030,7 @@ test.describe('Managing inputs', () => {
     await page.mouse.click((box?.x ?? 0) + 5, (box?.y ?? 0) + 5);
 
     await expect(page.locator(POPUP)).toBeVisible();
-    expect(await page.locator(REPLY_FIELD).inputValue()).toBe('R');
+    expect(await page.locator(REPLY_FIELD).innerText()).toBe('R');
   });
 });
 
@@ -1065,7 +1087,7 @@ test.describe('Rewriting entries', () => {
     await entryButton(page, 1, 'commentThread.deleteEntry').click();
 
     await expect(page.locator(`${COMMENT} > comment-reply`)).toHaveCount(0);
-    expect([await page.locator(DIALOG).count(), await page.locator(REPLY_FIELD).inputValue()]).toEqual([0, 'R']);
+    expect([await page.locator(DIALOG).count(), await page.locator(REPLY_FIELD).innerText()]).toEqual([0, 'R']);
   });
 });
 
@@ -1195,7 +1217,7 @@ test.describe('Confirming the other party\'s entries', () => {
 
     await dialogButton(page, 'commentThread.editEntry').click();
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('ai note');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('ai note');
   });
 
   test('canceling the confirmation when editing an AI entry opens no field and leaves the tree unchanged', async ({ page }) => {
@@ -1330,7 +1352,7 @@ test.describe('Registering the entry points', () => {
     );
     await page.keyboard.type('c');
 
-    expect([inRoot, await page.locator(REPLY_FIELD).inputValue()]).toEqual([false, 'abc']);
+    expect([inRoot, await page.locator(REPLY_FIELD).textContent()]).toEqual([false, 'abc']);
   });
 
   test('adding a reply also works in a popup opened after document replacement', async ({ page }) => {
@@ -1437,7 +1459,7 @@ test.describe('Moving between comments', () => {
 
     expect([
       await readPopupEntries(page),
-      await page.locator(REPLY_FIELD).evaluate((field: HTMLTextAreaElement) => field.selectionStart),
+      (await readFieldCaret(page, REPLY_FIELD))[1],
     ]).toEqual([['two'], 1]);
   });
 

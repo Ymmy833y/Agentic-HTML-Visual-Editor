@@ -26,6 +26,12 @@ export interface CodeBlockCopySize {
   readonly height: number;
 }
 
+/** An editing area the button serves. */
+interface CodeBlockCopyArea {
+  readonly root: HTMLElement;
+  readonly anchor: Element;
+}
+
 /** Coordinates of the button, relative to the viewport. */
 export interface CodeBlockCopyPosition {
   readonly left: number;
@@ -92,30 +98,45 @@ export class CodeBlockCopy {
   // starts the time over.
   private restoreTimer: number | undefined;
 
+  // The editing areas the button serves, each with the element the button is placed after while it serves that area.
+  private readonly areas: CodeBlockCopyArea[] = [];
+
   /**
    * @param view The view's window, whose timers measure the time.
-   * @param root The editor root.
    * @param button The copy button.
    * @param ports The ports of the button.
    */
   constructor(
     private readonly view: Window,
-    private readonly root: HTMLElement,
     private readonly button: HTMLButtonElement,
     private readonly ports: CodeBlockCopyPorts,
   ) {}
 
   /**
-   * On a pointer move over the editor root, shows the button for the code block under the pointer, and hides it
+   * Makes the button serve the code blocks of one more editing area, such as a field of the comment popup.
+   *
+   * @param root The editing area.
+   * @param anchor The element the button is placed right after while it serves the area, so that it is drawn in front
+   *   of whatever the area is drawn in.
+   */
+  addRoot(root: HTMLElement, anchor: Element): void {
+    this.areas.push({ root, anchor });
+    root.addEventListener('mousemove', (event) => this.handlePointerMove(event, root));
+    root.addEventListener('mouseleave', (event) => this.handleRootLeave(event));
+  }
+
+  /**
+   * On a pointer move over an editing area, shows the button for the code block under the pointer, and hides it
    * elsewhere.
    *
    * Nothing is shown while the primary button is held. The pointer is then selecting or dragging, and a button showing
    * up under it would take over the selection being extended.
    *
    * @param event The pointer move.
+   * @param root The editing area the pointer moves over.
    */
-  handlePointerMove(event: MouseEvent): void {
-    const block = (event.buttons & 1) === 0 ? findCodeBlock(event.target, this.root) : undefined;
+  handlePointerMove(event: MouseEvent, root: HTMLElement): void {
+    const block = (event.buttons & 1) === 0 ? findCodeBlock(event.target, root) : undefined;
     if (block === undefined) {
       this.hide();
       return;
@@ -124,10 +145,10 @@ export class CodeBlockCopy {
   }
 
   /**
-   * When the pointer leaves the editor root, hides the button unless the pointer moved onto it. The button lies over
-   * the code block but outside the editor root, so moving onto it also leaves the editor root.
+   * When the pointer leaves an editing area, hides the button unless the pointer moved onto it. The button lies over
+   * the code block but outside the area, so moving onto it also leaves the area.
    *
-   * @param event The leave of the editor root.
+   * @param event The leave of the editing area.
    */
   handleRootLeave(event: MouseEvent): void {
     if (contains(this.button, event.relatedTarget)) {
@@ -172,7 +193,7 @@ export class CodeBlockCopy {
     if (block === undefined) {
       return;
     }
-    if (!this.root.contains(block)) {
+    if (this.findArea(block) === undefined) {
       this.hide();
       return;
     }
@@ -193,11 +214,12 @@ export class CodeBlockCopy {
    */
   handleClick(): void {
     const block = this.block;
-    if (block === undefined || !this.root.contains(block)) {
+    const area = block === undefined ? undefined : this.findArea(block);
+    if (block === undefined || area === undefined) {
       this.hide();
       return;
     }
-    const text = readCodeBlockText(block, this.root, (detail) => this.ports.reportDiagnostic(detail));
+    const text = readCodeBlockText(block, area.root, (detail) => this.ports.reportDiagnostic(detail));
     if (text === undefined) {
       return;
     }
@@ -234,8 +256,22 @@ export class CodeBlockCopy {
       this.restoreIcon();
     }
     this.block = block;
+    const anchor = this.findArea(block)?.anchor;
+    if (anchor !== undefined && anchor.nextElementSibling !== this.button) {
+      anchor.after(this.button);
+    }
     this.button.hidden = false;
     this.place(block);
+  }
+
+  /**
+   * Returns the editing area that holds a code block.
+   *
+   * @param block The code block.
+   * @returns The area, or `undefined` when the block left every area.
+   */
+  private findArea(block: Element): CodeBlockCopyArea | undefined {
+    return this.areas.find((area) => area.root.contains(block));
   }
 
   /**
@@ -304,13 +340,12 @@ export function attachCodeBlockCopy(view: Window, root: HTMLElement, ports: Code
   // surfaces appended later, so it stays behind them at the same stacking level.
   root.after(button);
 
-  const copy = new CodeBlockCopy(view, root, button, ports);
+  const copy = new CodeBlockCopy(view, button, ports);
+  copy.addRoot(root, root);
   // Pressing must not take focus away from the editor root, or the caret and the selection would be lost.
   button.addEventListener('mousedown', (event) => event.preventDefault());
   button.addEventListener('click', () => copy.handleClick());
   button.addEventListener('mouseleave', (event) => copy.handleButtonLeave(event));
-  root.addEventListener('mousemove', (event) => copy.handlePointerMove(event));
-  root.addEventListener('mouseleave', (event) => copy.handleRootLeave(event));
   // Presses and keys are received in the capture phase, so that they hide the button even when another listener stops
   // propagation.
   document.addEventListener('pointerdown', (event) => copy.handlePointerDown(event), true);

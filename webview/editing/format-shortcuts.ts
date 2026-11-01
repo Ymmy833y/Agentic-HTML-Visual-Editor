@@ -2,7 +2,19 @@ import type { BlockOperation } from './block-command';
 import { BLOCK_KIND } from './block-format';
 import type { BlockKind } from './block-format';
 import type { FormatOperation } from './format-command';
-import type { ShortcutReceiver } from './shortcut-receiver';
+import type { ShortcutKey, ShortcutReceiver } from './shortcut-receiver';
+
+/** The keys that toggle bold and italic. A comment field takes the same keys, so they are defined once here. */
+export const BOLD_SHORTCUT_KEY: ShortcutKey = { character: 'b', primary: true, shift: false, alt: false };
+export const ITALIC_SHORTCUT_KEY: ShortcutKey = { character: 'i', primary: true, shift: false, alt: false };
+
+/**
+ * The key that clears formatting.
+ *
+ * This does not match on layouts that type \ with AltGr, but clearing formatting is also available from the toolbar
+ * and the floating menu.
+ */
+export const CLEAR_FORMATTING_SHORTCUT_KEY: ShortcutKey = { character: '\\', primary: true, shift: false, alt: false };
 
 /**
  * The format shortcut ports.
@@ -66,9 +78,9 @@ const DIGIT_MODIFIERS = [
  * @param ports The format shortcut ports.
  */
 export function registerFormatShortcuts(receiver: ShortcutReceiver, ports: FormatShortcutPorts): void {
-  for (const character of ['b', 'i']) {
+  for (const key of [BOLD_SHORTCUT_KEY, ITALIC_SHORTCUT_KEY]) {
     receiver.register({
-      key: { character, primary: true, shift: false, alt: false },
+      key,
       // Bold and italic are toggled by an input dispatcher rule from the format input type that the default action
       // attaches, so no operation is called here. During a composition the input dispatcher does not pass input to
       // the rules, so letting the default through would insert the browser's own formatting (b, span style) as is.
@@ -77,9 +89,7 @@ export function registerFormatShortcuts(receiver: ShortcutReceiver, ports: Forma
   }
 
   receiver.register({
-    // This does not match on layouts that type \ with AltGr, but clearing formatting is also available from the
-    // toolbar and the floating menu.
-    key: { character: '\\', primary: true, shift: false, alt: false },
+    key: CLEAR_FORMATTING_SHORTCUT_KEY,
     run: () => {
       ports.runFormatCommand({ kind: 'clear' });
       return 'preventDefault';

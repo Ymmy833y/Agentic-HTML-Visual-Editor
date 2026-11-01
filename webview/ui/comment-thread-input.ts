@@ -1,9 +1,15 @@
 import { COMMENT_ATTRIBUTE, COMMENT_TAG_NAME } from '../../common/index';
 import type { Localizer, MessageKey } from '../../common/index';
-import { isHtmlWhitespaceOnly } from '../editing/block';
+import {
+  copyEntryContent,
+  isEntryContentBlank,
+  readEntryContentKey,
+  toEntryContent,
+} from '../editing/comment-entry-content';
 import { isCommentInTree, readCommentEntries } from '../editing/comment-read';
-import { readEntryText } from '../editing/comment-thread-read';
 import type { CommentEntryWrite, CommentWriteOutcome } from '../editing/comment-thread-write';
+import { CommentField } from './comment-field';
+import type { CommentFieldPorts } from './comment-field';
 import type { CommentConfirmTarget } from './comment-confirm';
 
 /** Input kind. Adding a body, adding a reply, or editing an entry. */
@@ -27,16 +33,16 @@ export interface CommentEditTarget {
   readonly index: number;
   /** Value of `data-author`. `null` when missing. */
   readonly author: string | null;
-  /** Text when the edit started. */
-  readonly initialText: string;
+  /** The spelling of the content, as the entry would be written with it, when the edit started. */
+  readonly initialContent: string;
 }
 
-/** Input state passed to the thread view. The thread view only places the field elements and never changes values. */
+/** Input state passed to the thread view. The thread view only places the fields and never changes their content. */
 export interface CommentThreadInputState {
-  readonly body: { readonly field: HTMLTextAreaElement; readonly active: boolean };
-  readonly reply: { readonly field: HTMLTextAreaElement; readonly active: boolean };
+  readonly body: { readonly field: CommentField; readonly active: boolean };
+  readonly reply: { readonly field: CommentField; readonly active: boolean };
   /** Edit field and the entry being edited. The entry is `undefined` when not editing. */
-  readonly edit: { readonly field: HTMLTextAreaElement; readonly entry: Element | undefined };
+  readonly edit: { readonly field: CommentField; readonly entry: Element | undefined };
 }
 
 /**
@@ -83,10 +89,6 @@ export interface CommentThreadInputPorts {
 // isComposing set, so this is also used to tell it apart.
 const IME_PROCESS_KEY_CODE = 229;
 
-// Number of rows of a field. With one row, the lines around the caret are not visible when editing an entry that
-// contains line breaks.
-const FIELD_ROWS = 3;
-
 // Order of committing on close or switch. The edit (including deleting a body emptied by editing) is written first.
 // If the body addition came first, the body about to be deleted would still be there, and the added body would
 // become a reply.
@@ -99,9 +101,9 @@ const COMMIT_ORDER: readonly CommentThreadField[] = ['edit', 'body', 'reply'];
  * composition and the selection in the field on every redraw. At most one edit input is held at a time.
  */
 export class CommentThreadInputs {
-  private readonly bodyField: HTMLTextAreaElement;
-  private readonly replyField: HTMLTextAreaElement;
-  private readonly editField: HTMLTextAreaElement;
+  private readonly bodyField: CommentField;
+  private readonly replyField: CommentField;
+  private readonly editField: CommentField;
 
   // Comment the inputs belong to. The popup clears its state before the close notification, so the open comment
   // cannot be looked up when committing.
@@ -114,21 +116,26 @@ export class CommentThreadInputs {
    * @param document Document of the view.
    * @param localizer Localizer.
    * @param ports Ports of the inputs.
+   * @param fieldPorts Ports shared by the three fields.
    */
   constructor(
     private readonly document: Document,
     localizer: Localizer,
     private readonly ports: CommentThreadInputPorts,
+    fieldPorts: CommentFieldPorts,
   ) {
-    this.bodyField = createField(document, localizer, 'commentThread.bodyField');
-    this.replyField = createField(document, localizer, 'commentThread.replyField');
-    this.editField = createField(document, localizer, 'commentThread.editField');
-    this.bodyField.addEventListener('input', () => this.handleFieldInput('body'));
-    this.replyField.addEventListener('input', () => this.handleFieldInput('reply'));
+    this.bodyField = createField(document, localizer, 'commentThread.bodyField', fieldPorts, () => {
+      this.handleFieldInput('body');
+    });
+    this.replyField = createField(document, localizer, 'commentThread.replyField', fieldPorts, () => {
+      this.handleFieldInput('reply');
+    });
+    // Whether an edit is active does not depend on what its field holds, so its changes need no handling.
+    this.editField = createField(document, localizer, 'commentThread.editField', fieldPorts, () => undefined);
   }
 
   /**
-   * Makes an addition input active or ends it, depending on whether its field has text.
+   * Makes an addition input active or ends it, depending on whether its field holds anything.
    *
    * Input during composition is handled the same way. The field element is not detached on redraw, so redrawing does
    * not break the composition.
@@ -136,7 +143,7 @@ export class CommentThreadInputs {
    * @param field Body or reply field.
    */
   handleFieldInput(field: 'body' | 'reply'): void {
-    const active = this.readField(field).value !== '';
+    const active = !this.readField(field).isEmpty();
     if (active === this.isActive(field)) {
       return;
     }
@@ -159,8 +166,8 @@ export class CommentThreadInputs {
    */
   async startEdit(entry: Element): Promise<boolean> {
     const current = this.edit;
-    // Restarting the edit of the entry being edited would overwrite the typed text with the text at the start. Just
-    // go back to the field.
+    // Restarting the edit of the entry being edited would overwrite what was typed with the content at the start.
+    // Just go back to the field.
     if (current?.entry === entry) {
       this.editField.focus();
       return true;
@@ -178,18 +185,19 @@ export class CommentThreadInputs {
     }
 
     const comment = entry.parentElement;
-    const initialText = readEntryText(entry);
     this.holdComment(comment ?? undefined);
+    this.editField.setContent(copyEntryContent(entry, this.document));
     this.edit = {
       entry,
       tagName: entry.localName,
       index: comment === null ? -1 : readCommentEntries(comment).indexOf(entry),
       author: entry.getAttribute(COMMENT_ATTRIBUTE.author),
-      initialText,
+      // Read back from the field, so that committing without a change compares equal whatever the field made of the
+      // entry, such as one paragraph per line.
+      initialContent: readEntryContentKey(this.editField.readContent()),
     };
-    this.editField.value = initialText;
     this.ports.requestRedraw();
-    this.editField.focus();
+    this.editField.focusAtEnd();
     return true;
   }
 
@@ -278,7 +286,7 @@ export class CommentThreadInputs {
    * After document replacement, reattaches the inputs to the comment in the new tree.
    *
    * Addition inputs are kept as inputs to the same comment. The edit moves its target when an entry of the same kind
-   * at the same position has the same author and start text, and is discarded otherwise, so that the text being
+   * at the same position has the same author and start content, and is discarded otherwise, so that what is being
    * written is not written to the tree from before the replacement.
    *
    * @param comment Comment in the new tree.
@@ -321,8 +329,9 @@ export class CommentThreadInputs {
   /**
    * Takes over Enter and Shift+Enter in a field, and Esc in an active field.
    *
-   * Keys during composition commit or cancel the composition, so they are not handled. Esc in a field that is not
-   * active is not taken over, and the popup closes.
+   * Enter commits, so Shift+Enter splits the block as Enter does in the document. Keys during composition commit or
+   * cancel the composition, so they are not handled. Esc in a field that is not active is not taken over, and the popup
+   * closes.
    *
    * @param event Pressed key.
    * @returns Whether the key was taken over.
@@ -337,12 +346,12 @@ export class CommentThreadInputs {
     }
     if (event.key === 'Enter') {
       event.stopPropagation();
-      if (event.shiftKey) {
-        // Let the default handling through as a line break in the field.
-        return true;
-      }
       // Enter in an empty field is also taken over, so no line break goes into the field.
       event.preventDefault();
+      if (event.shiftKey) {
+        this.readField(field).splitBlock();
+        return true;
+      }
       this.commit(field);
       return true;
     }
@@ -397,8 +406,45 @@ export class CommentThreadInputs {
    * @returns `true` when focus is in a field.
    */
   hasFocus(): boolean {
-    const active = this.document.activeElement;
-    return active === this.bodyField || active === this.replyField || active === this.editField;
+    return this.readFocusedField() !== undefined;
+  }
+
+  /**
+   * Returns the field that has focus.
+   *
+   * @returns The field. `undefined` when focus is in none of the three.
+   */
+  readFocusedField(): CommentField | undefined {
+    return this.readFields().find((field) => field.hasFocus());
+  }
+
+  /**
+   * Returns the three fields.
+   *
+   * @returns The body, reply and edit fields.
+   */
+  readFields(): readonly CommentField[] {
+    return [this.bodyField, this.replyField, this.editField];
+  }
+
+  /**
+   * Returns the field a node is in.
+   *
+   * @param node The node.
+   * @returns The field. `undefined` when the node is in none of the three.
+   */
+  readFieldAt(node: EventTarget | null): CommentField | undefined {
+    return this.readFields().find((field) => field.contains(node));
+  }
+
+  /**
+   * Returns whether a node is one of the three fields or inside one.
+   *
+   * @param node The node.
+   * @returns `true` when inside a field.
+   */
+  isInField(node: EventTarget | null): boolean {
+    return this.findField(node) !== undefined;
   }
 
   /**
@@ -408,26 +454,26 @@ export class CommentThreadInputs {
    * @returns Write. `undefined` when ending without writing.
    */
   private readPendingWrite(field: CommentThreadField): CommentEntryWrite | undefined {
-    const raw = this.readField(field).value;
+    const content = this.readField(field).readContent();
     if (field === 'edit') {
       const edit = this.edit;
       if (edit === undefined) {
         return undefined;
       }
-      switch (readInputCommit(field, raw, edit.initialText)) {
+      switch (readInputCommit(field, content, edit.initialContent)) {
         case 'end':
           return undefined;
         case 'delete':
           return { kind: 'delete', entry: edit.entry };
         case 'write':
-          return { kind: 'edit', entry: edit.entry, text: raw };
+          return { kind: 'edit', entry: edit.entry, content };
       }
     }
     const comment = this.comment;
-    if (comment === undefined || readInputCommit(field, raw, '') !== 'write') {
+    if (comment === undefined || readInputCommit(field, content, '') !== 'write') {
       return undefined;
     }
-    return { kind: field === 'body' ? 'addBody' : 'addReply', comment, text: raw };
+    return { kind: field === 'body' ? 'addBody' : 'addReply', comment, content };
   }
 
   /**
@@ -442,7 +488,7 @@ export class CommentThreadInputs {
   }
 
   /**
-   * Puts a field's input in the ended state and returns what is needed to put it back. The field text is kept.
+   * Puts a field's input in the ended state and returns what is needed to put it back. The field content is kept.
    *
    * @param field Field.
    * @returns Edit target before ending. `undefined` for an addition field.
@@ -485,7 +531,7 @@ export class CommentThreadInputs {
    * @param field Field.
    */
   private clearField(field: CommentThreadField): void {
-    this.readField(field).value = '';
+    this.readField(field).clear();
   }
 
   /**
@@ -525,12 +571,12 @@ export class CommentThreadInputs {
   }
 
   /**
-   * Returns the element of a field.
+   * Returns a field.
    *
-   * @param field Field.
-   * @returns Field element.
+   * @param field Field kind.
+   * @returns Field.
    */
-  private readField(field: CommentThreadField): HTMLTextAreaElement {
+  private readField(field: CommentThreadField): CommentField {
     switch (field) {
       case 'body':
         return this.bodyField;
@@ -542,33 +588,34 @@ export class CommentThreadInputs {
   }
 
   /**
-   * Returns which field a key target is.
+   * Returns which field a key target is in.
    *
    * @param target Key target.
-   * @returns Field kind. `undefined` when it is not a field.
+   * @returns Field kind. `undefined` when it is not in a field.
    */
   private findField(target: EventTarget | null): CommentThreadField | undefined {
-    return COMMIT_ORDER.find((field) => this.readField(field) === target);
+    return COMMIT_ORDER.find((field) => this.readField(field).contains(target));
   }
 }
 
 /**
- * Decides from the committed raw input whether to end without writing, delete, or write.
+ * Decides from the committed content whether to end without writing, delete, or write.
  *
- * The value without surrounding whitespace is used only to decide whether it is whitespace only; the comparison with
- * the start and the value written use the raw input. Comparing the trimmed value would lose whitespace added around
- * the text as no change. An entry empty from the start that is committed unchanged is kept.
+ * Whether it is blank is decided by what it shows; the comparison with the start uses the content with its elements, so
+ * changing only a format or a block is written. The content written is the one as written: comparing a trimmed one
+ * would lose whitespace added around the text as no change. An entry empty from the start that is committed unchanged
+ * is kept.
  *
  * @param field Field kind.
- * @param raw Raw input.
- * @param initial Text at the start. The empty string for an addition field.
+ * @param content Content of the field, as written.
+ * @param initial The spelling of the content at the start. The empty string for an addition field.
  * @returns How the commit is handled.
  */
-export function readInputCommit(field: CommentThreadField, raw: string, initial: string): CommentInputCommit {
-  if (raw === initial) {
+export function readInputCommit(field: CommentThreadField, content: DocumentFragment, initial: string): CommentInputCommit {
+  if (readEntryContentKey(content) === initial) {
     return 'end';
   }
-  if (isHtmlWhitespaceOnly(raw)) {
+  if (isEntryContentBlank(content)) {
     return field === 'edit' ? 'delete' : 'end';
   }
   return 'write';
@@ -582,7 +629,7 @@ export function readInputCommit(field: CommentThreadField, raw: string, initial:
  *
  * @param comment Comment in the new tree.
  * @param target Edit target.
- * @returns Entry whose element name, author and text all match. `undefined` when there is none.
+ * @returns Entry whose element name, author and content all match. `undefined` when there is none.
  */
 export function findReattachedEntry(comment: Element, target: CommentEditTarget): Element | undefined {
   const entry = target.index < 0 ? undefined : readCommentEntries(comment).at(target.index);
@@ -590,7 +637,8 @@ export function findReattachedEntry(comment: Element, target: CommentEditTarget)
     entry === undefined
     || entry.localName !== target.tagName
     || entry.getAttribute(COMMENT_ATTRIBUTE.author) !== target.author
-    || readEntryText(entry) !== target.initialText
+    || readEntryContentKey(toEntryContent(copyEntryContent(entry, entry.ownerDocument), entry.ownerDocument))
+      !== target.initialContent
   ) {
     return undefined;
   }
@@ -603,14 +651,16 @@ export function findReattachedEntry(comment: Element, target: CommentEditTarget)
  * @param document Document of the view.
  * @param localizer Localizer.
  * @param key Message key of the field name.
+ * @param ports Ports of the field.
+ * @param onContentChange Called after the user changed the content.
  * @returns Field.
  */
-function createField(document: Document, localizer: Localizer, key: MessageKey): HTMLTextAreaElement {
-  const field = document.createElement('textarea');
-  const name = localizer.getMessage(key);
-  field.rows = FIELD_ROWS;
-  // A border alone does not tell what the field is for, so the name is also shown as visible text (placeholder).
-  field.setAttribute('aria-label', name);
-  field.placeholder = name;
-  return field;
+function createField(
+  document: Document,
+  localizer: Localizer,
+  key: MessageKey,
+  ports: CommentFieldPorts,
+  onContentChange: () => void,
+): CommentField {
+  return new CommentField(document, localizer.getMessage(key), ports, onContentChange);
 }

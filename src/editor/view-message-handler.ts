@@ -3,6 +3,7 @@ import {
   RESTORE_ACTION,
   VIEW_TO_HOST_MESSAGE_TYPE,
   discardUnhandledMessage,
+  parseCommentPopupWidth,
 } from '../../common/index';
 import type {
   ConflictChoice,
@@ -158,6 +159,13 @@ export interface ViewMessageContext {
    * @param change The change, confirmed to match the contract.
    */
   receiveSidebarLayout(change: SidebarLayoutChange): void;
+
+  /**
+   * Receives the width the user dragged the comment popup of the view to, to be shared by every file.
+   *
+   * @param width The width in whole CSS pixels, confirmed to match the contract.
+   */
+  receiveCommentPopupWidth(width: number): void;
 
   /**
    * Passes unsaved content to the save coordinator.
@@ -354,6 +362,18 @@ export async function handleViewMessage(
         return;
       }
       context.receiveSidebarLayout(change);
+      return;
+    }
+    case VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged: {
+      // As with the sidebar layout, only a width of the contract is stored and handed to every view opened afterwards.
+      const width = parseCommentPopupWidth(message.width);
+      if (width === undefined) {
+        context.errorReporter.reportInternalError(
+          `Discarded a comment popup width that does not match the contract: width ${typeof message.width}`,
+        );
+        return;
+      }
+      context.receiveCommentPopupWidth(width);
       return;
     }
     case VIEW_TO_HOST_MESSAGE_TYPE.documentInitialized:

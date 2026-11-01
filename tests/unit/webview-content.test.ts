@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COMMENT_POPUP_WIDTH_META_NAME,
   EDITOR_ROOT_ELEMENT_ID,
   MESSAGE_CATALOG_ELEMENT_ID,
   SIDEBAR_LAYOUT_META_NAME,
@@ -9,6 +10,7 @@ import {
 import type { MessageCatalog } from '../../common/index';
 import { buildWebviewContent } from '../../src/editor/webview-content';
 import { readEmbeddedCatalog } from '../../webview/i18n/embedded-catalog';
+import { readEmbeddedCommentPopupWidth } from '../../webview/ui/comment-popup-resize';
 import { readEmbeddedSidebarLayout } from '../../webview/ui/sidebar';
 
 const WEBVIEW_SOURCE = 'https://example.vscode-cdn.net';
@@ -127,5 +129,36 @@ describe('webview document construction', () => {
       { open: true, width: 312 },
       '',
     ]);
+  });
+
+  it('declares no comment popup width when given none, so that the default width applies', () => {
+    const parsed = parseDocument({});
+
+    expect([
+      parsed.head.querySelector(`meta[name="${COMMENT_POPUP_WIDTH_META_NAME}"]`),
+      readEmbeddedCommentPopupWidth(parsed),
+    ]).toEqual([null, undefined]);
+  });
+
+  it('declares the given comment popup width in whole pixels, in a form the view reads back', () => {
+    const parsed = new DOMParser().parseFromString(
+      buildWebviewContent(
+        WEBVIEW_SOURCE,
+        NONCE,
+        BUNDLE_URI,
+        STYLE_URI,
+        { locale: LOCALE, catalog: {} },
+        false,
+        { open: false },
+        360.4,
+      ),
+      'text/html',
+    );
+
+    expect([
+      parsed.head.querySelector(`meta[name="${COMMENT_POPUP_WIDTH_META_NAME}"]`)?.getAttribute('content'),
+      readEmbeddedCommentPopupWidth(parsed),
+      parsed.body.textContent?.trim(),
+    ]).toEqual(['360', 360, '']);
   });
 });

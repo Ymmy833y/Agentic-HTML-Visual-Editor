@@ -12,6 +12,15 @@ export const COMMENT_TAG_NAME = {
 } as const;
 
 /**
+ * Element name that holds the content of an entry with blocks other than paragraphs.
+ *
+ * A comment sits inside a paragraph, and the parser closes that paragraph at the first block written directly inside
+ * it, which would tear the comment apart when the document is opened again. The content of a `template` is parsed on
+ * its own, so the blocks stay inside the entry. An entry of paragraphs alone holds its lines as its own children.
+ */
+export const COMMENT_ENTRY_BLOCK_TAG_NAME = 'template';
+
+/**
  * Order of the entries that follow the annotated text.
  *
  * The children of a comment put the annotated text first, followed by the body and then the replies; replies are appended oldest first.

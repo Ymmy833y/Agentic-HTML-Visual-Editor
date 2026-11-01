@@ -48,6 +48,12 @@ export interface ColumnResizePorts {
   reportDiagnostic(detail: string): void;
 }
 
+/**
+ * The column resize that shows each marker. Every editing area of the view shares one marker, and a move or a leave
+ * in one area must not hide the marker another area shows.
+ */
+const markerOwners = new WeakMap<HTMLElement, ColumnResize>();
+
 /** The state during a drag. Holds the values measured at the press for the duration of the drag. */
 interface ColumnDrag {
   /** The reference cell. */
@@ -71,8 +77,8 @@ interface ColumnDrag {
  *
  * During the drag the document tree is not rewritten; only the marker moves, and on release setting the column width
  * is handed over as a single edit. Writing intermediate widths to the tree would send changes made outside an edit
- * attempt to the host through the output or a save, and they would disagree with the history. One per view, not
- * recreated on replacement.
+ * attempt to the host through the output or a save, and they would disagree with the history. One per editing area,
+ * not recreated on replacement.
  */
 export class ColumnResize {
   private drag: ColumnDrag | undefined;
@@ -315,6 +321,7 @@ export class ColumnResize {
    */
   private showMarker(boundary: number, table: Element): void {
     const rect = table.getBoundingClientRect();
+    markerOwners.set(this.marker, this);
     this.marker.hidden = false;
     this.marker.style.top = `${rect.top + this.view.scrollY}px`;
     this.marker.style.height = `${rect.height}px`;
@@ -332,23 +339,27 @@ export class ColumnResize {
     this.marker.style.left = `${boundary + this.view.scrollX - this.marker.offsetWidth / 2}px`;
   }
 
-  /** Removes the marker and the cursor attribute. */
+  /** Removes the marker and the cursor attribute, unless another editing area shows them. */
   private hideMarker(): void {
+    if ((markerOwners.get(this.marker) ?? this) !== this) {
+      return;
+    }
+    markerOwners.delete(this.marker);
     this.marker.hidden = true;
     this.view.document.documentElement.removeAttribute(COLUMN_RESIZE_CURSOR_ATTRIBUTE);
   }
 }
 
 /**
- * Places a hidden marker at the end of the body and attaches pointer move and leave listeners and a capture-phase
- * press listener to the editor root.
+ * Places a hidden marker at the end of the body unless an earlier call placed it, and attaches pointer move and leave
+ * listeners and a capture-phase press listener to the editing area.
  *
- * The press must be received before the cell range selection, so this is called only once, on the first mount,
- * before the listeners of the same phase. The editor root element stays the same across document replacements, so
- * the listeners are not reattached.
+ * The press must be received before the cell range selection, so this is called only once per editing area, before
+ * the listeners of the same phase. The editor root element stays the same across document replacements, so the
+ * listeners are not reattached.
  *
  * @param view The view's window.
- * @param root The editor root.
+ * @param root The editing area: the editor root, or a comment field.
  * @param platform The platform. Pass the same value as the shortcut receiver.
  * @param ports The column resize ports.
  * @returns The attached column resize.
@@ -359,11 +370,15 @@ export function attachColumnResize(
   platform: ShortcutPlatform,
   ports: ColumnResizePorts,
 ): ColumnResize {
-  const marker = view.document.createElement('div');
-  marker.id = COLUMN_RESIZE_MARKER_ID;
-  marker.hidden = true;
-  // Inside the editor root, it would appear in the body output.
-  view.document.body.append(marker);
+  // The editing areas share one marker, so that its ID stays unique in the view.
+  let marker = view.document.getElementById(COLUMN_RESIZE_MARKER_ID);
+  if (marker === null) {
+    marker = view.document.createElement('div');
+    marker.id = COLUMN_RESIZE_MARKER_ID;
+    marker.hidden = true;
+    // Inside the editor root, it would appear in the body output.
+    view.document.body.append(marker);
+  }
 
   const resize = new ColumnResize(view, root, platform, ports, marker);
   root.addEventListener('mousemove', (event) => resize.handlePointerMove(event));

@@ -64,9 +64,10 @@ const FORMAT_BUTTONS = [
  * state is in place.
  *
  * @param toolbar The toolbar to register with.
- * @param ports The format command ports.
+ * @param readPorts Returns the format command ports at the moment of a press: those of a comment field while one has
+ *   focus, and those of the editor root otherwise.
  */
-export function registerFormatButtons(toolbar: Toolbar, ports: FormatCommandPorts): void {
+export function registerFormatButtons(toolbar: Toolbar, readPorts: () => FormatCommandPorts): void {
   for (const button of FORMAT_BUTTONS) {
     // A slot whose registration is refused does not appear, but the remaining registrations continue.
     toolbar.register(button.slot, {
@@ -74,7 +75,7 @@ export function registerFormatButtons(toolbar: Toolbar, ports: FormatCommandPort
       messageKey: button.messageKey,
       iconPath: button.iconPath,
       run: () => {
-        runFormatOperation(ports, button.operation, 'command');
+        runFormatOperation(readPorts(), button.operation, 'command');
       },
     });
   }

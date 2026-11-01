@@ -27,6 +27,8 @@ interface TriggerHarness {
  * @param wasPopupClosedBy The query for whether the same keystroke closed a toolbar popup.
  * @param isInDialogOrOverlay Lookup of whether the press target is inside the action dialog or an overlay. When omitted, no press target is inside.
  * @param isInSearchPanel Lookup of whether the press target is inside the search panel. When omitted, no press target is inside.
+ * @param isFieldOperationPress Lookup of whether the press target acts on the comment field the user writes in. When
+ *   omitted, no press does.
  * @returns The popup, the trigger and the records.
  */
 function createTrigger(
@@ -34,6 +36,7 @@ function createTrigger(
   wasPopupClosedBy: (event: KeyboardEvent) => boolean = () => false,
   isInDialogOrOverlay: (node: Node | null) => boolean = () => false,
   isInSearchPanel: (node: Node | null) => boolean = () => false,
+  isFieldOperationPress: (node: Node | null) => boolean = () => false,
 ): TriggerHarness {
   const root = mountRoot(html);
   const diagnostics: string[] = [];
@@ -57,6 +60,7 @@ function createTrigger(
     wasPopupClosedBy,
     isInDialogOrOverlay,
     isInSearchPanel,
+    isFieldOperationPress,
     reportDiagnostic: (detail) => {
       diagnostics.push(detail);
     },
@@ -149,6 +153,46 @@ describe('Whether a press closes', () => {
     panel.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
 
     expect(harness.popup.readOpenComment()).not.toBeUndefined();
+  });
+  it('a press on the toolbar does not close while a comment field has focus, and closes otherwise', () => {
+    const toolbar = document.createElement('div');
+    let fieldFocused = true;
+    const harness = createTrigger(
+      '<p><comment id="c-1">ab</comment>cd</p>',
+      () => false,
+      () => false,
+      () => false,
+      (node) => fieldFocused && toolbar.contains(node),
+    );
+    openComment(harness, 'comment');
+    document.body.append(toolbar);
+
+    toolbar.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    const keptWithField = harness.popup.readOpenComment() !== undefined;
+    fieldFocused = false;
+    toolbar.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+
+    expect([keptWithField, harness.popup.readOpenComment()]).toEqual([true, undefined]);
+  });
+
+  it('a press on the table menu a field opened does not close while the user writes in the field', () => {
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    const item = document.createElement('button');
+    menu.append(item);
+    const harness = createTrigger(
+      '<p><comment id="c-1">ab</comment>cd</p>',
+      () => false,
+      () => false,
+      () => false,
+      (node) => menu.contains(node),
+    );
+    openComment(harness, 'comment');
+    document.body.append(menu);
+
+    item.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+
+    expect(harness.popup.readOpenComment()).toBeDefined();
   });
 });
 

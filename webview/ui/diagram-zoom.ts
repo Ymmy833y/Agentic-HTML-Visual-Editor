@@ -133,6 +133,12 @@ export function findZoomableDiagram(target: EventTarget | null, root: Element): 
     : undefined;
 }
 
+/** An editing area the zoom buttons serve. */
+interface DiagramZoomArea {
+  readonly root: HTMLElement;
+  readonly anchor: Element;
+}
+
 /**
  * Shows the zoom buttons at the top right of the drawn diagram under the pointer, and changes its zoom level when one
  * is pressed or when the wheel is turned over it with the primary modifier.
@@ -147,42 +153,63 @@ export class DiagramZoom {
   // The direction and the time stamp of the last wheel event that zoomed or was taken into a burst.
   private lastWheel: { readonly action: Exclude<DiagramZoomAction, 'reset'>; readonly time: number } | undefined;
 
+  // The editing areas the buttons serve, each with the element the buttons are placed after while they serve that area.
+  private readonly areas: DiagramZoomArea[] = [];
+
   /**
-   * @param root The editor root.
    * @param bar The element that holds the buttons.
    * @param platform The shortcut platform. Decides the primary modifier of the wheel.
    * @param ports The ports of the buttons.
    */
   constructor(
-    private readonly root: HTMLElement,
     private readonly bar: HTMLElement,
     private readonly platform: ShortcutPlatform,
     private readonly ports: DiagramZoomPorts,
   ) {}
 
   /**
-   * On a pointer move over the editor root, shows the buttons for the diagram under the pointer, and hides them
+   * Makes the buttons serve the diagrams of one more editing area, such as a field of the comment popup.
+   *
+   * @param root The editing area.
+   * @param anchor The element the buttons are placed right after while they serve the area, so that they are drawn in
+   *   front of whatever the area is drawn in.
+   */
+  addRoot(root: HTMLElement, anchor: Element): void {
+    this.areas.push({ root, anchor });
+    root.addEventListener('mousemove', (event) => this.handlePointerMove(event, root));
+    root.addEventListener('mouseleave', (event) => this.handleRootLeave(event));
+    // Not passive, so that a turn that zooms can stop the browser from zooming the page or scrolling.
+    root.addEventListener('wheel', (event) => this.handleWheel(event, root), { passive: false });
+  }
+
+  /**
+   * On a pointer move over an editing area, shows the buttons for the diagram under the pointer, and hides them
    * elsewhere. Nothing is shown while the primary button is held, so that the buttons do not take over a selection
    * being extended.
    *
    * @param event The pointer move.
+   * @param root The editing area the pointer moves over.
    */
-  handlePointerMove(event: MouseEvent): void {
-    const block = (event.buttons & 1) === 0 ? findZoomableDiagram(event.target, this.root) : undefined;
+  handlePointerMove(event: MouseEvent, root: HTMLElement): void {
+    const block = (event.buttons & 1) === 0 ? findZoomableDiagram(event.target, root) : undefined;
     if (block === undefined) {
       this.hide();
       return;
     }
     this.block = block;
+    const anchor = this.findArea(block)?.anchor;
+    if (anchor !== undefined && anchor.nextElementSibling !== this.bar) {
+      anchor.after(this.bar);
+    }
     this.bar.hidden = false;
     this.place(block);
   }
 
   /**
-   * When the pointer leaves the editor root, hides the buttons unless the pointer moved onto them. They lie over the
-   * diagram but outside the editor root, so moving onto them also leaves the editor root.
+   * When the pointer leaves an editing area, hides the buttons unless the pointer moved onto them. They lie over the
+   * diagram but outside the area, so moving onto them also leaves the area.
    *
-   * @param event The leave of the editor root.
+   * @param event The leave of the editing area.
    */
   handleRootLeave(event: MouseEvent): void {
     if (contains(this.bar, event.relatedTarget)) {
@@ -227,7 +254,7 @@ export class DiagramZoom {
     if (block === undefined) {
       return;
     }
-    if (!this.root.contains(block)) {
+    if (this.findArea(block) === undefined) {
       this.hide();
       return;
     }
@@ -247,7 +274,7 @@ export class DiagramZoom {
    */
   handlePress(action: DiagramZoomAction): void {
     const block = this.block;
-    if (block === undefined || !this.root.contains(block)) {
+    if (block === undefined || this.findArea(block) === undefined) {
       this.hide();
       return;
     }
@@ -261,15 +288,16 @@ export class DiagramZoom {
    * diagram one step. Within a burst of events, only the first moves it; a change of direction always does.
    *
    * @param event The wheel event.
+   * @param root The editing area the wheel turns over. Omitted for a turn over the buttons.
    */
-  handleWheel(event: WheelEvent): void {
+  handleWheel(event: WheelEvent, root?: HTMLElement): void {
     const action = readWheelZoomAction(event, this.platform);
     if (action === undefined) {
       return;
     }
     // The buttons lie over their diagram, so a turn over them is a turn over that diagram.
-    const block = contains(this.bar, event.target) ? this.block : findZoomableDiagram(event.target, this.root);
-    if (block === undefined || !this.root.contains(block)) {
+    const block = root === undefined ? this.block : findZoomableDiagram(event.target, root);
+    if (block === undefined || this.findArea(block) === undefined) {
       return;
     }
     // The turn is the zoom even when it moves no step, or the browser would zoom the page or scroll in between.
@@ -289,6 +317,16 @@ export class DiagramZoom {
   hide(): void {
     this.block = undefined;
     this.bar.hidden = true;
+  }
+
+  /**
+   * Returns the editing area that holds a diagram.
+   *
+   * @param block The diagram source block.
+   * @returns The area, or `undefined` when the block left every area.
+   */
+  private findArea(block: Element): DiagramZoomArea | undefined {
+    return this.areas.find((area) => area.root.contains(block));
   }
 
   /**
@@ -330,7 +368,7 @@ export function attachDiagramZoom(
   const bar = document.createElement('div');
   bar.id = DIAGRAM_ZOOM_ELEMENT_ID;
   bar.hidden = true;
-  const zoom = new DiagramZoom(root, bar, platform, ports);
+  const zoom = new DiagramZoom(bar, platform, ports);
   for (const action of ZOOM_ACTIONS) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -350,12 +388,9 @@ export function attachDiagramZoom(
   // Inside the editor root they would appear in the body output. Right after it, they come before the floating surfaces
   // appended later, so they stay behind them at the same stacking level.
   root.after(bar);
+  zoom.addRoot(root, root);
 
   bar.addEventListener('mouseleave', (event) => zoom.handleBarLeave(event));
-  root.addEventListener('mousemove', (event) => zoom.handlePointerMove(event));
-  root.addEventListener('mouseleave', (event) => zoom.handleRootLeave(event));
-  // Not passive, so that a turn that zooms can stop the browser from zooming the page or scrolling.
-  root.addEventListener('wheel', (event) => zoom.handleWheel(event), { passive: false });
   bar.addEventListener('wheel', (event) => zoom.handleWheel(event), { passive: false });
   // Presses and keys are received in the capture phase, so that they hide the buttons even when another listener stops
   // propagation.

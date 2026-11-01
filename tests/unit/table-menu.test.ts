@@ -372,6 +372,36 @@ describe('the menu placement', () => {
   });
 });
 
+describe('a second editing area', () => {
+  it('a menu attached to a field opens on a cell of the field and runs the item through the ports of the field', () => {
+    const { calls } = createMenu(TABLE);
+    const field = document.createElement('div');
+    field.innerHTML = TABLE.replaceAll('id="', 'id="f');
+    document.body.append(field);
+    const fieldCells: string[] = [];
+    attachTableMenu(window, field, new ShortcutReceiver('other', () => undefined), {
+      queries: createQueries(PLAIN_HEADER_STATE, PLAIN_MERGE_STATE, 'percent'),
+      localizer: createLocalizer({}),
+      isComposing: () => false,
+      isInputStopped: () => false,
+      isDragging: () => false,
+      hasShortcut: () => false,
+      runTableCommand: (_operation, cell) => {
+        fieldCells.push(cell.id);
+        return true;
+      },
+      requestReturn: () => undefined,
+      deferReturn: () => undefined,
+      reportDiagnostic: () => undefined,
+    });
+    requestMenu(readElement(field, '#fa'));
+
+    readMenuElement()?.querySelector('button')?.click();
+
+    expect([fieldCells, calls]).toEqual([['fa'], []]);
+  });
+});
+
 describe('running an item', () => {
   it('does not call the table operation port and leaves the menu element when run during an input stop', () => {
     let stopped = false;

@@ -2,10 +2,6 @@ import { COMMENT_ATTRIBUTE, COMMENT_AUTHOR } from '../../common/index';
 import type { Localizer } from '../../common/index';
 import { readCommentEntries } from './comment-read';
 
-// HTML whitespace at both ends of an entry. Line breaks and indentation the writer put between tags are not part of
-// the entry, so the popup shows the entry without them.
-const HTML_WHITESPACE_EDGES_PATTERN = /^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu;
-
 // Shape of a date and time with a time zone offset. Date.parse reads a date-only value as midnight UTC, and converting
 // it to local time would make the date look shifted, so values that do not match this shape are shown as they are
 // without going through the format.
@@ -90,17 +86,4 @@ export function isCommentResolved(comment: Element): boolean {
  */
 export function hasAiEntry(comment: Element): boolean {
   return readCommentEntries(comment).some(isAiEntry);
-}
-
-/**
- * Returns the string an entry shows.
- *
- * Elements inside the entry are not interpreted; only the characters are joined. Line breaks inside are separators
- * the writer intended, so they are kept.
- *
- * @param entry Entry.
- * @returns String without the HTML whitespace at both ends.
- */
-export function readEntryText(entry: Element): string {
-  return (entry.textContent ?? '').replace(HTML_WHITESPACE_EDGES_PATTERN, '');
 }

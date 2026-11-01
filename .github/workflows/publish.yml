@@ -12,6 +12,8 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+# Actions are pinned to a commit rather than a tag, because a tag can be moved to other code. The comment names the
+# release the commit belongs to.
 jobs:
   decide:
     runs-on: ubuntu-latest
@@ -20,14 +22,16 @@ jobs:
       publish: ${{ steps.decide.outputs.publish }}
       version: ${{ steps.decide.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - id: decide
         run: node scripts/release/publish-decision.mjs
 
-  publish:
+  # Building runs the install scripts of every development dependency, so it happens in a job that never sees the
+  # publishing credential. Only the package it makes is handed on.
+  package:
     needs: decide
     if: needs.decide.outputs.publish == 'true'
     runs-on: ubuntu-latest
@@ -35,8 +39,8 @@ jobs:
     env:
       VSIX: agentic-html-visual-editor-${{ needs.decide.outputs.version }}.vsix
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -44,6 +48,31 @@ jobs:
       - run: npm ci --prefer-offline --no-audit --fund=false
         working-directory: scripts/release
       - run: scripts/release/node_modules/.bin/vsce package --no-dependencies --out "$VSIX"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vsix
+          path: ${{ env.VSIX }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Only the release tools are installed here. vsce reads nothing but the package when given --packagePath, so the
+  # repository's dependencies and build never run next to the credential.
+  publish:
+    needs: [decide, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VSIX: agentic-html-visual-editor-${{ needs.decide.outputs.version }}.vsix
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: npm ci --prefer-offline --no-audit --fund=false
+        working-directory: scripts/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vsix
       - name: Publish to the Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSC_PAT }}

@@ -35,11 +35,14 @@ interface Harness {
  * @param registered Slots treated as registered.
  * @param notifyHiddenWithFocus The port notified when the menu hides while holding focus. Pass it to
  *   count its calls.
+ * @param readItemState The port that reads the state of a fixed toolbar item.
+ * @param readFieldRoot The port that reads the root of the comment field with focus. When omitted, no field has focus.
  */
 function createHarness(
   registered: ReadonlySet<ToolbarSlot> = new Set(),
   notifyHiddenWithFocus: () => void = () => undefined,
   readItemState: (slot: ToolbarSlot) => ToolbarItemState | undefined = () => undefined,
+  readFieldRoot: () => HTMLElement | undefined = () => undefined,
 ): Harness {
   document.body.replaceChildren();
   const root = document.createElement('div');
@@ -48,6 +51,7 @@ function createHarness(
 
   const menu = attachFloatingMenu(window, {
     readEditorRoot: () => root,
+    readFieldRoot,
     readItem: (slot) => (registered.has(slot) ? ITEM : undefined),
     readItemState,
     activateSlot: () => undefined,
@@ -250,5 +254,40 @@ describe('the notification of hiding while holding focus', () => {
     harness.menu.hide();
 
     expect(hiddenAtNotification).toEqual([true]);
+  });
+});
+
+describe('Showing for a comment field', () => {
+  beforeEach(() => {
+    document.body.replaceChildren();
+    // jsdom has no rectangles for ranges, so a size that meets the display condition is returned.
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 10, top: 100, right: 60, bottom: 120, width: 50, height: 20 }),
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(Range.prototype, 'getBoundingClientRect');
+  });
+
+  it('while a field root is reported, a range in the field shows the menu and a range in the editor root does not', () => {
+    const field = document.createElement('div');
+    field.textContent = 'wxyz';
+    let fieldRoot: HTMLElement | undefined = field;
+    const harness = createHarness(new Set<ToolbarSlot>([TOOLBAR_SLOT.bold]), () => undefined, () => undefined, () => fieldRoot);
+    document.body.append(field);
+    harness.root.textContent = 'abcd';
+
+    selectText(field);
+    harness.menu.applyState(NO_CARET_STATE);
+    const hiddenInField = harness.element.hidden;
+    selectText(harness.root);
+    harness.menu.applyState(NO_CARET_STATE);
+    const hiddenInRoot = harness.element.hidden;
+    fieldRoot = undefined;
+    harness.menu.applyState(NO_CARET_STATE);
+
+    expect([hiddenInField, hiddenInRoot, harness.element.hidden]).toEqual([false, true, false]);
   });
 });

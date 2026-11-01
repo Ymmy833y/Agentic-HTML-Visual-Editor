@@ -28,6 +28,7 @@ import type { CellMergeState } from '../../../webview/editing/cell-range';
 import type { FormatOperation } from '../../../webview/editing/format-command';
 import type { BodyOutput } from '../../../webview/document/serialization-state';
 import type { EditingSession } from '../../../webview/editing/editing-session';
+import { readPdfFonts } from '../../../webview/export/pdf-fonts';
 import { measurePdfLayout } from '../../../webview/export/pdf-pages';
 import type { PdfLayout } from '../../../webview/export/pdf-pages';
 import type { ShortcutReceiver } from '../../../webview/editing/shortcut-receiver';
@@ -73,8 +74,8 @@ declare global {
     // from here.
     __cellMergeStateProbe?: (cell: Element) => CellMergeState;
     // A PDF export answers with the page images but not with the layout it chooses, so the layout is read through the
-    // same ports from here.
-    __pdfLayoutProbe?: () => Promise<PdfLayout | undefined>;
+    // same ports from here. It takes the bundled fonts as a request carries them, since the copy is laid out in them.
+    __pdfLayoutProbe?: (fonts: unknown) => Promise<PdfLayout | undefined>;
   }
 }
 
@@ -91,9 +92,9 @@ window.__shortcutReceiverProbe = readShortcutReceiver;
 window.__autoformatTableProbe = readAutoformatTable;
 window.__tableCommandProbe = runTableCommand;
 window.__cellMergeStateProbe = readCellMergeState;
-window.__pdfLayoutProbe = async () => {
+window.__pdfLayoutProbe = async (fonts) => {
   const root = readEditorRoot();
-  return root === undefined ? undefined : measurePdfLayout(root, createPdfPagePorts());
+  return root === undefined ? undefined : measurePdfLayout(root, createPdfPagePorts(), readPdfFonts(fonts));
 };
 window.__documentReplacementProbe = (text) =>
   // Replace document takes its ports as an argument. Bundle and pass the same ones the product uses.

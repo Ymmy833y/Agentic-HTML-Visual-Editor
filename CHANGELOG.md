@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-01
+
+### Added
+
+- Select, copy, and search the text of an exported PDF. Body text is set in the bundled BIZ UDPGothic and BIZ UDGothic fonts, subset into the file; backgrounds, borders, images, diagrams, and list markers stay in the page image. Text that the fonts do not cover, or that a style such as transparency, a transform, or a shadow changes, stays in the image and is not searchable
+- Write comment bodies and replies with the same formatting as the document: bold, italic, strikethrough, inline code, and links, plus headings, lists, code blocks, tables, and the other blocks, using the toolbar, the floating menu, and the document's keyboard shortcuts
+- Add `check_comments.py` to the Agent Skill, which checks the markup of a document's comments, and update the comment references and `list_comments.py` to match
+
+### Changed
+
+- Let the comment popup be resized by dragging its right edge, instead of a fixed width of 30em; the width stays between a minimum and the width of the view, and carries over to other comments and other files, as the sidebar's width does
+
+### Security
+
+- Generate the nonce for the view's content security policy with stronger randomness
+- Escape all occurrences in diagram markup, and correct the escaping of parentheses in stylesheet selectors
+- Update `qs`, `serialize-javascript` (7.1.3), `minimatch` (11.0.3), and `glob` (14.0.3) to patched versions
+
 ## [1.0.1] - 2026-10-23
 
 ### Security

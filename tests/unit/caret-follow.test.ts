@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EDITOR_ROOT_ELEMENT_ID } from '../../common/index';
+import { NO_CARET_STATE } from '../../webview/editing/caret-state';
+import type { CaretState } from '../../webview/editing/caret-state';
 import type { EditDetectedListener } from '../../webview/editing/change-tracker';
 import { CaretFollow } from '../../webview/ui/caret-follow';
+import { createRange, mountRoot, readChildText, readElement, select } from './helpers/format-dom';
 
 interface Harness {
   readonly follow: CaretFollow;
@@ -180,5 +183,31 @@ describe('Following the caret', () => {
     vi.advanceTimersToNextFrame();
 
     expect([harness.diagnostics.length, countOf(harness.log, 'applyMenuState')]).toEqual([1, 1]);
+  });
+});
+
+describe('The state of a comment field', () => {
+  it('while a field reports a state, that state is reflected, and the editor root is read again once it reports none', () => {
+    const root = mountRoot('<p><strong>ab</strong></p>');
+    const text = readChildText(readElement(root, 'strong'), 0);
+    select(createRange(text, 1, text, 1));
+    let fieldState: CaretState | undefined = { ...NO_CARET_STATE, formats: { ...NO_CARET_STATE.formats, italic: true } };
+    const reflected: CaretState[] = [];
+    const follow = new CaretFollow(window, {
+      readEditorRoot: () => root,
+      readPendingFormats: () => new Set(),
+      readFieldState: () => fieldState,
+      reflect: (state) => reflected.push(state),
+      applyMenuState: () => undefined,
+      updateMenuPosition: () => undefined,
+      isMenuVisible: () => false,
+      reportDiagnostic: () => undefined,
+    });
+
+    follow.evaluate();
+    fieldState = undefined;
+    follow.evaluate();
+
+    expect(reflected.map((state) => [state.formats.bold, state.formats.italic])).toEqual([[false, true], [true, false]]);
   });
 });

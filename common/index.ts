@@ -12,6 +12,7 @@ export {
   DOCUMENT_APPLY_OUTCOME,
   HOST_TO_VIEW_MESSAGE_TYPE,
   PDF_EXPORT_REFUSAL,
+  PDF_FONT_ROLE,
   RESTORE_ACTION,
   RESTORE_FAILURE_CAUSE,
   VIEW_TO_HOST_MESSAGE_TYPE,
@@ -20,6 +21,7 @@ export type {
   BodyOutputResponseMessage,
   CodeBlockCopyRequestedMessage,
   CodeBlockCopySucceededMessage,
+  CommentPopupWidthChangedMessage,
   ConflictSides,
   ConflictsResolvedMessage,
   CopyHtmlResponseMessage,
@@ -37,12 +39,15 @@ export type {
   HistoryProtectionActivatedMessage,
   HostToViewMessage,
   InitializeMessage,
+  PdfExportFont,
   PdfExportRefusal,
   PdfExportRequestedMessage,
   PdfExportResponseMessage,
+  PdfFontRole,
   PdfPageImage,
   PdfPageLink,
   PdfPageLinkTarget,
+  PdfTextRun,
   PresentConflictsMessage,
   RelativeLinkRequestedMessage,
   ReplaceDocumentMessage,
@@ -115,6 +120,11 @@ export type {
 } from './messaging/test-message';
 export { EDITOR_ROOT_ELEMENT_ID } from './view/editor-root';
 export {
+  COMMENT_POPUP_MIN_WIDTH,
+  COMMENT_POPUP_WIDTH_META_NAME,
+  parseCommentPopupWidth,
+} from './view/comment-popup-width';
+export {
   DEFAULT_SIDEBAR_LAYOUT,
   SIDEBAR_LAYOUT_META_NAME,
   SIDEBAR_MIN_WIDTH,
@@ -136,6 +146,7 @@ export {
   COMMENT_ATTRIBUTE,
   COMMENT_AUTHOR,
   COMMENT_BODY_MAX_COUNT,
+  COMMENT_ENTRY_BLOCK_TAG_NAME,
   COMMENT_ENTRY_EDITABLE_VALUE,
   COMMENT_ENTRY_ORDER,
   COMMENT_ID_FORMAT,

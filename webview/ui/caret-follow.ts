@@ -15,6 +15,14 @@ export interface CaretFollowPorts {
   readPendingFormats(): ReadonlySet<ToggleFormat>;
 
   /**
+   * Returns the state of the comment field that has focus. The toolbar and the floating menu act on that field
+   * meanwhile, so they show its state instead of the editor root's.
+   *
+   * @returns The state. `undefined` while no field has focus.
+   */
+  readFieldState?(): CaretState | undefined;
+
+  /**
    * Reflects the caret state onto the fixed toolbar.
    *
    * @param state The caret state.
@@ -123,9 +131,9 @@ export class CaretFollow {
       const root = this.ports.readEditorRoot();
       // Update even when the value equals the previous one. Skipping reflection by comparing values
       // would leave a stale display when only the tree has changed.
-      this.state = root === undefined
+      this.state = this.ports.readFieldState?.() ?? (root === undefined
         ? NO_CARET_STATE
-        : readCaretState(root, this.ports.readPendingFormats());
+        : readCaretState(root, this.ports.readPendingFormats()));
       this.ports.reflect(this.state);
       this.ports.applyMenuState(this.state);
     });
