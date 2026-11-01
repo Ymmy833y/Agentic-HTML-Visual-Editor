@@ -88,7 +88,7 @@ This repository provides an Agent Skill that teaches an AI agent how to write HT
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-The command installs the skill `agentic-html-visual-editor-authoring`. The script in it that lists the comments of a document requires Python 3.11 or later.
+The command installs the skill `agentic-html-visual-editor-authoring`. The scripts in it that list the comments of a document and check their markup require Python 3.11 or later.
 
 ## 👀 Features at a Glance
 

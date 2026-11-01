@@ -78,13 +78,13 @@ def expected_document_comments(file):
             'entries': [
                 {
                     'kind': 'body',
-                    'text': '\u73fe\u5728\u306e\u8a2d\u5b9a\u304b\u3089\u306e\u63a8\u6e2c\u3067\u3059\u3002',
+                    'html': '\u73fe\u5728\u306e\u8a2d\u5b9a\u304b\u3089\u306e\u63a8\u6e2c\u3067\u3059\u3002',
                     'author': 'ai',
                     'updated': '2026-01-15T09:30:00.000Z',
                 },
                 {
                     'kind': 'reply',
-                    'text': '30 \u5206\u3054\u3068\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+                    'html': '30 \u5206\u3054\u3068\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
                     'author': 'human',
                     'updated': '2026-01-15T10:02:41.512Z',
                 },
@@ -98,7 +98,7 @@ def expected_document_comments(file):
             'entries': [
                 {
                     'kind': 'body',
-                    'text': '\u4e21\u65b9\u3092\u6b8b\u3059\u65b9\u91dd\u3067\u3059\uff08A & B\uff09\u3002',
+                    'html': '\u4e21\u65b9\u3092\u6b8b\u3059\u65b9\u91dd\u3067\u3059\uff08A &amp; B\uff09\u3002',
                     'author': 'human',
                     'updated': '2026-01-16T01:00:00.000Z',
                 },
@@ -118,7 +118,7 @@ def expected_second_document_comments(file):
             'entries': [
                 {
                     'kind': 'body',
-                    'text': 'This is the second file.',
+                    'html': 'This is the second file.',
                     'author': 'ai',
                     'updated': '2026-02-01T00:00:00.000Z',
                 },
@@ -364,7 +364,7 @@ class ListCommentsTests(unittest.TestCase):
                 [*expected_second_document_comments(str(second)), *expected_document_comments(str(first))],
             )
 
-        with self.subTest('an entry whose blocks are in a `template` gives the characters inside it, without the tags'):
+        with self.subTest('an entry whose blocks are in a `template` gives the `template` and its blocks as written'):
             self.assertEqual(
                 list_comments.extract_comments(
                     'blocks.html',
@@ -378,7 +378,14 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-0000b10c',
                         'resolved': False,
                         'target': 'target',
-                        'entries': [{'kind': 'reply', 'text': '\nSteps\nonetwo\n', 'author': 'ai', 'updated': ''}],
+                        'entries': [
+                            {
+                                'kind': 'reply',
+                                'html': '<template>\n<h2>Steps</h2>\n<ul><li>one</li><li>two</li></ul>\n</template>',
+                                'author': 'ai',
+                                'updated': '',
+                            },
+                        ],
                     },
                 ],
             )
@@ -412,7 +419,7 @@ class ListCommentsTests(unittest.TestCase):
                 'id': 'c-00000005',
                 'resolved': False,
                 'target': 'target',
-                'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
             },
         ]
 
@@ -481,7 +488,7 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-00000007',
                         'resolved': False,
                         'target': 'target',
-                        'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
                     },
                 ],
             )
@@ -649,7 +656,7 @@ class ListCommentsTests(unittest.TestCase):
             # On newer versions, leaving it gives the same result, so check the position read up to, which fails on
             # any version.
             text = '<html><head><!--></head><body></body></html>'
-            collector = list_comments._CommentCollector('unclosed-comment.html')
+            collector = list_comments._CommentCollector('unclosed-comment.html', text)
             collector.rawdata = text
             self.assertEqual(collector.parse_comment(text.index('<!--')), len(text))
 
@@ -741,7 +748,7 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-00000024',
                         'resolved': False,
                         'target': 'target',
-                        'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
                     },
                 ],
             )
@@ -779,7 +786,7 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-00000025',
                         'resolved': False,
                         'target': 'target<1 <1',
-                        'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
                     },
                 ],
             )
@@ -863,7 +870,7 @@ class ListCommentsTests(unittest.TestCase):
                         'resolved': True,
                         'target': 'target',
                         'entries': [
-                            {'kind': 'body', 'text': 'body', 'author': 'ai', 'updated': '2026-01-01T00:00:00.000Z'},
+                            {'kind': 'body', 'html': 'body', 'author': 'ai', 'updated': '2026-01-01T00:00:00.000Z'},
                         ],
                     },
                     {
@@ -890,14 +897,14 @@ class ListCommentsTests(unittest.TestCase):
                         'id': '',
                         'resolved': False,
                         'target': 'no attributes',
-                        'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
                     },
                     {
                         'file': 'no-id.html',
                         'id': '',
                         'resolved': False,
                         'target': 'no values',
-                        'entries': [{'kind': 'reply', 'text': 'reply', 'author': '', 'updated': ''}],
+                        'entries': [{'kind': 'reply', 'html': 'reply', 'author': '', 'updated': ''}],
                     },
                 ],
             )
@@ -933,20 +940,20 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-outer001',
                         'resolved': False,
                         'target': 'outer inner rest',
-                        'entries': [{'kind': 'body', 'text': 'outer body', 'author': 'human', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'outer body', 'author': 'human', 'updated': ''}],
                     },
                     {
                         'file': 'nested.html',
                         'id': 'c-inner001',
                         'resolved': False,
                         'target': 'inner',
-                        'entries': [{'kind': 'body', 'text': 'inner body', 'author': 'ai', 'updated': ''}],
+                        'entries': [{'kind': 'body', 'html': 'inner body', 'author': 'ai', 'updated': ''}],
                     },
                 ],
             )
 
         with self.subTest(
-            'an entry written inside an entry does not count toward the thread and is read as text of the outer entry'
+            'an entry written inside an entry does not count toward the thread and is returned inside the outer entry'
         ):
             self.assertEqual(
                 list_comments.extract_comments(
@@ -961,19 +968,28 @@ class ListCommentsTests(unittest.TestCase):
                         'id': 'c-00000001',
                         'resolved': False,
                         'target': 'target',
-                        'entries': [{'kind': 'body', 'text': 'body inner reply', 'author': 'human', 'updated': ''}],
+                        'entries': [
+                            {
+                                'kind': 'body',
+                                'html': 'body <comment-reply data-author="ai">inner reply</comment-reply>',
+                                'author': 'human',
+                                'updated': '',
+                            },
+                        ],
                     },
                 ],
             )
 
         with self.subTest(
-            'character references inside `textarea` are expanded, and the inside of `script` is returned as written'
+            'in the annotated text, character references inside `textarea` are expanded and the inside of `script` is'
+            ' returned as written, while an entry keeps its markup as written'
         ):
             # Whether character references in raw text are expanded varies with the version of `HTMLParser`. The editor's
             # sidebar shows the inside of `textarea` expanded exactly once. The inside of `script` is read unexpanded, as
             # the HTML specification says (the editor does not open documents with `script` in the body, so it never
             # appears in the sidebar).
-            # Expanded twice, `&amp;amp;` becomes `&`, which tells it apart from a single expansion.
+            # Expanded twice, `&amp;amp;` becomes `&`, which tells it apart from a single expansion. The entry is cut
+            # out of the document, so it is the same on every version.
             document = (
                 '<html><body><p><comment id=c-00000012>A <textarea>B &amp;amp; C</textarea> <script>D &amp; E</script>'
                 '<comment-body>F <textarea>&lt;G&gt;</textarea></comment-body></comment></p></body></html>'
@@ -984,8 +1000,8 @@ class ListCommentsTests(unittest.TestCase):
                         self.assert_old_html_parser()
                     comment = list_comments.extract_comments('character-reference.html', document)[0]
                     self.assertEqual(
-                        (comment['target'], comment['entries'][0]['text']),
-                        ('A B &amp; C D &amp; E', 'F <G>'),
+                        (comment['target'], comment['entries'][0]['html']),
+                        ('A B &amp; C D &amp; E', 'F <textarea>&lt;G&gt;</textarea>'),
                     )
 
         with self.subTest('the annotated text collapses runs of whitespace into one space and strips both ends'):
@@ -996,13 +1012,46 @@ class ListCommentsTests(unittest.TestCase):
             )
             self.assertEqual(comments[0]['target'], 'the annotated text')
 
-        with self.subTest('entry text is returned as written, whitespace included'):
+        with self.subTest('entry content is returned as written, whitespace and tags included'):
             comments = list_comments.extract_comments(
                 'entry-text.html',
                 '<html><body><p><comment id="c-00000003">target'
                 '<comment-body> line 1\n  line 2<br>line 3 </comment-body></comment></p></body></html>',
             )
-            self.assertEqual(comments[0]['entries'][0]['text'], ' line 1\n  line 2line 3 ')
+            self.assertEqual(comments[0]['entries'][0]['html'], ' line 1\n  line 2<br>line 3 ')
+
+        with self.subTest('entry content is cut out at the right place after lines of text in other scripts'):
+            # The position of an entry is found from the line and column `HTMLParser` reports, so lines, characters
+            # outside the ASCII range, and raw text that versions read differently before it must not shift the result.
+            document = (
+                '<html><body>\n<p>日本語の行</p>\r\n<p>あ\nい <comment id="c-00000014">'
+                'target<textarea>a</ textarea></textarea><comment-body data-author="ai">本文 <strong>A</strong>\n'
+                '次の行</comment-body></comment></p>\n</body></html>'
+            )
+            for parser_name, parser_context in (('this version', contextlib.nullcontext), ('older version', old_html_parser)):
+                with self.subTest(parser=parser_name), parser_context():
+                    if parser_name == 'older version':
+                        self.assert_old_html_parser()
+                    comments = list_comments.extract_comments('entry-position.html', document)
+                    self.assertEqual(
+                        comments[0]['entries'][0]['html'], '本文 <strong>A</strong>\n次の行',
+                    )
+
+        with self.subTest('an entry without an end tag runs up to the end tag that closes it or to the end of the body'):
+            documents = {
+                'end tag of the comment': (
+                    '<html><body><p><comment id="c-00000015">target<comment-body>a <em>b</em></comment></p></body></html>',
+                    'a <em>b</em>',
+                ),
+                'end of body': (
+                    '<html><body><p><comment id="c-00000015">target<comment-body>a <em>b</em>\n</body></html>',
+                    'a <em>b</em>\n',
+                ),
+            }
+            for end, (document, expected) in documents.items():
+                with self.subTest(end=end):
+                    comments = list_comments.extract_comments('unclosed-entry.html', document)
+                    self.assertEqual(comments[0]['entries'][0]['html'], expected)
 
         with self.subTest('a comment without an end tag is read up to the end of the outer element or of the body'):
             documents = {
@@ -1022,7 +1071,7 @@ class ListCommentsTests(unittest.TestCase):
                                 'id': 'c-00000004',
                                 'resolved': False,
                                 'target': 'target',
-                                'entries': [{'kind': 'body', 'text': 'body', 'author': '', 'updated': ''}],
+                                'entries': [{'kind': 'body', 'html': 'body', 'author': '', 'updated': ''}],
                             },
                         ],
                     )

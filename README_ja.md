@@ -88,7 +88,7 @@ AI エージェントと人間が共同で編集・レビューする設計メ�
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプトが付いていて、動かすには Python 3.11 以上が必要です。
+導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプトと、コメントのマークアップを検査するスクリプトが付いていて、動かすには Python 3.11 以上が必要です。
 
 ## 👀 機能の一覧
 
