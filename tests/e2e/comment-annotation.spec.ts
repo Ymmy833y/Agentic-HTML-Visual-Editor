@@ -32,14 +32,14 @@ const EPILOGUE = '</body></html>';
 const TOOLBAR = `#${TOOLBAR_ELEMENT_ID}`;
 const FLOATING = `#${FLOATING_MENU_ELEMENT_ID}`;
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
-const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
+const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
 // An item with a popup puts its contents in the same container, so point only at the direct child button.
 const COMMENT_ITEM = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.comment}"] > button`;
 const BOLD_ITEM = `${TOOLBAR} [data-slot="${TOOLBAR_SLOT.bold}"] > button`;
 const FLOATING_COMMENT_ITEM = `${FLOATING} button[data-slot="${TOOLBAR_SLOT.comment}"]`;
 const COMMENT = `${EDITOR_ROOT} comment`;
 // The popup's body field. Found by the field name.
-const BODY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.bodyField']}"]`;
+const BODY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.bodyField']}"]`;
 
 /** The format of the ID of a created comment. */
 const ID_PATTERN = /^c-[a-z0-9]{8}$/u;
@@ -928,13 +928,18 @@ test.describe('Opening and closing the popup by clicking', () => {
     expect(await readPopupEntries(page)).toEqual(['note', 'reply 1', 'reply 2']);
   });
 
-  test('code in an entry is shown as plain text in the popup, not monospaced', async ({ page }) => {
-    await openCommentEditor(page, '<p><comment id="c-1">ab<comment-body>see <code>x</code></comment-body></comment></p>');
+  test('code in an entry is shown in the popup with the monospaced font of code in the document', async ({ page }) => {
+    await openCommentEditor(
+      page,
+      '<p><code>y</code><comment id="c-1">ab<comment-body>see <code>x</code></comment-body></comment></p>',
+    );
 
     await page.locator(COMMENT).click();
 
     await expect(page.locator(POPUP)).toBeVisible();
-    expect([await page.locator(`${POPUP} code`).count(), await readPopupEntries(page)]).toEqual([0, ['see x']]);
+    const [inPopup] = await readComputed(page, `${POPUP} code`, ['font-family']);
+    const [inDocument] = await readComputed(page, `${EDITOR_ROOT} p > code`, ['font-family']);
+    expect([inPopup === inDocument, await readPopupEntries(page)]).toEqual([true, ['see x']]);
   });
 
   test('line breaks in an entry also separate lines in the popup', async ({ page }) => {
@@ -943,10 +948,18 @@ test.describe('Opening and closing the popup by clicking', () => {
     await page.locator(COMMENT).click();
 
     await expect(page.locator(POPUP)).toBeVisible();
+    // Only the text is measured: each line of an entry is a paragraph, whose own box would count as a line too.
     const lines = await page.locator(`${POPUP} .comment-popup-entry`).evaluate((entry) => {
-      const range = document.createRange();
-      range.selectNodeContents(entry);
-      return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const tops = new Set<number>();
+      const walker = document.createTreeWalker(entry, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          tops.add(Math.round(rect.top));
+        }
+      }
+      return tops.size;
     });
     expect(lines).toBe(2);
   });

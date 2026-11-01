@@ -10,6 +10,8 @@ import {
   writeCommentEntries,
 } from '../../webview/editing/comment-thread-write';
 import type { CommentThreadWritePorts } from '../../webview/editing/comment-thread-write';
+import { toEntryContent } from '../../webview/editing/comment-entry-content';
+import { createContent } from './helpers/comment-field';
 import { mountRoot, readElement } from './helpers/format-dom';
 
 // Current time that goes into the update time of entries. toISOString gives 2026-09-26T01:02:03.456Z.
@@ -68,12 +70,12 @@ function createPorts(root: HTMLElement, overrides: PortOverrides = {}): WriteHar
 }
 
 describe('Rewriting entries', () => {
-  it('adding a body inserts, before the first entry, a body with the attributes contenteditable, data-author and data-updated in that order and the raw input', () => {
+  it('adding a body inserts, before the first entry, a body with the attributes contenteditable, data-author and data-updated in that order and the content', () => {
     const root = mountRoot('<p><comment id="c">ab<comment-reply>r</comment-reply></comment></p>');
     const comment = readElement(root, 'comment');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'note' }]);
+    writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('note') }]);
 
     expect(comment.innerHTML).toBe(
       `ab<comment-body contenteditable="false" data-author="human" data-updated="${NOW_TEXT}">note</comment-body>`
@@ -86,7 +88,7 @@ describe('Rewriting entries', () => {
     const comment = readElement(root, 'comment');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'note' }]);
+    writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('note') }]);
 
     expect(comment.innerHTML).toBe(
       `ab<comment-body contenteditable="false" data-author="human" data-updated="${NOW_TEXT}">note</comment-body>`,
@@ -98,7 +100,7 @@ describe('Rewriting entries', () => {
     const comment = readElement(root, 'comment');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'late' }]);
+    writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('late') }]);
 
     expect([...comment.children].map((child) => [child.localName, child.textContent])).toEqual([
       ['comment-body', 'n'],
@@ -112,7 +114,7 @@ describe('Rewriting entries', () => {
     const comment = readElement(root, 'comment');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'n' }]);
+    writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('n') }]);
 
     expect(comment.innerHTML).toBe(
       `A<comment-body contenteditable="false" data-author="human" data-updated="${NOW_TEXT}">n</comment-body>`
@@ -125,7 +127,7 @@ describe('Rewriting entries', () => {
     const comment = readElement(root, 'comment');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'addReply', comment, text: 'r' }]);
+    writeCommentEntries(ports, [{ kind: 'addReply', comment, content: createContent('r') }]);
 
     expect(comment.innerHTML).toBe(
       'A<comment-body>n</comment-body>'
@@ -133,7 +135,7 @@ describe('Rewriting entries', () => {
     );
   });
 
-  it('editing an AI entry makes its content the raw input, renews only data-updated, and keeps data-author as ai', () => {
+  it('editing an AI entry makes its content the content as written, renews only data-updated, and keeps data-author as ai', () => {
     const root = mountRoot(
       '<p><comment id="c">A<comment-body contenteditable="false" data-author="ai" data-updated="2026-01-01T00:00:00Z">'
       + 'old <code>x</code></comment-body></comment></p>',
@@ -141,11 +143,40 @@ describe('Rewriting entries', () => {
     const entry = readElement(root, 'comment-body');
     const { ports } = createPorts(root);
 
-    writeCommentEntries(ports, [{ kind: 'edit', entry, text: 'new' }]);
+    writeCommentEntries(ports, [{ kind: 'edit', entry, content: createContent('new') }]);
 
     expect(entry.outerHTML).toBe(
       `<comment-body contenteditable="false" data-author="ai" data-updated="${NOW_TEXT}">new</comment-body>`,
     );
+  });
+
+  it('an edit with format elements writes them as they are, and the content passed stays as it is', () => {
+    const root = mountRoot('<p><comment id="c">A<comment-body data-author="human">old</comment-body></comment></p>');
+    const entry = readElement(root, 'comment-body');
+    const content = createContent('<strong>new</strong> <a href="https://example.com/">x</a>');
+    const { ports } = createPorts(root);
+
+    writeCommentEntries(ports, [{ kind: 'edit', entry, content }]);
+
+    expect([entry.outerHTML, content.childNodes.length]).toEqual([
+      `<comment-body data-author="human" data-updated="${NOW_TEXT}"><strong>new</strong> <a href="https://example.com/">x</a></comment-body>`,
+      3,
+    ]);
+  });
+
+  it('an edit with content in the block form writes the template with its blocks, and renews only data-updated', () => {
+    const root = mountRoot('<p><comment id="c">A<comment-body data-author="human">old</comment-body></comment></p>');
+    const entry = readElement(root, 'comment-body');
+    const content = toEntryContent(createContent('<h2>t</h2><ul><li>a</li></ul>'), document);
+    const { ports } = createPorts(root);
+
+    writeCommentEntries(ports, [{ kind: 'edit', entry, content }]);
+
+    expect([entry.getAttribute('data-author'), entry.getAttribute('data-updated'), entry.innerHTML]).toEqual([
+      'human',
+      NOW_TEXT,
+      '<template>\n<h2>t</h2>\n<ul><li>a</li></ul>\n</template>',
+    ]);
   });
 
   it('deleting the last entry leaves the comment without entries', () => {
@@ -171,9 +202,9 @@ describe('Rewriting entries', () => {
     });
 
     writeCommentEntries(ports, [
-      { kind: 'edit', entry: reply, text: 'r2' },
-      { kind: 'addBody', comment, text: 'b' },
-      { kind: 'addReply', comment, text: 'c' },
+      { kind: 'edit', entry: reply, content: createContent('r2') },
+      { kind: 'addBody', comment, content: createContent('b') },
+      { kind: 'addReply', comment, content: createContent('c') },
     ]);
 
     const updated = [...comment.children].map((child) => child.getAttribute('data-updated'));
@@ -187,8 +218,8 @@ describe('Rewriting entries', () => {
     const { ports, diagnostics } = createPorts(root);
 
     const outcomes = writeCommentEntries(ports, [
-      { kind: 'edit', entry: detached, text: 'x' },
-      { kind: 'addReply', comment, text: 'r' },
+      { kind: 'edit', entry: detached, content: createContent('x') },
+      { kind: 'addReply', comment, content: createContent('r') },
     ]);
 
     expect([outcomes, diagnostics.length, comment.querySelectorAll('comment-reply').length])
@@ -201,8 +232,8 @@ describe('Rewriting entries', () => {
     const { ports, attempts } = createPorts(root, { isInputStopped: () => true });
 
     const outcomes = writeCommentEntries(ports, [
-      { kind: 'addBody', comment, text: 'b' },
-      { kind: 'addReply', comment, text: 'r' },
+      { kind: 'addBody', comment, content: createContent('b') },
+      { kind: 'addReply', comment, content: createContent('r') },
     ]);
 
     expect([outcomes, attempts]).toEqual([['blocked', 'blocked'], []]);
@@ -214,7 +245,7 @@ describe('Rewriting entries', () => {
     const before = root.innerHTML;
     const { ports } = createPorts(root, { runCommandEdit: () => false });
 
-    const outcomes = writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'b' }]);
+    const outcomes = writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('b') }]);
 
     expect([outcomes, root.innerHTML]).toEqual([['blocked'], before]);
   });
@@ -231,9 +262,9 @@ describe('Rewriting entries', () => {
     const { ports, diagnostics, attempts } = createPorts(root);
 
     const outcomes = writeCommentEntries(ports, [
-      { kind: 'addReply', comment, text: 'r' },
-      { kind: 'edit', entry: body, text: 'x' },
-      { kind: 'addReply', comment, text: 's' },
+      { kind: 'addReply', comment, content: createContent('r') },
+      { kind: 'edit', entry: body, content: createContent('x') },
+      { kind: 'addReply', comment, content: createContent('s') },
     ]);
 
     expect([outcomes, diagnostics.length, attempts.at(-1)]).toEqual([['written', 'failed', 'failed'], 1, 'complete']);
@@ -248,7 +279,7 @@ describe('Rewriting entries', () => {
       },
     });
 
-    writeCommentEntries(ports, [{ kind: 'addBody', comment, text: 'b' }]);
+    writeCommentEntries(ports, [{ kind: 'addBody', comment, content: createContent('b') }]);
 
     expect(attempts).toEqual([`begin:${COMMENT_THREAD_EDIT_KIND.entry}`, 'abort']);
   });

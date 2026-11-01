@@ -2,6 +2,7 @@ import type { EncodedSelection, Localizer } from '../../common/index';
 import { removeComment, toggleCommentResolved, writeCommentEntries } from '../editing/comment-thread-write';
 import type { CommentThreadWritePorts } from '../editing/comment-thread-write';
 import type { ActionDialogResult, ActionDialogSpec } from './action-dialog';
+import type { CommentField } from './comment-field';
 import { confirmCommentOperation } from './comment-confirm';
 import type { CommentConfirmPorts } from './comment-confirm';
 import { moveToAdjacentComment, readAdjacentComments } from './comment-navigation';
@@ -19,6 +20,20 @@ import { CommentThreadView } from './comment-thread-view';
 export interface CommentThreadPorts {
   /** Localizer. */
   readonly localizer: Localizer;
+
+  /** Notifies that what the toolbar shows for a field may have changed: the focus, the selection or the formats held. */
+  notifyFieldStateChanged(): void;
+
+  /**
+   * Prepares content before it is shown in an entry or goes into a field, as the document's content is prepared when it
+   * is mounted: images get the source the view can show.
+   *
+   * @param content The content.
+   */
+  prepareContent(content: DocumentFragment): void;
+
+  /** Notifies that the thread was drawn, so that the diagrams of the entries are shown. */
+  notifyRendered(): void;
 
   /**
    * Turns a date and time into local notation.
@@ -128,6 +143,11 @@ export class CommentThread implements CommentPopupContent {
       readOpenComment: () => popup.readOpenComment(),
       requestRedraw: () => this.redraw(),
       reportDiagnostic: (detail) => ports.reportDiagnostic(detail),
+    }, {
+      openDialog: (spec) => ports.openDialog(spec),
+      prepareContent: (content) => ports.prepareContent(content),
+      notifyStateChanged: () => ports.notifyFieldStateChanged(),
+      reportDiagnostic: (detail) => ports.reportDiagnostic(detail),
     });
   }
 
@@ -142,6 +162,7 @@ export class CommentThread implements CommentPopupContent {
     this.view = new CommentThreadView(element, entries, this.inputs.readState(), {
       localizer: this.ports.localizer,
       formatDate: (date) => this.ports.formatDate(date),
+      prepareContent: (content) => this.ports.prepareContent(content),
       registerTooltip: (target, label) => this.ports.registerTooltip(target, label),
       move: (direction) => this.move(direction),
       toggleResolved: () => this.toggleResolved(),
@@ -244,9 +265,7 @@ export class CommentThread implements CommentPopupContent {
     if (this.inputs.handleKeyDown(event)) {
       return true;
     }
-    const state = this.inputs.readState();
-    const target = event.target;
-    if (target === state.body.field || target === state.reply.field || target === state.edit.field) {
+    if (this.inputs.isInField(event.target)) {
       return false;
     }
     const direction = readMoveDirection(event);
@@ -311,6 +330,25 @@ export class CommentThread implements CommentPopupContent {
   }
 
   /**
+   * Returns the three fields, so that the operations of the document can be attached to each.
+   *
+   * @returns The body, reply and edit fields.
+   */
+  readFields(): readonly CommentField[] {
+    return this.inputs.readFields();
+  }
+
+  /**
+   * Returns the field a node is in.
+   *
+   * @param node The node.
+   * @returns The field. `undefined` when the node is in no field.
+   */
+  readFieldAt(node: EventTarget | null): CommentField | undefined {
+    return this.inputs.readFieldAt(node);
+  }
+
+  /**
    * Returns the entry represented by the entry text that contains the node.
    *
    * Used to open editing of an entry when its text in the popup is clicked.
@@ -362,6 +400,7 @@ export class CommentThread implements CommentPopupContent {
       adjacent = { previous: undefined, next: undefined };
     }
     view.render(comment, adjacent, this.inputs.readState());
+    this.ports.notifyRendered();
   }
 
   /**

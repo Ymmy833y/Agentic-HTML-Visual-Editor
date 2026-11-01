@@ -29,8 +29,20 @@ The body and the replies are not part of the document text. The editor shows the
 Rules:
 
 - The comments in the HTML are the only record. The editor has no other place where it stores them, so do not keep them anywhere else.
-- A comment never contains another comment, and it never contains a block element. Put it inside one block, such as a `p`, an `li`, or a `td`, around the phrase it is about.
-- Write the body and the replies as plain text, with `&` and `<` escaped as in any HTML text. The editor shows their characters and does not render markup inside them.
+- A comment never contains another comment, and its annotated text never contains a block element. Put the comment inside one block, such as a `p`, an `li`, or a `td`, around the phrase it is about.
+- Write the body and the replies as you write the text of a paragraph: text, with `&` and `<` escaped as in any HTML text, and the inline markup described in [formatting.md](formatting.md), such as `strong`, `em`, `code`, or `a` with an `href`.
+- Write a line break as a line break in the text, not as `br`. The editor shows each line of an entry as a paragraph.
+- When an entry needs a block other than a paragraph, such as a heading, a list, a table, a code block, an alert, a collapsible section, or a diagram, put its whole content inside one `template` element, and write it there as blocks, the way the document body is written. Put nothing else in that entry, apart from whitespace around the `template`. A block written directly inside an entry would end the paragraph the comment sits in when the document is opened again.
+- Do not put a comment inside an entry. The editor shows it as its text only.
+
+An entry with a list:
+
+```html
+<p>The cache is <comment id="c-b5c6d7e8">cleared every hour<comment-reply contenteditable="false" data-author="ai" data-updated="2026-01-15T11:20:05.000Z"><template>
+<p>Two options:</p>
+<ul><li>Every 30 minutes.</li><li>On each deploy.</li></ul>
+</template></comment-reply></comment>.</p>
+```
 - The editor decides that an entry comes from an agent by checking that `data-author` is exactly `ai`.
 
 ## Appending and resolving
@@ -94,7 +106,7 @@ Files are listed in the order given, and the comments of a file in document orde
 | `target` | The annotated text on one line: line breaks and runs of whitespace become one space, and the body and the replies are left out. |
 | `entries` | The body and the replies directly under the `comment`, in document order. An empty array when there are none. |
 | `entries[].kind` | `body` or `reply`. |
-| `entries[].text` | The text of the entry, as written. |
+| `entries[].text` | The characters of the entry as written, without its tags: a formatted part gives only its text, and the blocks in a `template` give the characters inside them. |
 | `entries[].author` | The value of `data-author`. An empty string when it is missing. |
 | `entries[].updated` | The value of `data-updated`. An empty string when it is missing. |
 

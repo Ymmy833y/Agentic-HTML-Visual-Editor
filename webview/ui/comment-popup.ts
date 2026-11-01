@@ -1,6 +1,7 @@
 import type { EncodedSelection, Localizer } from '../../common/index';
 import { INTERNAL_ATTRIBUTE_NAMESPACE_PREFIX } from '../document/internal-attribute';
 import { readSelectionRange } from '../editing/caret';
+import { copyEntryContent } from '../editing/comment-entry-content';
 import { readCommentEntries } from '../editing/comment-read';
 import { isInsideClosedDetailsBody } from '../editing/details-body-guard';
 import { captureRange } from '../selection/selection-capture';
@@ -24,15 +25,17 @@ export const COMMENT_OPEN_MARK_NAME = 'data-ahve-comment-open';
 // The ID of the entries container. The popup's description points at it, so assistive technology reads the entries after the name.
 const ENTRIES_ELEMENT_ID = 'editor-comment-popup-entries';
 
-// Classes of one entry and of the empty message. Must match the spelling in the bundled stylesheet.
-const ENTRY_CLASS = 'comment-popup-entry';
+/**
+ * The class of one entry, which holds what the entry shows. Kept in line with the spelling in the bundled stylesheet,
+ * which draws its blocks as the document's.
+ */
+export const COMMENT_POPUP_ENTRY_CLASS = 'comment-popup-entry';
+
+// Class of the empty message. Must match the spelling in the bundled stylesheet.
 const EMPTY_CLASS = 'comment-popup-empty';
 
 // Distance between the annotated text and the popup. Overlapping them would hide the annotated text behind the popup.
 const ANNOTATION_GAP_PX = 6;
-
-// HTML whitespace at the start and end of an entry. Line breaks and indentation the writer put between tags are not entry content.
-const HTML_WHITESPACE_EDGES_PATTERN = /^[\t\n\f\r ]+|[\t\n\f\r ]+$/gu;
 
 /**
  * Ports of the popup.
@@ -187,8 +190,8 @@ interface OpenCommentPopup {
 /**
  * The popup that shows a comment's thread.
  *
- * Placed outside the editor root; entries are read from the tree each time and shown as text. It keeps no copy, so the
- * tree is always the source of truth for entries. Only one is open at a time; opening another comment replaces its contents
+ * Placed outside the editor root; entries are read from the tree each time and shown with their blocks and formats. It
+ * keeps no copy between draws, so the tree is always the source of truth for entries. Only one is open at a time; opening another comment replaces its contents
  * and position. One per view; not recreated on document replacement.
  */
 export class CommentPopup {
@@ -513,7 +516,8 @@ export class CommentPopup {
       return;
     }
 
-    if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    // A Tab a field already took, to indent a list item or move to the next cell, does not move focus as well.
+    if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey && !event.defaultPrevented) {
       event.preventDefault();
       event.stopPropagation();
       // With no tabbable elements, focus stays on the popup itself.
@@ -631,23 +635,22 @@ export class CommentPopup {
   }
 
   /**
-   * Draws the entries as text. Elements inside are not interpreted.
+   * Draws the entries with their blocks and formats, as a field holds them.
    *
-   * Placing copies of the elements outside the editor root would bring in duplicate `id`s, link navigation and resolution
-   * of images with relative paths.
+   * The copy brings no duplicate `id` and no attribute that acts into the view.
    *
    * @param comment The comment.
    */
   private render(comment: Element): void {
     const document = this.view.document;
-    const texts = readCommentEntries(comment)
-      .map((entry) => (entry.textContent ?? '').replace(HTML_WHITESPACE_EDGES_PATTERN, ''))
-      .filter((text) => text.length > 0);
+    const contents = readCommentEntries(comment)
+      .map((entry) => copyEntryContent(entry, document))
+      .filter((content) => content.childNodes.length > 0);
 
-    const children = texts.map((text) => {
+    const children = contents.map((content) => {
       const item = document.createElement('div');
-      item.className = ENTRY_CLASS;
-      item.textContent = text;
+      item.className = COMMENT_POPUP_ENTRY_CLASS;
+      item.append(content);
       return item;
     });
     if (children.length === 0) {

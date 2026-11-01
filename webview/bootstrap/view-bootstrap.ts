@@ -20,6 +20,7 @@ import type {
   TestViewToHostMessage,
 } from '../../common/index';
 import { mountBody } from '../document/document-mount';
+import { resolveImageSources } from '../document/image-source-resolver';
 import { sanitizeBody } from '../document/document-sanitizer';
 import { SerializationState } from '../document/serialization-state';
 import { loadDiagramRenderer } from '../diagram/diagram-runtime';
@@ -107,18 +108,20 @@ import { attachChangePopup } from '../ui/change-popup';
 import type { ChangePopup } from '../ui/change-popup';
 import { attachChangePopupTrigger } from '../ui/change-popup-trigger';
 import type { ChangePopupTrigger } from '../ui/change-popup-trigger';
-import { attachCodeBlockCopy, requestCodeBlockCopy } from '../ui/code-block-copy';
+import { CODE_BLOCK_COPY_ELEMENT_ID, attachCodeBlockCopy, requestCodeBlockCopy } from '../ui/code-block-copy';
 import type { CodeBlockCopy } from '../ui/code-block-copy';
 import { attachColumnResize } from '../ui/column-resize';
 import type { ColumnResize } from '../ui/column-resize';
 import { registerCommentButton } from '../ui/comment-button';
 import { attachCommentCaret } from '../ui/comment-caret';
-import { COMMENT_POPUP_ELEMENT_ID, attachCommentPopup } from '../ui/comment-popup';
+import { COMMENT_POPUP_ELEMENT_ID, COMMENT_POPUP_ENTRY_CLASS, attachCommentPopup } from '../ui/comment-popup';
 import { attachCommentPopupResize, readEmbeddedCommentPopupWidth } from '../ui/comment-popup-resize';
 import type { CommentPopup } from '../ui/comment-popup';
 import { attachCommentPopupPress } from '../ui/comment-popup-press';
 import { attachCommentPopupTrigger } from '../ui/comment-popup-trigger';
 import type { CommentPopupTrigger } from '../ui/comment-popup-trigger';
+import type { CommentField } from '../ui/comment-field';
+import { COMMENT_FIELD_TEXT_CLASS } from '../ui/comment-field';
 import { attachCommentThread } from '../ui/comment-thread';
 import type { CommentThread } from '../ui/comment-thread';
 import { CopiedIcon, registerCopyButton, requestCopy } from '../ui/copy-button';
@@ -127,7 +130,7 @@ import { registerDetailsButton } from '../ui/details-button';
 import { registerDiagramButton } from '../ui/diagram-button';
 import { attachDiagramClick, openDiagramDialog } from '../ui/diagram-dialog';
 import type { DiagramDialogPorts } from '../ui/diagram-dialog';
-import { attachDiagramZoom } from '../ui/diagram-zoom';
+import { DIAGRAM_ZOOM_ELEMENT_ID, attachDiagramZoom } from '../ui/diagram-zoom';
 import type { DiagramZoom } from '../ui/diagram-zoom';
 import { labelEditorRoot } from '../ui/editor-root-label';
 import { EditorReturn } from '../ui/editor-return';
@@ -153,7 +156,7 @@ import type { Sidebar } from '../ui/sidebar';
 import { moveToSidebarTarget } from '../ui/sidebar-navigation';
 import type { SidebarNavigationPorts } from '../ui/sidebar-navigation';
 import { registerTableButton } from '../ui/table-button';
-import { attachTableMenu } from '../ui/table-menu';
+import { TABLE_MENU_ELEMENT_ID, attachTableMenu } from '../ui/table-menu';
 import type { TableMenu } from '../ui/table-menu';
 import { TablePicker } from '../ui/table-picker';
 import { CaretFollow } from '../ui/caret-follow';
@@ -161,12 +164,14 @@ import { FLOATING_MENU_ELEMENT_ID, attachFloatingMenu } from '../ui/floating-men
 import type { FloatingMenu } from '../ui/floating-menu';
 import { TOOLBAR_ELEMENT_ID, attachToolbar } from '../ui/toolbar';
 import type { Toolbar } from '../ui/toolbar';
-import { reflectToolbarState } from '../ui/toolbar-state';
+import { reflectFieldAvailability, reflectToolbarState } from '../ui/toolbar-state';
 import { ToolbarActivation } from '../ui/toolbar-activation';
 import { TOOLBAR_SLOT } from '../ui/toolbar-slots';
 import { TooltipController } from '../ui/tooltip';
 import { buildUnopenableDocumentOverlay } from '../ui/unopenable-document-dialog';
 import type { UnopenableReason } from '../ui/unopenable-document-dialog';
+import { attachCommentFieldEditing } from './comment-field-editing';
+import type { CommentFieldEditing } from './comment-field-editing';
 
 /** The mount target reused for document replacement: the editor root, two base URIs, and the host channel. */
 export interface MountTarget {
@@ -311,6 +316,17 @@ let codeBlockCopy: CodeBlockCopy | undefined;
 // Created on the first mount whether or not there is a toolbar, and kept, for the same reasons as the copy button.
 let diagramZoom: DiagramZoom | undefined;
 
+// The ports of each field of the comment popup, created on the first mount and kept, as the fields are.
+const fieldEditings = new Map<CommentField, CommentFieldEditing>();
+
+// The field the user wrote in last. Focus entering the editor root or another part of the popup ends it; focus moving to
+// the toolbar, a menu or a dialog opened from the field does not.
+let lastFocusedField: CommentField | undefined;
+
+// The selector of every element the document's look and diagrams are drawn in: the editor root, and the fields and the
+// entries of the comment popup.
+const DOCUMENT_CONTENT_SCOPE = `:is(#${EDITOR_ROOT_ELEMENT_ID}, .${COMMENT_FIELD_TEXT_CLASS}, .${COMMENT_POPUP_ENTRY_CLASS})`;
+
 /**
  * Sends a one-line maintainer diagnostic to the host.
  *
@@ -350,7 +366,8 @@ function readShell(view: Window): ViewShell {
   // The item bars and components are created by the mount that follows, so they are passed as
   // functions read on every call rather than as values.
   const editorReturn = new EditorReturn(view, {
-    readEditorRoot,
+    // While the user writes in a comment field, the toolbar acts on the field, so focus returns there.
+    readEditorRoot: readActiveRoot,
     isEditable: () => !inputStop.isStopped(),
     hasViewFocus,
     isInItemBar: (node) => toolbarBar?.contains(node) === true || floatingBar?.contains(node) === true,
@@ -376,8 +393,9 @@ function readShell(view: Window): ViewShell {
   const tooltip = new TooltipController(view);
   const activation = new ToolbarActivation(view, {
     isInputStopped: () => inputStop.isStopped(),
-    // A replacement swaps the editing session, so it is read at the moment of the press.
-    isComposing: () => readEditingSession()?.isComposing === true,
+    // A replacement swaps the editing session, so it is read at the moment of the press. A field the toolbar acts on has
+    // a session of its own.
+    isComposing: () => (readActiveField()?.session ?? readEditingSession())?.isComposing === true,
     notifyPopupOpened: (slot, contents) => {
       toolbar?.handlePopupOpened(slot, contents);
       menuPopupNavigation?.handleOpened(slot, contents);
@@ -789,7 +807,13 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     localizer,
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   };
+  // While the user writes in a comment field, the link item acts on the selection in the field, as every format item does.
   const openLink = (): void => {
+    const editing = readActiveFieldEditing();
+    if (editing !== undefined) {
+      editing.openLinkDialog();
+      return;
+    }
     void openLinkDialog(linkDialogPorts);
   };
   // The image ports are also read on every call for the same reason. Only the base URIs hold the values the
@@ -834,7 +858,14 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     localizer,
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   };
+  // A diagram in a comment field opens with the ports of the field, so that the dialog's result goes back into it.
   const openDiagram = (block: Element): void => {
+    const field = commentThread?.readFieldAt(block);
+    const editing = field === undefined ? undefined : fieldEditings.get(field);
+    if (editing !== undefined) {
+      editing.openDiagramDialog(block);
+      return;
+    }
     void openDiagramDialog(diagramDialogPorts, block);
   };
   // Accepting and rejecting change marks run from the popup and from the sidebar through the same ports, which are
@@ -850,34 +881,40 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   toolbar = attached;
   if (attached !== undefined) {
     saveButton = new SaveButton(attached, channel, (detail) => postDiagnostic(channel, detail));
-    registerFormatButtons(attached, formatCommandPorts);
+    registerFormatButtons(attached, readFormatCommandPorts);
+    // The block items act on the comment field the user writes in, so they take the ports that follow it.
     const menu = registerBlockButtons(
       attached,
-      blockCommandPorts,
+      activeBlockCommandPorts,
       localizer,
       viewShell.activation,
     );
     blockTypeMenu = menu;
     // The labels are handed to the root element of the page. Writing them to the editor root, or to the body
     // ancestors it sits in, would mix values meant for display into the tree that gets saved.
-    registerAlertItems(menu, blockCommandPorts, localizer, view.document.documentElement);
-    registerDetailsButton(attached, blockCommandPorts);
-    registerListButtons(attached, blockCommandPorts);
+    registerAlertItems(menu, activeBlockCommandPorts, localizer, view.document.documentElement);
+    registerDetailsButton(attached, activeBlockCommandPorts);
+    registerListButtons(attached, activeBlockCommandPorts);
     // The shortcut receiver is attached after this, so the query reads it on every call.
     const tablePicker = new TablePicker(localizer, viewShell.activation, {
       insertTable: (rows, columns) => {
-        runBlockOperation(blockCommandPorts, { kind: 'insertTable', rows, columns }, 'command');
+        runBlockOperation(activeBlockCommandPorts, { kind: 'insertTable', rows, columns }, 'command');
       },
       readOpenedItem: () => attached.readButton(TOOLBAR_SLOT.table),
       requestReturn: () => viewShell.editorReturn.requestReturn(),
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
     });
     registerTableButton(attached, tablePicker);
-    registerDiagramButton(attached, blockCommandPorts, openDiagram);
+    registerDiagramButton(attached, activeBlockCommandPorts, openDiagram);
     // The floating menu is built from the items registered up to this point, so register before it.
     // The link item is copied into the floating menu as well, so it too is registered before the menu is attached.
     registerLinkButton(attached, openLink);
     registerImageButton(attached, () => {
+      const editing = readActiveFieldEditing();
+      if (editing !== undefined) {
+        editing.openImageDialog();
+        return;
+      }
       void openImageDialog(imageDialogPorts);
     });
     registerCommentButton(attached, () => runCommentItem(commentItemPorts));
@@ -929,6 +966,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     // a slot order that still lacks some registrations, leaving items the first evaluation never reaches.
     const floating = attachFloatingMenu(view, {
       readEditorRoot,
+      // The thread content is attached after the menu, so it is read on every call.
+      readFieldRoot: () => readActiveField()?.element,
       readItem: (slot) => attached.readItem(slot),
       readItemState: (slot) => attached.readItemState(slot),
       activateSlot: (slot) => attached.activateSlot(slot),
@@ -941,9 +980,15 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     const follow = new CaretFollow(view, {
       readEditorRoot,
       readPendingFormats: () => pendingFormat.read(),
+      readFieldState: () => readActiveField()?.readCaretState(),
       reflect: (state) => {
         reflectToolbarState({ toolbar: attached, blockTypeMenu: menu, localizer }, state);
-        attached.updateItemState(TOOLBAR_SLOT.comment, { disabled: !canRunCommentItem(commentItemPorts) });
+        // While the user writes in a comment field, the items act on the field, except those that cannot.
+        reflectFieldAvailability(
+          attached,
+          readActiveField() !== undefined,
+          (slot) => slot === TOOLBAR_SLOT.comment && !canRunCommentItem(commentItemPorts),
+        );
       },
       applyMenuState: (state) => floating.applyState(state),
       updateMenuPosition: () => floating.updatePosition(),
@@ -1043,6 +1088,13 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     ].some((id) => view.document.getElementById(id)?.contains(node) === true),
     // The search controller is created later in this mount, so it is read on every press. False before it exists.
     isInSearchPanel: (node) => searchController?.isInPanel(node) === true,
+    // The thread content is attached after the trigger, so it is read on every press. The menus and buttons a field
+    // shows over its tables, code blocks and diagrams lie outside the popup too.
+    isFieldOperationPress: (node) => readActiveField() !== undefined
+      && (toolbarBar?.contains(node) === true
+        || floatingBar?.contains(node) === true
+        || [TABLE_MENU_ELEMENT_ID, CODE_BLOCK_COPY_ELEMENT_ID, DIAGRAM_ZOOM_ELEMENT_ID]
+          .some((id) => node !== null && view.document.getElementById(id)?.contains(node) === true)),
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
   });
   commentPopupTrigger = trigger;
@@ -1057,6 +1109,12 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   commentThread = attachCommentThread(view, target.root, popup, {
     localizer,
+    // The toolbar shows the state of a focused field, which changes without a selection change when a format is held.
+    notifyFieldStateChanged: () => caretFollow?.evaluate(),
+    // Images in the entries and the fields resolve against the same base URIs the mount used for the body.
+    prepareContent: (content) => resolveImageSources(content, target.documentUri, target.resourceRootUri),
+    // The diagram view is created later in this mount, so it is read on every call.
+    notifyRendered: () => diagramView?.refresh(),
     formatDate: (date) => dateFormat.format(date),
     registerTooltip: (element, label) => viewShell.tooltip.registerTarget(element, label),
     isInputStopped: () => viewShell.inputStop.isStopped(),
@@ -1120,6 +1178,14 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   });
   const popupElement = view.document.getElementById(COMMENT_POPUP_ELEMENT_ID);
   if (popupElement !== null) {
+    // Links in the entries and the fields open the same way as in the document: with the primary modifier. A plain click
+    // keeps opening editing on an entry and placing the caret in a field, and VS Code does not open the link on it.
+    // Attached before the press handling: the edit it opens replaces the entry text before the next listener runs, and
+    // a link no longer in the popup would be followed by the browser.
+    attachLinkClick(popupElement, platform, {
+      postRelativeLink: (href) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.relativeLinkRequested, href }),
+      reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+    });
     attachCommentPopupPress(popupElement, {
       readEntryAt: (node) => commentThread?.readEntryAt(node),
       startEdit: (entry) => commentThread?.startEdit(entry),
@@ -1129,6 +1195,12 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       place: () => popup.place(),
       saveWidth: (width) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width }),
     }, readEmbeddedCommentPopupWidth(view.document));
+    // The menu acts on a range selected in a field, which sits in the popup, so it has to be drawn above the popup.
+    // Both stack at the same level, so the one later in the document comes on top.
+    const floatingElement = view.document.getElementById(FLOATING_MENU_ELEMENT_ID);
+    if (floatingElement !== null) {
+      popupElement.after(floatingElement);
+    }
   }
   // Attached after the cell navigation shortcuts, the column resize and the menu, regardless of whether a toolbar
   // exists. The ports are read on every call, because replacement replaces the editing session.
@@ -1149,7 +1221,13 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   // shortcut receiver, the editor root and the tooltip controller stay the same across document replacements, so
   // this is done only on the first mount, together with the hover tooltip and the link click dispatch.
   registerLinkShortcut(receiver, openLink);
-  viewShell.tooltip.registerResolver(createLinkTooltipResolver(target.root, platform, localizer));
+  // The tooltip controller takes one resolver, so the links in the comment popup share it with the editor root's.
+  const resolveRootLink = createLinkTooltipResolver(target.root, platform, localizer);
+  const resolvePopupLink = popupElement === null ? undefined : createLinkTooltipResolver(popupElement, platform, localizer);
+  viewShell.tooltip.registerResolver((node) => resolveRootLink(node) ?? resolvePopupLink?.(node));
+  if (popupElement !== null) {
+    viewShell.tooltip.addResolverScope(popupElement);
+  }
   // Attached after the click listeners of the collapsible sections and the comment popup trigger on the editor root.
   // Listeners on the same element are still called when propagation is stopped, but the one attached first is
   // called first, so the dispatch runs after those have finished.
@@ -1242,6 +1320,9 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   // the same reason as the alert labels.
   const diagrams = new DiagramView(view, localizer, view.document.documentElement, {
     readEditorRoot,
+    // The popup holds the fields and the entries, whose diagrams are drawn as the document's.
+    readOtherRoots: () => (popupElement === null ? [] : [popupElement]),
+    ruleScope: DOCUMENT_CONTENT_SCOPE,
     loadRenderer: loadDiagramRenderer,
     applyRules: createDiagramRuleSink(view.document),
     reportDiagnostic: (detail) => postDiagnostic(channel, detail),
@@ -1273,9 +1354,52 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       diagrams.zoomDiagram(block, level);
     },
   });
-  for (const entry of createListAutoformatEntries(blockCommandPorts)) {
+  for (const entry of createListAutoformatEntries(activeBlockCommandPorts)) {
     autoformatTable.addEntry(entry);
   }
+
+  // Attached after every part a field shares with the editor root exists. The fields are never recreated, so this is
+  // done only on the first mount.
+  const thread = commentThread;
+  if (popupElement !== null) {
+    for (const field of thread.readFields()) {
+      fieldEditings.set(field, attachCommentFieldEditing(field, {
+        view,
+        platform,
+        localizer,
+        documentUri: target.documentUri,
+        resourceRootUri: target.resourceRootUri,
+        autoformatTable,
+        popupElement,
+        codeBlockCopy,
+        diagramZoom,
+        diagramView: diagrams,
+        editorReturn: viewShell.editorReturn,
+        caretFollow,
+        isInputStopped: () => viewShell.inputStop.isStopped(),
+        wasPopupClosedBy: (event) => viewShell.activation.wasClosedBy(event),
+        readClipboardText: () => view.navigator.clipboard.readText(),
+        reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+      }));
+    }
+  }
+  // Which editing area the toolbar acts on follows where the user writes: a field, or else the editor root. Received in
+  // the capture phase, before any operation the focus move starts.
+  view.document.addEventListener('focusin', (event) => {
+    const field = thread.readFieldAt(event.target);
+    const node = event.target;
+    const next = field ?? (
+      node instanceof Node && (target.root.contains(node) || popupElement?.contains(node) === true)
+        ? undefined
+        : lastFocusedField
+    );
+    if (next === lastFocusedField) {
+      return;
+    }
+    lastFocusedField = next;
+    // The field's blur came before this, while it was still where the user writes, so the toolbar is shown again.
+    caretFollow?.evaluate();
+  }, true);
 
   const hasShortcut = (event: KeyboardEvent): boolean => receiver.hasShortcut(event);
   const returnToEditor = (): void => viewShell.editorReturn.returnToEditor();
@@ -1805,6 +1929,18 @@ const formatCommandPorts: FormatCommandPorts = {
 };
 
 /**
+ * Returns the format command ports a toolbar item acts through at the moment of a press.
+ *
+ * While a comment field has focus, the format items act on the field, so that a comment is written with the same
+ * operations as the document.
+ *
+ * @returns The ports of the focused comment field, or else those of the editor root.
+ */
+function readFormatCommandPorts(): FormatCommandPorts {
+  return readActiveFieldEditing()?.formatPorts ?? formatCommandPorts;
+}
+
+/**
  * The entry point that runs a format operation.
  *
  * Later feature units and the end-to-end tests take the same route through this entry point, which bundles
@@ -1839,6 +1975,65 @@ const blockCommandPorts: BlockCommandPorts = {
     }
   },
 };
+
+/**
+ * The block command ports that act on the editing area the user writes in: the comment field, or else the editor root.
+ *
+ * The toolbar's block items and the autoformat entries hold these, so that a comment is written with the same
+ * operations as the document. Each call reads where the user writes afresh.
+ */
+const activeBlockCommandPorts: BlockCommandPorts = {
+  readEditorRoot: () => readActiveBlockCommandPorts().readEditorRoot(),
+  isComposing: () => readActiveBlockCommandPorts().isComposing(),
+  isInputStopped: () => readActiveBlockCommandPorts().isInputStopped(),
+  runCommandEdit: (kind, command, endpoints) => readActiveBlockCommandPorts().runCommandEdit(kind, command, endpoints),
+  ensureTargetBlock: () => readActiveBlockCommandPorts().ensureTargetBlock(),
+  reportDiagnostic: (detail) => blockCommandPorts.reportDiagnostic(detail),
+};
+
+/**
+ * Returns the block command ports of the editing area the user writes in.
+ *
+ * @returns The ports of the comment field, or else those of the editor root.
+ */
+function readActiveBlockCommandPorts(): BlockCommandPorts {
+  return readActiveFieldEditing()?.blockPorts ?? blockCommandPorts;
+}
+
+/**
+ * Returns the comment field the user writes in: the one focus was in last, while the popup is open and shows it.
+ *
+ * Focus moves to the toolbar, a menu or a dialog the user opened from the field, and the operation started there still
+ * acts on the field.
+ *
+ * @returns The field, or `undefined` when the user writes in the editor root.
+ */
+function readActiveField(): CommentField | undefined {
+  const field = lastFocusedField;
+  if (field === undefined || commentPopup?.readOpenComment() === undefined || !field.isShown()) {
+    return undefined;
+  }
+  return field;
+}
+
+/**
+ * Returns the ports of the comment field the user writes in.
+ *
+ * @returns The ports, or `undefined` when the user writes in the editor root.
+ */
+function readActiveFieldEditing(): CommentFieldEditing | undefined {
+  const field = readActiveField();
+  return field === undefined ? undefined : fieldEditings.get(field);
+}
+
+/**
+ * Returns the editing area the user writes in.
+ *
+ * @returns The editable area of the comment field, or else the editor root.
+ */
+function readActiveRoot(): HTMLElement | undefined {
+  return readActiveField()?.root ?? readEditorRoot();
+}
 
 /**
  * The entry point that runs a block operation.
@@ -1940,7 +2135,8 @@ const formatShortcutPorts: FormatShortcutPorts = {
  * lose the entries added later.
  */
 const autoformatTable = new AutoformatTable();
-for (const entry of createAutoformatEntries(blockCommandPorts)) {
+// The entries act on the editing area being typed in, a comment field included.
+for (const entry of createAutoformatEntries(activeBlockCommandPorts)) {
   autoformatTable.addEntry(entry);
 }
 

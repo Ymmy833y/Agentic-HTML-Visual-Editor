@@ -15,6 +15,7 @@ import {
   PRESSED_FORMAT_SLOTS,
   PRESSED_LIST_SLOTS,
   readBlockTypeMarks,
+  reflectFieldAvailability,
   reflectToolbarState,
 } from '../../webview/ui/toolbar-state';
 import type { ToolbarStatePorts } from '../../webview/ui/toolbar-state';
@@ -306,6 +307,62 @@ describe('Reflecting onto the fixed toolbar', () => {
 
     expect([harness.readPressed(TOOLBAR_SLOT.link), harness.readPressed(TOOLBAR_SLOT.bold)])
       .toEqual([null, 'true']);
+  });
+});
+
+describe('Availability while a comment field has focus', () => {
+  /** The slots of the disabled items, sorted. */
+  function readDisabledSlots(): string[] {
+    return [...document.querySelectorAll('[data-slot]')]
+      .filter((item) => item.querySelector('button')?.getAttribute('aria-disabled') === 'true')
+      .map((item) => item.getAttribute('data-slot') ?? '')
+      .sort();
+  }
+
+  it('only the items that cannot act on a field, such as save, are disabled while a field has focus, and enabled again after it', () => {
+    const harness = createHarness();
+
+    reflectFieldAvailability(harness.ports.toolbar, true, () => false);
+    const focused = readDisabledSlots();
+    reflectFieldAvailability(harness.ports.toolbar, false, () => false);
+
+    expect([focused, readDisabledSlots()]).toEqual([[TOOLBAR_SLOT.save], []]);
+  });
+
+  it('an item its feature unit disables stays disabled before and after a field has focus, and is not asked meanwhile', () => {
+    const harness = createHarness();
+    const asked: boolean[] = [];
+    let fieldFocused = false;
+    const readOwnDisabled = (slot: ToolbarSlot): boolean => {
+      asked.push(fieldFocused);
+      return slot === TOOLBAR_SLOT.save;
+    };
+
+    reflectFieldAvailability(harness.ports.toolbar, fieldFocused, readOwnDisabled);
+    const before = readDisabledSlots();
+    fieldFocused = true;
+    reflectFieldAvailability(harness.ports.toolbar, fieldFocused, readOwnDisabled);
+    const focused = readDisabledSlots();
+    fieldFocused = false;
+    reflectFieldAvailability(harness.ports.toolbar, fieldFocused, readOwnDisabled);
+
+    expect([before, focused, readDisabledSlots(), asked.includes(true)]).toEqual([
+      [TOOLBAR_SLOT.save],
+      [TOOLBAR_SLOT.save],
+      [TOOLBAR_SLOT.save],
+      false,
+    ]);
+  });
+
+  it('leaves an item that can act on a field as another unit set it, whether or not a field has focus', () => {
+    const harness = createHarness();
+    harness.ports.toolbar.updateItemState(TOOLBAR_SLOT.bold, { disabled: true });
+
+    reflectFieldAvailability(harness.ports.toolbar, true, () => false);
+    const focused = readDisabledSlots();
+    reflectFieldAvailability(harness.ports.toolbar, false, () => false);
+
+    expect([focused, readDisabledSlots()]).toEqual([[TOOLBAR_SLOT.bold, TOOLBAR_SLOT.save].sort(), [TOOLBAR_SLOT.bold]]);
   });
 });
 

@@ -4,7 +4,10 @@ import { restoreSelection } from '../selection/selection-restore';
 
 /** The ports the editor return receives from outside. Nothing is cached; they are read on every call. */
 export interface EditorReturnPorts {
-  /** Returns the editor root. `undefined` before mounting. */
+  /**
+   * Returns the editing area to return to: the editor root, or a field of the comment popup the user was writing in.
+   * `undefined` before mounting.
+   */
   readEditorRoot(): HTMLElement | undefined;
 
   /** Whether the editor root is editable. False while at least one input stop reason remains. */
@@ -44,6 +47,12 @@ export interface EditorReturnPorts {
   focusToolbarStop(): void;
 }
 
+/** A selection captured when focus left an editing area, together with that area. */
+interface CapturedSelection {
+  readonly root: HTMLElement;
+  readonly selection: EncodedSelection;
+}
+
 /** A deferred return. One without a selection to restore returns focus only. */
 interface DeferredReturn {
   readonly selection: EncodedSelection | undefined;
@@ -59,8 +68,8 @@ interface DeferredReturn {
  * is carried out once it becomes possible. Exactly one is created per view, at startup.
  */
 export class EditorReturn {
-  // The selection at the moment focus left the editor root for an item bar.
-  private captured: EncodedSelection | undefined;
+  // The selection at the moment focus left an editing area for an item bar.
+  private captured: CapturedSelection | undefined;
 
   private deferred: DeferredReturn | undefined;
 
@@ -81,16 +90,16 @@ export class EditorReturn {
   }
 
   /**
-   * Subscribes to focus entering and leaving the editor root, and to pointer presses on it.
+   * Subscribes to focus entering and leaving an editing area, and to pointer presses on it.
    *
-   * Called once, on the first mount. The editor root stays the same element across document
-   * replacements.
+   * Called once for the editor root, on the first mount, and once for each field of the comment popup. Neither is
+   * replaced on a document replacement.
    *
-   * @param root The editor root.
+   * @param root The editing area.
    */
   attach(root: HTMLElement): void {
-    root.addEventListener('focusout', (event) => this.handleEditorFocusOut(event));
-    root.addEventListener('focusin', (event) => this.handleEditorFocusIn(event));
+    root.addEventListener('focusout', (event) => this.handleEditorFocusOut(event, root));
+    root.addEventListener('focusin', (event) => this.handleEditorFocusIn(event, root));
     root.addEventListener('pointerdown', () => this.handleEditorPointerDown());
   }
 
@@ -102,18 +111,16 @@ export class EditorReturn {
    * composition, this event arrives after the focus move has committed the composition, so the
    * selection after the commit is captured.
    *
-   * @param event The focusout on the editor root.
+   * @param event The focusout on the editing area.
+   * @param root The editing area focus leaves.
    */
-  handleEditorFocusOut(event: FocusEvent): void {
+  handleEditorFocusOut(event: FocusEvent, root: HTMLElement): void {
     const next = event.relatedTarget;
     if (!(next instanceof Node) || !this.ports.isInItemBar(next)) {
       return;
     }
-    const root = this.ports.readEditorRoot();
-    if (root === undefined) {
-      return;
-    }
-    this.captured = captureSelection(root)?.selection;
+    const selection = captureSelection(root)?.selection;
+    this.captured = selection === undefined ? undefined : { root, selection };
   }
 
   /**
@@ -121,9 +128,10 @@ export class EditorReturn {
    * movement, and otherwise discards it without restoring. The deferred return is discarded either
    * way.
    *
-   * @param event The focusin on the editor root.
+   * @param event The focusin on the editing area.
+   * @param root The editing area focus enters.
    */
-  handleEditorFocusIn(event: FocusEvent): void {
+  handleEditorFocusIn(event: FocusEvent, root: HTMLElement): void {
     if (this.returning) {
       return;
     }
@@ -132,13 +140,10 @@ export class EditorReturn {
     this.deferred = undefined;
 
     const previous = event.relatedTarget;
-    if (captured === undefined || !(previous instanceof Node) || !this.isFromItemBar(previous)) {
+    if (captured?.root !== root || !(previous instanceof Node) || !this.isFromItemBar(previous)) {
       return;
     }
-    const root = this.ports.readEditorRoot();
-    if (root !== undefined) {
-      restoreSelection(root, captured);
-    }
+    restoreSelection(root, captured.selection);
   }
 
   /**
@@ -158,7 +163,7 @@ export class EditorReturn {
    * selection, the selection is left untouched.
    */
   returnToEditor(): void {
-    this.returnWith(this.captured);
+    this.returnWith(undefined);
   }
 
   /**
@@ -215,7 +220,7 @@ export class EditorReturn {
       return;
     }
     if (this.ports.isEditable()) {
-      this.deferReturn(this.captured);
+      this.deferReturn(this.readCapturedFor(this.ports.readEditorRoot()));
     }
   }
 
@@ -288,7 +293,7 @@ export class EditorReturn {
    * @param selection The selection to restore. When omitted, the captured selection is restored.
    */
   requestReturn(selection?: EncodedSelection): void {
-    this.returnWith(selection ?? this.captured);
+    this.returnWith(selection);
   }
 
   /**
@@ -308,7 +313,8 @@ export class EditorReturn {
   /**
    * Returns focus and the selection only when editable and the view has focus.
    *
-   * @param selection The selection to restore. `undefined` leaves the selection untouched.
+   * @param selection The selection to restore. `undefined` restores the one captured from the same editing area, if
+   *   any, and otherwise leaves the selection untouched.
    */
   private returnWith(selection: EncodedSelection | undefined): void {
     if (!this.ports.isEditable() || !this.ports.hasViewFocus()) {
@@ -318,7 +324,18 @@ export class EditorReturn {
     if (root === undefined) {
       return;
     }
-    this.focusRoot(root, selection);
+    this.focusRoot(root, selection ?? this.readCapturedFor(root));
+  }
+
+  /**
+   * Returns the captured selection when it was captured from an editing area. A selection captured from another area
+   * counts the characters of that area and would land elsewhere.
+   *
+   * @param root The editing area.
+   * @returns The selection, or `undefined`.
+   */
+  private readCapturedFor(root: HTMLElement | undefined): EncodedSelection | undefined {
+    return this.captured?.root === root ? this.captured?.selection : undefined;
   }
 
   /** Carries out the deferred return if there is one and the conditions for it are met. */
@@ -340,10 +357,10 @@ export class EditorReturn {
   }
 
   /**
-   * Moves focus to the editor root and restores the selection if there is one. The captured
+   * Moves focus to an editing area and restores the selection if there is one. The captured
    * selection and the deferred return are discarded here.
    *
-   * @param root The editor root.
+   * @param root The editing area.
    * @param selection The selection to restore. `undefined` leaves the selection untouched.
    */
   private focusRoot(root: HTMLElement, selection: EncodedSelection | undefined): void {

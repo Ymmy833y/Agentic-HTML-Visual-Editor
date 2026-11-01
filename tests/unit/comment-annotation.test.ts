@@ -15,6 +15,7 @@ import {
   COMMENT_ATTRIBUTE,
   COMMENT_AUTHOR,
   COMMENT_BODY_MAX_COUNT,
+  COMMENT_ENTRY_BLOCK_TAG_NAME,
   COMMENT_ENTRY_EDITABLE_VALUE,
   COMMENT_ENTRY_ORDER,
   COMMENT_ID_FORMAT,
@@ -114,6 +115,10 @@ describe('Common definitions of comment annotations', () => {
 
   it('the allowed tag list contains all three defined element names', () => {
     expect(Object.values(COMMENT_TAG_NAME).filter((name) => !ALLOWED_TAG_NAMES.has(name))).toEqual([]);
+  });
+
+  it('the allowed tag list contains the element that wraps the blocks of an entry', () => {
+    expect(ALLOWED_TAG_NAMES.has(COMMENT_ENTRY_BLOCK_TAG_NAME)).toBe(true);
   });
 });
 

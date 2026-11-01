@@ -23,11 +23,16 @@ export const COMMENT_THREAD_EDIT_KIND = {
   remove: 'comment:delete',
 } as const;
 
-/** One committed entry write. Adding a body, adding a reply, editing or deleting. */
+/**
+ * One committed entry write. Adding a body, adding a reply, editing or deleting.
+ *
+ * The content is in the line form, text and inline elements, or in the block form, one `template` holding the blocks.
+ * A copy of it goes into the tree, so the fragment stays as it is.
+ */
 export type CommentEntryWrite =
-  | { readonly kind: 'addBody'; readonly comment: Element; readonly text: string }
-  | { readonly kind: 'addReply'; readonly comment: Element; readonly text: string }
-  | { readonly kind: 'edit'; readonly entry: Element; readonly text: string }
+  | { readonly kind: 'addBody'; readonly comment: Element; readonly content: DocumentFragment }
+  | { readonly kind: 'addReply'; readonly comment: Element; readonly content: DocumentFragment }
+  | { readonly kind: 'edit'; readonly entry: Element; readonly content: DocumentFragment }
   | { readonly kind: 'delete'; readonly entry: Element };
 
 /**
@@ -233,7 +238,7 @@ function applyEntryWrite(write: CommentEntryWrite, updated: string, progress: Bl
       const created = createEntry(
         write.comment.ownerDocument,
         asBody ? COMMENT_TAG_NAME.body : COMMENT_TAG_NAME.reply,
-        write.text,
+        write.content,
         updated,
       );
       // A body goes before the first entry and a reply after the last entry; existing children out of order are
@@ -245,7 +250,7 @@ function applyEntryWrite(write: CommentEntryWrite, updated: string, progress: Bl
     }
     case 'edit':
       progress.changed = true;
-      write.entry.replaceChildren(write.text);
+      write.entry.replaceChildren(write.entry.ownerDocument.importNode(write.content, true));
       // The author is not changed. Moving it to the human side would let an AI entry, once edited, be overwritten
       // next time without confirmation.
       write.entry.setAttribute(COMMENT_ATTRIBUTE.updated, updated);
@@ -262,16 +267,16 @@ function applyEntryWrite(write: CommentEntryWrite, updated: string, progress: Bl
  *
  * @param document Document of the editor root.
  * @param tagName Element name of a body or a reply.
- * @param text Raw input.
+ * @param content Content as written.
  * @param updated Update time value.
  * @returns Created entry.
  */
-function createEntry(document: Document, tagName: string, text: string, updated: string): Element {
+function createEntry(document: Document, tagName: string, content: DocumentFragment, updated: string): Element {
   const entry = document.createElement(tagName);
   entry.setAttribute(COMMENT_ATTRIBUTE.editable, COMMENT_ENTRY_EDITABLE_VALUE);
   entry.setAttribute(COMMENT_ATTRIBUTE.author, COMMENT_AUTHOR.human);
   entry.setAttribute(COMMENT_ATTRIBUTE.updated, updated);
-  entry.append(text);
+  entry.append(document.importNode(content, true));
   return entry;
 }
 

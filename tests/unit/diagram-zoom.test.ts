@@ -46,6 +46,31 @@ function turnWheel(target: Element, deltaY: number, time: number): WheelEvent {
   return event;
 }
 
+describe('a second editing area', () => {
+  it('shows the buttons over a drawn diagram of an added area, right after the element given for it', () => {
+    const root = mountRoot('<p>a</p>');
+    const zoom = attachDiagramZoom(window, root, 'other', {
+      localizer: createLocalizer({}),
+      registerTooltip: () => undefined,
+      readAreaTop: () => 0,
+      readZoom: () => 1,
+      zoomDiagram: () => undefined,
+    });
+    const popup = document.createElement('div');
+    const field = document.createElement('div');
+    field.innerHTML = '<pre class="mermaid">flowchart TD</pre>';
+    popup.append(field);
+    document.body.append(popup);
+    readElement(field, 'pre').setAttributeNS(DIAGRAM_MARK_NAMESPACE, DIAGRAM_MARK_NAME, '1');
+    zoom.addRoot(field, popup);
+
+    readElement(field, 'pre').dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+
+    const bar = popup.nextElementSibling;
+    expect([bar instanceof HTMLElement && !bar.hidden, bar?.querySelectorAll('button').length]).toEqual([true, 3]);
+  });
+});
+
 describe('the next zoom level', () => {
   it('steps up from 100% to 125%', () => {
     expect(readNextZoomLevel(1, 'zoomIn')).toBe(1.25);

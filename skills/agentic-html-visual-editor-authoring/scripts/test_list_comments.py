@@ -364,6 +364,25 @@ class ListCommentsTests(unittest.TestCase):
                 [*expected_second_document_comments(str(second)), *expected_document_comments(str(first))],
             )
 
+        with self.subTest('an entry whose blocks are in a `template` gives the characters inside it, without the tags'):
+            self.assertEqual(
+                list_comments.extract_comments(
+                    'blocks.html',
+                    '<html><body><p><comment id="c-0000b10c">target<comment-reply data-author="ai">'
+                    '<template>\n<h2>Steps</h2>\n<ul><li>one</li><li>two</li></ul>\n</template>'
+                    '</comment-reply></comment></p></body></html>',
+                ),
+                [
+                    {
+                        'file': 'blocks.html',
+                        'id': 'c-0000b10c',
+                        'resolved': False,
+                        'target': 'target',
+                        'entries': [{'kind': 'reply', 'text': '\nSteps\nonetwo\n', 'author': 'ai', 'updated': ''}],
+                    },
+                ],
+            )
+
         with self.subTest('a document without comments gives an empty result'):
             self.assertEqual(
                 list_comments.extract_comments('plain.html', '<html><body><p>No comments</p></body></html>'),

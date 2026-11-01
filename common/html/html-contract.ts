@@ -37,6 +37,8 @@ export const ALLOWED_TAG_NAMES: ReadonlySet<string> = new Set([
   'comment',
   'comment-body',
   'comment-reply',
+  // Only as the wrapper of the blocks of a comment entry.
+  'template',
 ]);
 
 /**

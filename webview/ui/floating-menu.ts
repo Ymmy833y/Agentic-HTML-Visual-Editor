@@ -60,6 +60,14 @@ export interface FloatingMenuPorts {
   readEditorRoot(): HTMLElement | undefined;
 
   /**
+   * Returns the root of the comment field that has focus. The menu acts on that field meanwhile, so it follows a range
+   * selected in it instead of one in the editor root.
+   *
+   * @returns The root. `undefined` while no field has focus.
+   */
+  readFieldRoot?(): HTMLElement | undefined;
+
+  /**
    * Returns the registered item of the fixed toolbar.
    *
    * Does not receive the operation. Taking the operation would create a second definition of an
@@ -247,12 +255,12 @@ export class FloatingMenu {
    * @returns The rectangle of a selection that meets the display condition, or `undefined` when it does not.
    */
   private readSelectionRect(): FloatingMenuRect | undefined {
-    const root = this.ports.readEditorRoot();
+    const root = this.ports.readFieldRoot?.() ?? this.ports.readEditorRoot();
     if (root === undefined) {
       return undefined;
     }
-    // If even one endpoint is outside the editor root, no range is returned, so the menu does not
-    // follow selections outside the body.
+    // If even one endpoint is outside the root, no range is returned, so the menu does not follow selections outside
+    // the body, or outside the field while one has focus.
     const range = readSelectionRange(root);
     if (range === undefined || range.collapsed) {
       return undefined;
