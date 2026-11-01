@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EDITOR_ROOT_ELEMENT_ID } from '../../common/index';
-import { TooltipController, hasTitleAncestor } from '../../webview/ui/tooltip';
+import { TOOLTIP_DELAY_MS, TooltipController, hasTitleAncestor } from '../../webview/ui/tooltip';
 
 /** Attaches the tooltip controller to a document with an editor root. */
 function createController(): TooltipController {
@@ -69,5 +69,36 @@ describe('deciding whether a target has the built-in display', () => {
     root?.append(link);
 
     expect(hasTitleAncestor(link)).toBe(false);
+  });
+});
+
+describe('the resolver scope', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('the resolver answers for a target inside an added scope, and not for one outside the editor root and the scopes', () => {
+    const controller = createController();
+    const scope = document.createElement('div');
+    const inside = document.createElement('a');
+    scope.append(inside);
+    const outside = document.createElement('a');
+    document.body.append(scope, outside);
+    controller.registerResolver(() => 'Follow link');
+    controller.addResolverScope(scope);
+
+    const shown: (string | null | undefined)[] = [];
+    for (const target of [outside, inside]) {
+      target.dispatchEvent(new Event('pointerover', { bubbles: true }));
+      vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+      shown.push(document.querySelector('[role="tooltip"]')?.textContent);
+    }
+
+    expect(shown).toEqual([undefined, 'Follow link']);
   });
 });

@@ -26,6 +26,20 @@ export const PRESSED_FORMAT_SLOTS: readonly (readonly [ToolbarSlot, InlineFormat
 ];
 
 /**
+ * Slots of the items that cannot act on a comment field: the sidebar, saving, comments, copying and the PDF export.
+ *
+ * Every other item formats what the field holds, as it does the document. These act on the whole document or would
+ * nest a comment, so they are disabled while the user writes in a field.
+ */
+export const FIELD_UNAVAILABLE_SLOTS: ReadonlySet<ToolbarSlot> = new Set([
+  TOOLBAR_SLOT.sidebar,
+  TOOLBAR_SLOT.save,
+  TOOLBAR_SLOT.comment,
+  TOOLBAR_SLOT.copy,
+  TOOLBAR_SLOT.pdfExport,
+]);
+
+/**
  * Slots whose pressed state is taken from the list kind, paired with that kind.
  *
  * Kept apart from the format table: that table's element type is limited to inline formats, and the floating
@@ -75,6 +89,28 @@ export function reflectToolbarState(ports: ToolbarStatePorts, state: CaretState)
   });
 
   ports.blockTypeMenu.applyMarks(readBlockTypeMarks(state));
+}
+
+/**
+ * Sends each registered item that cannot act on a field whether it is disabled: always while the user writes in a
+ * field, and otherwise as the feature unit of the item decides. The other items are left as they are.
+ *
+ * Both are decided in one place, so that leaving the field never enables an item that its feature unit keeps
+ * disabled.
+ *
+ * @param toolbar The fixed toolbar.
+ * @param fieldFocused Whether the user writes in a comment field.
+ * @param readOwnDisabled Returns whether the feature unit of an item disables it, as it disables the comment item when
+ *   the selection can neither open a thread nor be annotated. Read only while the user writes in no field.
+ */
+export function reflectFieldAvailability(
+  toolbar: Toolbar,
+  fieldFocused: boolean,
+  readOwnDisabled: (slot: ToolbarSlot) => boolean,
+): void {
+  for (const slot of FIELD_UNAVAILABLE_SLOTS) {
+    updateRegistered(toolbar, slot, { disabled: fieldFocused || readOwnDisabled(slot) });
+  }
 }
 
 /**

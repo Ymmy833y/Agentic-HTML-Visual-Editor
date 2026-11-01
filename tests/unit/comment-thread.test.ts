@@ -43,6 +43,9 @@ function createThread(html: string): ThreadHarness {
   });
   const thread = attachCommentThread(window, root, popup, {
     localizer,
+    notifyFieldStateChanged: () => undefined,
+    prepareContent: () => undefined,
+    notifyRendered: () => undefined,
     formatDate: () => 'date',
     registerTooltip: () => undefined,
     isInputStopped: () => false,
@@ -86,15 +89,15 @@ function readButton(element: HTMLElement, name: string): HTMLButtonElement {
 }
 
 /**
- * Finds a field by name.
+ * Finds the editable text of a field by name.
  *
  * @param element Scope to search.
  * @param name Field name (aria-label).
- * @returns Field.
+ * @returns The editable text of the field.
  */
-function readField(element: HTMLElement, name: string): HTMLTextAreaElement {
-  const field = element.querySelector(`textarea[aria-label="${name}"]`);
-  if (!(field instanceof HTMLTextAreaElement)) {
+function readField(element: HTMLElement, name: string): HTMLElement {
+  const field = element.querySelector(`[role="textbox"][aria-label="${name}"]`);
+  if (!(field instanceof HTMLElement)) {
     throw new Error(`no field: ${name}`);
   }
   return field;
@@ -116,7 +119,7 @@ describe('Inputs when leaving the popup', () => {
     giveRect(comment);
     harness.popup.open(comment, false);
     const reply = readField(harness.element, 'commentThread.replyField');
-    reply.value = 'R';
+    reply.textContent = 'R';
     reply.dispatchEvent(new Event('input'));
 
     harness.thread.handleDeparted(departure);
@@ -181,7 +184,7 @@ describe('Arrow keys inside the popup', () => {
 });
 
 describe('Ports called from popup presses', () => {
-  it('calling with a human entry opens the edit field with that entry\'s text', async () => {
+  it('calling with a human entry opens the edit field with that entry\'s content', async () => {
     const harness = createThread('<p><comment id="c-1">ab<comment-body data-author="human">note</comment-body></comment></p>');
     const comment = readElement(harness.root, 'comment');
     giveRect(comment);
@@ -194,7 +197,7 @@ describe('Ports called from popup presses', () => {
     });
 
     const field = readField(harness.element, 'commentThread.editField');
-    expect([field.value, harness.element.contains(field)]).toEqual(['note', true]);
+    expect([field.innerHTML, harness.element.contains(field)]).toEqual(['<p>note</p>', true]);
   });
 
   it('a drawn entry text returns the same entry as the thread view does', () => {

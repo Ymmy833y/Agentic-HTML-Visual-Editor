@@ -83,13 +83,15 @@ _WHITESPACE_TO_SPACE = dict.fromkeys(
 class _OpenElement:
     """One open element in the body."""
 
-    def __init__(self, tag, comment=None, entry=None):
+    def __init__(self, tag, comment=None, entry=None, content_start=0):
         self.tag = tag
         # The comment record, if this is a `comment` element.
         self.comment = comment
         # The entry record, if this is an entry directly under a comment.
         self.entry = entry
-        # The text collected for the annotated text or the entry until the element closes.
+        # The position in the body right after the start tag, where the content of the element starts.
+        self.content_start = content_start
+        # The annotated text collected until the element closes, if this is a comment.
         self.parts = []
 
 
@@ -97,14 +99,23 @@ class _CommentCollector(HTMLParser):
     """Read the body and collect the comments in the order of their start tags.
 
     Markup is delimited the same way as in the body boundary scan, and spellings that `HTMLParser` reads
-    differently across versions are read the same way on every version.
+    differently across versions are read the same way on every version. `check_comments.py` builds its checks on
+    this class, so that both scripts read a document the same way.
     """
 
-    def __init__(self, file_name):
+    def __init__(self, file_name, body):
         super().__init__(convert_charrefs=True)
         self.comments = []
         self._file_name = file_name
+        self._body = body
+        # Where each line of the body starts, to turn the line and column of `getpos` into a position in the body.
+        self._line_starts = [0, *(match.end() for match in re.finditer('\n', body))]
         self._open_elements = []
+
+    def position(self):
+        """Return the position in the body where the markup being read starts."""
+        line, column = self.getpos()
+        return self._line_starts[line - 1] + column
 
     def close(self):
         """Read the remaining text and close any unclosed elements at the end of the body."""
@@ -116,7 +127,7 @@ class _CommentCollector(HTMLParser):
             self.handle_data(self.rawdata)
             self.rawdata = ''
         # The end of the body is where the `<body>` end tag is. Elements whose end tag was left out close here too.
-        self._close_elements(0)
+        self._close_elements(0, len(self._body))
 
     def set_cdata_mode(self, elem, **kwargs):
         """Switch to reading the content as text, only for elements whose content the editor reads as text.
@@ -218,13 +229,14 @@ class _CommentCollector(HTMLParser):
             return
         if tag in _VOID_TAG_NAMES:
             if tag == 'br':
-                # In the one-line text, a line break reads as a word break. It is not added to the entry text.
-                self._append_text(' ', to_entries=False)
+                # In the one-line text, a line break reads as a word break.
+                self._append_text(' ')
             return
 
         attributes = _to_attribute_map(attrs)
         comment = None
         entry = None
+        content_start = 0
         if tag == _COMMENT_TAG_NAME:
             comment = {
                 'file': self._file_name,
@@ -243,12 +255,13 @@ class _CommentCollector(HTMLParser):
             if parent is not None and parent.comment is not None:
                 entry = {
                     'kind': _ENTRY_KINDS[tag],
-                    'text': '',
+                    'html': '',
                     'author': attributes.get('data-author', ''),
                     'updated': attributes.get('data-updated', ''),
                 }
                 parent.comment['entries'].append(entry)
-        self._open_elements.append(_OpenElement(tag, comment, entry))
+                content_start = self.position() + len(self.get_starttag_text())
+        self._open_elements.append(_OpenElement(tag, comment, entry, content_start))
 
     def handle_startendtag(self, tag, attrs):
         """Read a start tag closed with `/>` as a start tag only, as the editor and the HTML specification do.
@@ -261,34 +274,38 @@ class _CommentCollector(HTMLParser):
         for index in range(len(self._open_elements) - 1, -1, -1):
             if self._open_elements[index].tag == tag:
                 # Elements whose end tag was left out close together with the end tag of an outer element.
-                self._close_elements(index)
+                self._close_elements(index, self.position())
                 return
         # An end tag without a matching start tag is skipped without closing anything.
 
     def handle_data(self, data):
         if self.cdata_elem in _ESCAPABLE_RAW_TEXT_TAG_NAMES:
             data = unescape(data)
-        self._append_text(data, to_entries=True)
+        self._append_text(data)
 
-    def _append_text(self, text, *, to_entries):
-        """Add text to the annotated text of the open comments and to the open entries."""
-        inside_entry = False
+    def _append_text(self, text):
+        """Add text to the annotated text of the open comments that it is not inside an entry of."""
         for element in reversed(self._open_elements):
             if element.tag in _ENTRY_KINDS:
                 # For the comments outside this point, the text is inside an entry and is not annotated text.
-                inside_entry = True
-                if to_entries and element.entry is not None:
-                    element.parts.append(text)
-            elif element.comment is not None and not inside_entry:
+                return
+            if element.comment is not None:
                 element.parts.append(text)
 
-    def _close_elements(self, index):
-        """Close the element at `index` and the elements inside it, moving the collected text into the records."""
+    def _close_elements(self, index, end):
+        """Close the element at `index` and the elements inside it, moving what they hold into the records.
+
+        Args:
+            index: The index of the element in the open elements.
+            end: The position in the body where the elements end: the `<` of the end tag that closes them, or
+                the end of the body.
+        """
         for element in self._open_elements[index:]:
             if element.comment is not None:
                 element.comment['target'] = _collapse_whitespace(''.join(element.parts))
             elif element.entry is not None:
-                element.entry['text'] = ''.join(element.parts)
+                # The content as written, tags and character references included, so that no formatting is lost.
+                element.entry['html'] = self._body[element.content_start:end]
         del self._open_elements[index:]
 
 
@@ -434,6 +451,52 @@ def _collapse_whitespace(text):
     return ' '.join(part for part in text.translate(_WHITESPACE_TO_SPACE).split(' ') if part)
 
 
+def locate_body(file_name: str, html: str) -> tuple[int, int]:
+    """Return where the inside of `<body>` starts and ends in the document.
+
+    `HTMLParser` reads tag names and quotation marks differently from the editor, and differently across versions,
+    so it is not used to decide the body boundary. The body is found with the same scan as the editor.
+
+    Args:
+        file_name: The name to put in the error message. The file is not opened.
+        html: The text of the whole document.
+
+    Returns:
+        The position right after the `<body>` start tag and the position of the `</body>` end tag.
+
+    Raises:
+        ValueError: The `<body>` start tag and end tag do not appear exactly once each, in that order.
+    """
+    start_tags, end_tags = _collect_body_tags(html)
+    if len(start_tags) != 1 or len(end_tags) != 1 or end_tags[0][0] < start_tags[0][1]:
+        # The editor opens only documents of this shape. For any other shape, where the inside of `<body>` lies
+        # would have to be guessed.
+        raise ValueError(
+            f'{file_name}: expected exactly one <body> start tag followed by exactly one </body> end tag'
+            f' (found {len(start_tags)} start tags and {len(end_tags)} end tags)'
+        )
+    return start_tags[0][1], end_tags[0][0]
+
+
+def read_html_file(path) -> str:
+    """Read an HTML file as UTF-8, with or without a BOM, and return its text.
+
+    Raises:
+        OSError: The file cannot be read.
+        ValueError: The file cannot be decoded as UTF-8.
+    """
+    try:
+        # Reading with the OS default encoding would give different results for the same file depending on
+        # the environment. A BOM is accepted.
+        return Path(path).read_text(encoding='utf-8-sig')
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f'{path}: cannot be decoded as UTF-8. The input must be HTML encoded in UTF-8 (with or without a BOM)'
+        ) from error
+    except OSError as error:
+        raise OSError(f'{path}: cannot read the file ({error.strerror or error})') from error
+
+
 def extract_comments(file_name: str, html: str) -> list[dict]:
     """Return the comments inside the HTML `<body>` in the document order of their start tags.
 
@@ -451,19 +514,11 @@ def extract_comments(file_name: str, html: str) -> list[dict]:
     Raises:
         ValueError: The `<body>` start tag and end tag do not appear exactly once each, in that order.
     """
-    # `HTMLParser` reads tag names and quotation marks differently from the editor, and differently across versions,
-    # so it is not used to decide the body boundary. Cut out the body with the same scan as the editor and pass only
-    # the body to `HTMLParser`.
-    start_tags, end_tags = _collect_body_tags(html)
-    if len(start_tags) != 1 or len(end_tags) != 1 or end_tags[0][0] < start_tags[0][1]:
-        # The editor opens only documents of this shape. For any other shape, where the inside of `<body>` lies
-        # would have to be guessed.
-        raise ValueError(
-            f'{file_name}: expected exactly one <body> start tag followed by exactly one </body> end tag'
-            f' (found {len(start_tags)} start tags and {len(end_tags)} end tags)'
-        )
-    collector = _CommentCollector(file_name)
-    collector.feed(html[start_tags[0][1]:end_tags[0][0]])
+    # Only the body found by the editor's scan is passed to `HTMLParser`.
+    start, end = locate_body(file_name, html)
+    body = html[start:end]
+    collector = _CommentCollector(file_name, body)
+    collector.feed(body)
     collector.close()
     return collector.comments
 
@@ -487,17 +542,7 @@ def read_comments_from_files(paths) -> list[dict]:
     """
     comments = []
     for path in paths:
-        try:
-            # Reading with the OS default encoding would give different results for the same file depending on
-            # the environment. A BOM is accepted.
-            html = Path(path).read_text(encoding='utf-8-sig')
-        except UnicodeDecodeError as error:
-            raise ValueError(
-                f'{path}: cannot be decoded as UTF-8. The input must be HTML encoded in UTF-8 (with or without a BOM)'
-            ) from error
-        except OSError as error:
-            raise OSError(f'{path}: cannot read the file ({error.strerror or error})') from error
-        comments.extend(extract_comments(str(path), html))
+        comments.extend(extract_comments(str(path), read_html_file(path)))
     return comments
 
 

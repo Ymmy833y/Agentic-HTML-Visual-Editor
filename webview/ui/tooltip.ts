@@ -43,6 +43,9 @@ export class TooltipController {
 
   private resolver: TooltipResolver | undefined;
 
+  // Elements besides the editor root whose targets the resolver answers for.
+  private readonly resolverScopes: Element[] = [];
+
   private timer: number | undefined;
 
   // The target currently shown, or waiting out the delay. It is held so that moving around within
@@ -147,7 +150,8 @@ export class TooltipController {
   }
 
   /**
-   * Takes the resolver that returns the message for a target inside the editor root.
+   * Takes the resolver that returns the message for a target inside the editor root, or inside a scope added with
+   * `addResolverScope`.
    *
    * @param resolve The function that returns the message for a target. It writes no attribute into
    *   the document's tree. Both a resolver that returns only the message and one that returns the message
@@ -155,6 +159,18 @@ export class TooltipController {
    */
   registerResolver(resolve: TooltipResolver): void {
     this.resolver = resolve;
+  }
+
+  /**
+   * Lets the resolver also answer for targets inside an element outside the editor root.
+   *
+   * The comment popup shows entries and fields with links, which tell how to open them the same way as in the editor
+   * root.
+   *
+   * @param scope The element. It stays for the lifetime of the view.
+   */
+  addResolverScope(scope: Element): void {
+    this.resolverScopes.push(scope);
   }
 
   /**
@@ -258,10 +274,11 @@ export class TooltipController {
     }
 
     const root = target.ownerDocument.getElementById(EDITOR_ROOT_ELEMENT_ID);
+    const inScope = root?.contains(target) === true || this.resolverScopes.some((scope) => scope.contains(target));
     // The title check starts from the element under the pointer, not from the tooltip target the resolver
     // returns. The browser's built-in display shows the title of the element under the pointer and its
     // ancestors, so this check does not change even when the target becomes an ancestor.
-    if (root === null || !root.contains(target) || hasTitleAncestor(target)) {
+    if (!inScope || hasTitleAncestor(target)) {
       return undefined;
     }
     const resolved = this.resolver?.(target);

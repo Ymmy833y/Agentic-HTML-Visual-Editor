@@ -19,8 +19,8 @@ const EPILOGUE = '</body></html>';
 
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
 const RESIZER = `${POPUP} > .${COMMENT_POPUP_RESIZER_CLASS}`;
-const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
-const EDIT_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.editField']}"]`;
+const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
+const EDIT_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.editField']}"]`;
 
 // Two comments near the left edge, so that a popup widened to the right is not pulled in from the right edge.
 const TWO_COMMENTS = '<p><comment id="a">aa<comment-body data-author="human">one</comment-body></comment>'

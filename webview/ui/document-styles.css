@@ -1,4 +1,5 @@
-/* Default styles for the document body. */
+/* Default styles for the document body. The rules for the content also draw the blocks of the fields and the entries of
+   the comment popup (the two classes in the :is() lists), so that a comment looks as the document does. */
 
 /* The body spans the full width of the editor, with only the padding around it. A maximum width would
    leave empty margins on both sides in a wide window or a split editor. */
@@ -16,80 +17,80 @@
 }
 
 /* Headings */
-#editor-root h1,
-#editor-root h2,
-#editor-root h3,
-#editor-root h4,
-#editor-root h5,
-#editor-root h6 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h1,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h2,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h3,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h4,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h5,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h6 {
   font-weight: 600;
   line-height: 1.25;
   margin: 0.75em 0 0.5em;
 }
 
-#editor-root h1 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h1 {
   font-size: 2em;
   border-bottom: 1px solid var(--ahve-border);
   padding-bottom: 0.3em;
 }
 
-#editor-root h2 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h2 {
   font-size: 1.5em;
   border-bottom: 1px solid var(--ahve-border);
   padding-bottom: 0.25em;
 }
 
-#editor-root h3 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h3 {
   font-size: 1.25em;
 }
 
-#editor-root h4 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h4 {
   font-size: 1em;
 }
 
-#editor-root h5 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h5 {
   font-size: 0.9em;
   color: var(--ahve-muted);
 }
 
-#editor-root h6 {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) h6 {
   font-size: 0.85em;
   color: var(--ahve-muted);
   letter-spacing: 0.05em;
 }
 
 /* Paragraphs and generic blocks */
-#editor-root p {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) p {
   margin: 0.6em 0;
 }
 
-#editor-root div {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) div {
   margin: 0.4em 0;
 }
 
 /* Inline elements */
-#editor-root a {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) a {
   color: var(--ahve-accent);
   text-decoration: none;
 }
 
-#editor-root a:hover {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) a:hover {
   text-decoration: underline;
 }
 
-#editor-root strong {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) strong {
   font-weight: 700;
 }
 
-#editor-root em {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) em {
   font-style: italic;
 }
 
-#editor-root s {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) s {
   text-decoration: line-through;
 }
 
-#editor-root code {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) code {
   background: var(--ahve-code-bg);
   border-radius: 4px;
   padding: 0.15em 0.4em;
@@ -98,7 +99,7 @@
 }
 
 /* Code blocks */
-#editor-root pre {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre {
   background: var(--ahve-code-bg);
   border-radius: 6px;
   padding: 1em;
@@ -110,7 +111,7 @@
 
 /* The pre element supplies the block background and padding. Repeating them on the nested code
    element would look like a double frame. */
-#editor-root pre code {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre code {
   background: transparent;
   border-radius: 0;
   padding: 0;
@@ -120,14 +121,14 @@
 /* High contrast themes can give the code background the same color as the page, which leaves a code block without a
    visible edge. VS Code marks these themes only with a class on the body, so the frame hangs on that class. A diagram
    source block is left out because it is hidden and draws a frame of its own. */
-:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-root pre:not([*|data-ahve-diagram-block]) {
+:is(.vscode-high-contrast, .vscode-high-contrast-light) :is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre:not([*|data-ahve-diagram-block]) {
   border: 1px solid var(--ahve-border);
 }
 
 /* VS Code's default webview stylesheet colors code for its own code background, which is replaced above. In the light
    high contrast theme that color is white and vanishes on the light code background, so code takes the color of the
    text around it. */
-:is(.vscode-high-contrast, .vscode-high-contrast-light) #editor-root code {
+:is(.vscode-high-contrast, .vscode-high-contrast-light) :is(#editor-root, .comment-thread-field-text, .comment-popup-entry) code {
   color: inherit;
 }
 
@@ -140,7 +141,7 @@
    the browser puts no caret in invisible text, so the caret passes the block by instead of entering the source. The
    source is edited in the dialog a click opens. The padding of a code block is in em, which would collapse with the
    font size, so it is given in rem. */
-#editor-root pre[*|data-ahve-diagram-block] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-block] {
   position: relative;
   visibility: hidden;
   font-size: 0;
@@ -152,7 +153,7 @@
 /* The faint frame around a diagram. The invisible pre paints no border or background, so the frame is a visible
    pseudo-element laid over the whole block. It also takes the clicks on the padding, which reach the block and open
    its dialog. */
-#editor-root pre[*|data-ahve-diagram-block]::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-block]::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -163,7 +164,7 @@
 
 /* What is shown in place of the source: the image, the error card or the empty card below. The pre may have no font
    size here, so lengths are taken from the root. */
-#editor-root pre[*|data-ahve-diagram-block]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-block]::after {
   content: '';
   display: block;
   visibility: visible;
@@ -173,7 +174,7 @@
 }
 
 /* The image. The generated rule supplies the picture, its width and its proportions; it never grows past the column. */
-#editor-root pre[*|data-ahve-diagram]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram]::after {
   min-height: 0;
   background-position: center;
   background-repeat: no-repeat;
@@ -182,8 +183,8 @@
 
 /* A source that could not be drawn, and an empty source, show a card with a notice. No message is spelled here; only
    the values the view hands over are shown. */
-#editor-root pre[*|data-ahve-diagram-error]::after,
-#editor-root pre[*|data-ahve-diagram-empty]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-error]::after,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-empty]::after {
   min-height: 0;
   padding-left: 0.75em;
   font-family: var(--ahve-font-family);
@@ -192,13 +193,13 @@
   white-space: normal;
 }
 
-#editor-root pre[*|data-ahve-diagram-error]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-error]::after {
   content: var(--ahve-diagram-error-label, '');
   border-left: 3px solid var(--ahve-alert-caution);
   color: var(--ahve-alert-caution);
 }
 
-#editor-root pre[*|data-ahve-diagram-empty]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-empty]::after {
   content: var(--ahve-diagram-empty-label, '');
   border-left: 3px solid var(--ahve-border);
   color: var(--ahve-muted);
@@ -206,7 +207,7 @@
 
 /* A diagram wholly inside a range selection. The hidden source shows no selection color, so the frame shows what a
    deletion would remove. Same shape as the mark of the cell range, drawn around the frame of the block. */
-#editor-root pre[*|data-ahve-diagram-selected]::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-selected]::before {
   outline: 2px solid var(--ahve-accent);
   outline-offset: 2px;
 }
@@ -215,7 +216,7 @@
    block neither shows a scroll bar nor scrolls on the wheel, so the block is made visible. It stays read-only, so the
    caret passes over its source as before, and the source has no size or color. The block draws the frame itself,
    because the frame laid over it would scroll away with the diagram; the padding gives back the width of the border. */
-#editor-root pre[*|data-ahve-diagram-zoomed] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-zoomed] {
   visibility: visible;
   -webkit-user-modify: read-only;
   color: transparent;
@@ -226,28 +227,28 @@
   overflow-y: hidden;
 }
 
-#editor-root pre[*|data-ahve-diagram-zoomed]::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-zoomed]::before {
   display: none;
 }
 
-#editor-root pre[*|data-ahve-diagram-zoomed][*|data-ahve-diagram-selected] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-zoomed][*|data-ahve-diagram-selected] {
   outline: 2px solid var(--ahve-accent);
   outline-offset: 2px;
 }
 
 /* Blockquotes */
-#editor-root blockquote {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote {
   border-left: 4px solid var(--ahve-border);
   color: var(--ahve-muted);
   margin: 1em 0;
   padding: 0.4em 1em;
 }
 
-#editor-root blockquote > :first-child {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote > :first-child {
   margin-top: 0;
 }
 
-#editor-root blockquote > :last-child {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote > :last-child {
   margin-bottom: 0;
 }
 
@@ -258,7 +259,7 @@
    the display draws and the line the decisions draw out of step. All that differs per kind is the accent color,
    the icon, and the label, so those three are put on the element as theme tokens and the geometry is read from the
    shared rules below. */
-#editor-root blockquote[data-alert="note"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="note"] {
   --ahve-alert-accent: var(--ahve-alert-note);
   --ahve-alert-label: var(--ahve-alert-label-note, '');
   /* The shape is laid down as a `data:` SVG used as a mask and painted in the accent color. No color is spelled
@@ -268,28 +269,28 @@
 }
 
 /* The shape of a light bulb. */
-#editor-root blockquote[data-alert="tip"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="tip"] {
   --ahve-alert-accent: var(--ahve-alert-tip);
   --ahve-alert-label: var(--ahve-alert-label-tip, '');
   --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M8%201.25a4%204%200%2000-2.25%207.3V10.5h4.5V8.55A4%204%200%20008%201.25zM5.75%2011.75h4.5v1.25h-4.5zM6.5%2014h3v1.25h-3z%27/%3E%3C/svg%3E");
 }
 
 /* An exclamation mark cut out of a speech balloon. */
-#editor-root blockquote[data-alert="important"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="important"] {
   --ahve-alert-accent: var(--ahve-alert-important);
   --ahve-alert-label: var(--ahve-alert-label-important, '');
   --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M1.5%202h13v9.5H7.75L4.5%2014.5V11.5H1.5zM7.25%204h1.5v4h-1.5zM7.25%208.75h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
 }
 
 /* An exclamation mark cut out of a triangle. */
-#editor-root blockquote[data-alert="warning"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="warning"] {
   --ahve-alert-accent: var(--ahve-alert-warning);
   --ahve-alert-label: var(--ahve-alert-label-warning, '');
   --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M8%201.5%2015%2014H1zM7.25%205.5h1.5v4h-1.5zM7.25%2010.25h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
 }
 
 /* An exclamation mark cut out of an octagon. */
-#editor-root blockquote[data-alert="caution"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="caution"] {
   --ahve-alert-accent: var(--ahve-alert-caution);
   --ahve-alert-label: var(--ahve-alert-label-caution, '');
   --ahve-alert-icon: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%20fill-rule=%27evenodd%27%3E%3Cpath%20d=%27M5.5%201.5h5l4%204v5l-4%204h-5l-4-4v-5zM7.25%204.5h1.5v4h-1.5zM7.25%209.25h1.5v1.5h-1.5z%27/%3E%3C/svg%3E");
@@ -297,11 +298,11 @@
 
 /* Where the label line sits, and the positioning context the pseudo-elements are placed against. The colors are
    read from the theme tokens alone and no priority is forced, so a style written directly on the blockquote wins. */
-#editor-root blockquote[data-alert="note"],
-#editor-root blockquote[data-alert="tip"],
-#editor-root blockquote[data-alert="important"],
-#editor-root blockquote[data-alert="warning"],
-#editor-root blockquote[data-alert="caution"] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="note"],
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="tip"],
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="important"],
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="warning"],
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="caution"] {
   position: relative;
   padding-top: 2.2em;
   border-left-color: var(--ahve-alert-accent);
@@ -311,11 +312,11 @@
 /* The icon. It is shown at the head of the label line, sized in proportion to the font size. A pseudo-element is
    not in the tree, so it is the target of neither saving, copying, searching, nor selecting. `mask` is also
    written with a prefix because the lowest supported VS Code does not understand the unprefixed spelling. */
-#editor-root blockquote[data-alert="note"]::before,
-#editor-root blockquote[data-alert="tip"]::before,
-#editor-root blockquote[data-alert="important"]::before,
-#editor-root blockquote[data-alert="warning"]::before,
-#editor-root blockquote[data-alert="caution"]::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="note"]::before,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="tip"]::before,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="important"]::before,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="warning"]::before,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="caution"]::before {
   content: '';
   position: absolute;
   top: 0.55em;
@@ -333,11 +334,11 @@
 
 /* The label. No message is spelled here; only the value handed over is shown. The fallback is the empty string,
    so nothing is shown until one arrives. */
-#editor-root blockquote[data-alert="note"]::after,
-#editor-root blockquote[data-alert="tip"]::after,
-#editor-root blockquote[data-alert="important"]::after,
-#editor-root blockquote[data-alert="warning"]::after,
-#editor-root blockquote[data-alert="caution"]::after {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="note"]::after,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="tip"]::after,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="important"]::after,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="warning"]::after,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) blockquote[data-alert="caution"]::after {
   content: var(--ahve-alert-label);
   position: absolute;
   top: 0.4em;
@@ -348,25 +349,25 @@
 }
 
 /* Horizontal rules */
-#editor-root hr {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) hr {
   border: 0;
   border-top: 1px solid var(--ahve-border);
   margin: 2em 0;
 }
 
 /* Lists */
-#editor-root ul,
-#editor-root ol {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) ul,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) ol {
   margin: 0.6em 0;
   padding-left: 1.6em;
 }
 
-#editor-root li {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) li {
   margin: 0.2em 0;
 }
 
-#editor-root li > ul,
-#editor-root li > ol {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) li > ul,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) li > ol {
   margin: 0.2em 0;
 }
 
@@ -375,21 +376,21 @@
    table inside that shrinks to the content width, so both width and percentage widths written
    directly on col elements use that reduced width instead of the available width. When a table is
    too wide, the entire view scrolls horizontally. */
-#editor-root table {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) table {
   border-collapse: collapse;
   margin: 1em 0;
   width: 100%;
 }
 
-#editor-root th,
-#editor-root td {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) th,
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) td {
   border: 1px solid var(--ahve-border);
   padding: 0.5em 0.75em;
   text-align: left;
   vertical-align: top;
 }
 
-#editor-root th {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) th {
   background: var(--ahve-code-bg);
   font-weight: 600;
 }
@@ -398,11 +399,11 @@
    wrapped in a paragraph, this keeps the paragraph's margin from pushing the text down and making the row taller (the
    same shape as the first and last children of a blockquote). There is no priority override, so the document's style
    attribute wins. */
-#editor-root :is(td, th) > :first-child {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) :is(td, th) > :first-child {
   margin-top: 0;
 }
 
-#editor-root :is(td, th) > :last-child {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) :is(td, th) > :last-child {
   margin-bottom: 0;
 }
 
@@ -410,14 +411,14 @@
    table, so a long word or URL that widens the minimum width of a cell pushes the whole table out. This is prevented by
    treating words as breakable anywhere, without writing table-layout or the like into the document. Words are not broken
    in columns without a width when the table fits when rendered without breaking. */
-#editor-root :is(td, th) {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) :is(td, th) {
   overflow-wrap: anywhere;
 }
 
 /* A code block inside a cell gets a minimum width of 0 only, and lines that do not fit scroll horizontally inside it.
    Making the content width itself 0 would collapse the code block's column down to the width of its padding just
    because a neighboring column holds a long sentence. */
-#editor-root :is(td, th) pre {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) :is(td, th) pre {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -427,7 +428,7 @@
    outline is drawn on top, so it shows without a priority override. esbuild does not handle @namespace, so the
    namespace is matched with *, and a cell on which the author wrote an ordinary attribute with the same spelling looks
    the same (it is not counted in the range). */
-#editor-root :is(td, th)[*|data-ahve-cell-range] {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) :is(td, th)[*|data-ahve-cell-range] {
   outline: 2px solid var(--ahve-accent);
   outline-offset: -2px;
 }
@@ -532,14 +533,14 @@
 }
 
 /* Images */
-#editor-root img {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) img {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
 }
 
 /* Collapsible sections */
-#editor-root details {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details {
   border: 1px solid var(--ahve-border);
   border-radius: 6px;
   margin: 1em 0;
@@ -547,21 +548,21 @@
 }
 
 /* A summary that is not a title keeps no pressable look. Only the title's marker area toggles it. */
-#editor-root summary {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) summary {
   font-weight: 600;
 }
 
 /* The marker area. Its width is expressed by a single leading inline padding, and the hit-test side
    reads that same computed value. No browser-default toggle marker is shown, so the title carries
    exactly one marker: this feature's own. */
-#editor-root details > summary:first-of-type {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details > summary:first-of-type {
   position: relative;
   display: block;
   list-style: none;
   padding-inline-start: 1.4em;
 }
 
-#editor-root details > summary:first-of-type::-webkit-details-marker {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details > summary:first-of-type::-webkit-details-marker {
   display: none;
 }
 
@@ -571,7 +572,7 @@
    SVG itself, it does not sink into the background even in high-contrast themes. The box is given the
    same width as the leading inline padding, so the cursor's pressable-looking range matches the
    toggle hit area. */
-#editor-root details > summary:first-of-type::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details > summary:first-of-type::before {
   content: '';
   position: absolute;
   inset-inline-start: 0;
@@ -591,15 +592,15 @@
 }
 
 /* The open direction. Placed after the closed-direction rule, replacing only the shape. */
-#editor-root details[open] > summary:first-of-type::before {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details[open] > summary:first-of-type::before {
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M3%205h10l-5%206z%27/%3E%3C/svg%3E");
   mask-image: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20viewBox=%270%200%2016%2016%27%3E%3Cpath%20d=%27M3%205h10l-5%206z%27/%3E%3C/svg%3E");
 }
 
-#editor-root details[open] > summary {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details[open] > summary {
   margin-bottom: 0.4em;
 }
 
-#editor-root details > :last-child {
+:is(#editor-root, .comment-thread-field-text, .comment-popup-entry) details > :last-child {
   margin-bottom: 0;
 }

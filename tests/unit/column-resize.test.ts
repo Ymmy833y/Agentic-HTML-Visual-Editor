@@ -116,6 +116,24 @@ describe('the column boundary marker', () => {
 
     expect([marker.hidden, hasCursorAttribute()]).toEqual([true, false]);
   });
+
+  it('places no second marker when attached to a second editing area, and a leave there keeps the marker the first area shows', () => {
+    const { root, marker } = createResize();
+    const field = document.createElement('div');
+    document.body.append(field);
+    attachColumnResize(window, field, 'other', {
+      isComposing: () => false,
+      isInputStopped: () => false,
+      runTableCommand: () => true,
+      reportDiagnostic: () => undefined,
+    });
+    dispatchOnBand(root, 'mousemove');
+
+    field.dispatchEvent(new MouseEvent('mouseleave', { clientX: BAND_X }));
+
+    expect([document.querySelectorAll(`#${COLUMN_RESIZE_MARKER_ID}`).length, marker.hidden, hasCursorAttribute()])
+      .toEqual([1, false, true]);
+  });
 });
 
 describe('the column resize drag', () => {

@@ -24,7 +24,7 @@ const EPILOGUE = '</body></html>';
 
 const POPUP = `#${COMMENT_POPUP_ELEMENT_ID}`;
 const ENTRY_TEXT = `${POPUP} .comment-popup-entry`;
-const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
+const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
 const PARAGRAPH = `${EDITOR_ROOT} p`;
 const COMMENT = `${EDITOR_ROOT} comment`;
 
@@ -531,17 +531,22 @@ test.describe('handling cut', () => {
       .toEqual([[false], '<p>abcd</p>']);
   });
 
-  test('selecting characters in a popup field and pressing Ctrl+X deletes them from the field by the default cut and leaves the editor root tree unchanged', async ({ page }) => {
+  test('selecting characters in a popup field and pressing Ctrl+X deletes them from the field as a cut in the document does and leaves the editor root tree unchanged', async ({ page }) => {
     await openClipboardEditor(page, HUMAN_THREAD);
     await openByClick(page);
     await page.locator(REPLY_FIELD).click();
     await page.keyboard.type('abc');
-    await page.locator(REPLY_FIELD).evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(0, 2));
+    await page.locator(REPLY_FIELD).evaluate((field) => {
+      const text = field.querySelector('p')?.firstChild;
+      if (text !== null && text !== undefined) {
+        window.getSelection()?.setBaseAndExtent(text, 0, text, 2);
+      }
+    });
     const before = await readBodyHtml(page);
 
     await pressPrimaryShortcut(page, 'X');
 
-    expect([await page.locator(REPLY_FIELD).inputValue(), await readBodyHtml(page)]).toEqual(['c', before]);
+    expect([await page.locator(REPLY_FIELD).textContent(), await readBodyHtml(page)]).toEqual(['c', before]);
   });
 });
 

@@ -38,7 +38,7 @@ Write documents with the tags in this table. They are the tags that the editor d
 | List | `ul`, `ol`, `li` |
 | Table | `table`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`, `colgroup`, `col` |
 | Image | `img` |
-| Comment | `comment`, `comment-body`, `comment-reply` |
+| Comment | `comment`, `comment-body`, `comment-reply`, and `template` only to hold the blocks of a comment entry, as described in [comments.md](comments.md) |
 | Change | `ins`, `del` |
 
 The table is not a filter. A tag outside it is not removed when a document is opened, and it stays in the file.

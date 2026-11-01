@@ -32,8 +32,8 @@ const DIALOG = `#${ACTION_DIALOG_ELEMENT_ID}`;
 const COMMENT = `${EDITOR_ROOT} comment`;
 const ENTRY_TEXT = `${POPUP} .comment-popup-entry`;
 const META = `${POPUP} .comment-thread-meta`;
-const EDIT_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.editField']}"]`;
-const REPLY_FIELD = `${POPUP} textarea[aria-label="${englishMessages['commentThread.replyField']}"]`;
+const EDIT_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.editField']}"]`;
+const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
 const RESOLVED = `${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`;
 
 // A paragraph with one comment that has characters before and after it. The starting point for most cases.
@@ -393,6 +393,27 @@ async function readAnnotatedTexts(page: Page): Promise<string[]> {
     .filter((child) => !(child instanceof Element && ['comment-body', 'comment-reply'].includes(child.localName)))
     .map((child) => child.textContent)
     .join('')));
+}
+
+/**
+ * Reads the offset of the caret in the text of a field.
+ *
+ * @param page The page to operate on.
+ * @param selector The selector of the editable text of the field.
+ * @returns The number of characters before the start of the selection. -1 without a selection.
+ */
+async function readCaretOffset(page: Page, selector: string): Promise<number> {
+  return page.locator(selector).evaluate((field) => {
+    const selection = window.getSelection();
+    if (selection === null || selection.rangeCount === 0) {
+      return -1;
+    }
+    const range = selection.getRangeAt(0);
+    const before = document.createRange();
+    before.selectNodeContents(field);
+    before.setEnd(range.startContainer, range.startOffset);
+    return before.toString().length;
+  });
 }
 
 test.describe('Deleting from the caret keeps entries', () => {
@@ -899,9 +920,9 @@ test.describe('Switching the comment side', () => {
     await page.locator(REPLY_FIELD).click();
     await page.keyboard.type('rs');
     await page.keyboard.press('ArrowLeft');
-    const afterLeft = await page.locator(REPLY_FIELD).evaluate((field) => (field instanceof HTMLTextAreaElement ? field.selectionStart : -1));
+    const afterLeft = await readCaretOffset(page, REPLY_FIELD);
     await page.keyboard.press('ArrowRight');
-    const afterRight = await page.locator(REPLY_FIELD).evaluate((field) => (field instanceof HTMLTextAreaElement ? field.selectionStart : -1));
+    const afterRight = await readCaretOffset(page, REPLY_FIELD);
     // A reply in progress would be committed by the move, so clear it before leaving the field.
     await page.locator(REPLY_FIELD).fill('');
     await page.locator(RESOLVED).focus();
@@ -1052,7 +1073,7 @@ test.describe('Presses inside the popup', () => {
 
     await page.locator(ENTRY_TEXT).click();
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('hello world');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('hello world');
   });
 
   test('dragging to select an entry text keeps the selection without opening the edit field, the Ctrl+C copy arrives without its default prevented, and the selected text is the text chosen', async ({ page }) => {
@@ -1113,7 +1134,7 @@ test.describe('Presses inside the popup', () => {
     await expect(page.locator(DIALOG)).toBeVisible();
     await page.locator(DIALOG).getByRole('button', { name: englishMessages['commentThread.editEntry'], exact: true }).click();
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('ai note');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('ai note');
   });
 
   test('with a range selected in an entry, clicking text inside that range without moving opens the edit field', async ({ page }) => {
@@ -1124,7 +1145,7 @@ test.describe('Presses inside the popup', () => {
 
     await page.locator(ENTRY_TEXT).click({ position: { x: 10, y: 5 } });
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('hello world');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('hello world');
     expect(selected).toBe('hello world');
   });
 
@@ -1135,9 +1156,10 @@ test.describe('Presses inside the popup', () => {
     await page.locator(ENTRY_TEXT).dblclick({ position: { x: 8, y: 5 } });
 
     await expect(page.locator(EDIT_FIELD)).toBeVisible();
-    const field = await page.locator(EDIT_FIELD).evaluate((element) => (element instanceof HTMLTextAreaElement
-      ? element.value.slice(element.selectionStart, element.selectionEnd)
-      : ''));
+    const field = await page.locator(EDIT_FIELD).evaluate((element) => {
+      const selection = window.getSelection();
+      return selection !== null && element.contains(selection.anchorNode) ? selection.toString() : '';
+    });
     // On Windows the space after the word is selected too. Compare only the selected word.
     expect(field.trim()).toBe('hello');
   });
@@ -1175,7 +1197,7 @@ test.describe('Presses inside the popup', () => {
 
     await page.locator(ENTRY_TEXT).click();
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('body note');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('body note');
   });
 });
 
@@ -1212,7 +1234,7 @@ test.describe('Registration after document replacement', () => {
 
     await page.locator(ENTRY_TEXT).click();
 
-    await expect(page.locator(EDIT_FIELD)).toHaveValue('hello world');
+    await expect(page.locator(EDIT_FIELD)).toHaveText('hello world');
     expect(switched).toEqual(['xab', false]);
   });
 });

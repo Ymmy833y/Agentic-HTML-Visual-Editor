@@ -19,7 +19,7 @@
 !LICENSE
 !THIRD_PARTY_NOTICES.md
 # The authoring guide skill is allowed one file at a time. Allowing its directory would take in everything
-# under it, so the distributed package would also carry the script's tests, which users never run.
+# under it, so the distributed package would also carry the scripts' tests, which users never run.
 !skills/agentic-html-visual-editor-authoring/SKILL.md
 !skills/agentic-html-visual-editor-authoring/references/html-document.md
 !skills/agentic-html-visual-editor-authoring/references/formatting.md
@@ -27,3 +27,4 @@
 !skills/agentic-html-visual-editor-authoring/references/comments.md
 !skills/agentic-html-visual-editor-authoring/references/change-marks.md
 !skills/agentic-html-visual-editor-authoring/scripts/list_comments.py
+!skills/agentic-html-visual-editor-authoring/scripts/check_comments.py

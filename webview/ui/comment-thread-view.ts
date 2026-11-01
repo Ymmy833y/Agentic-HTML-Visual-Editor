@@ -1,14 +1,16 @@
 import { COMMENT_TAG_NAME } from '../../common/index';
 import type { Localizer, MessageKey } from '../../common/index';
+import { copyEntryContent } from '../editing/comment-entry-content';
 import { readCommentEntries } from '../editing/comment-read';
 import {
   isAiEntry,
   isCommentResolved,
   readEntryAuthorName,
-  readEntryText,
   readEntryUpdated,
 } from '../editing/comment-thread-read';
+import type { CommentField } from './comment-field';
 import type { AdjacentComments, CommentMoveDirection } from './comment-navigation';
+import { COMMENT_POPUP_ENTRY_CLASS } from './comment-popup';
 import type { CommentThreadField, CommentThreadInputState } from './comment-thread-input';
 import { createItemIcon } from './toolbar';
 
@@ -48,6 +50,13 @@ export interface CommentThreadViewPorts {
    * @param date Date and time.
    */
   formatDate(date: Date): string;
+
+  /**
+   * Prepares the content of an entry before it is shown: images get the source the view can show.
+   *
+   * @param content The content.
+   */
+  prepareContent(content: DocumentFragment): void;
 
   /**
    * Registers a tooltip on a control.
@@ -109,9 +118,8 @@ const EMPTY_ENTRY_CLASS = 'comment-thread-empty-entry';
 const SAVE_BUTTON_CLASS = 'comment-thread-save';
 const CANCEL_BUTTON_CLASS = 'comment-thread-cancel';
 
-// The entry text and the empty message use the same spelling as the popup's default drawing, keeping the same look
-// and the same references.
-const ENTRY_TEXT_CLASS = 'comment-popup-entry';
+// The empty message uses the same spelling as the popup's default drawing, keeping the same look and the same
+// references. The entry text takes the popup's entry class for the same reason.
 const EMPTY_CLASS = 'comment-popup-empty';
 
 /** Name of an icon operation. */
@@ -174,9 +182,9 @@ export class CommentThreadView {
     this.header = document.createElement('div');
     this.header.className = HEADER_CLASS;
     this.bodySection = document.createElement('div');
-    this.bodySection.append(inputs.body.field);
+    this.bodySection.append(inputs.body.field.element);
     this.replySection = document.createElement('div');
-    this.replySection.append(inputs.reply.field);
+    this.replySection.append(inputs.reply.field.element);
     entries.before(this.header);
     entries.after(this.bodySection, this.replySection);
   }
@@ -309,15 +317,16 @@ export class CommentThreadView {
     }
 
     const text = document.createElement('div');
-    const value = readEntryText(entry);
-    if (value === '') {
+    const content = copyEntryContent(entry, document);
+    if (content.childNodes.length === 0) {
       // Show an empty entry as one entry too. Otherwise the empty body of an opened document could neither be deleted
       // nor have a body added.
-      text.className = `${ENTRY_TEXT_CLASS} ${EMPTY_ENTRY_CLASS}`;
+      text.className = `${COMMENT_POPUP_ENTRY_CLASS} ${EMPTY_ENTRY_CLASS}`;
       text.textContent = this.ports.localizer.getMessage('commentThread.emptyEntry');
     } else {
-      text.className = ENTRY_TEXT_CLASS;
-      text.textContent = value;
+      text.className = COMMENT_POPUP_ENTRY_CLASS;
+      this.ports.prepareContent(content);
+      text.append(content);
     }
     // Make the entry reachable from its text so that clicking the text can open editing. The same applies to the empty entry display.
     this.entryTexts.set(text, entry);
@@ -342,7 +351,7 @@ export class CommentThreadView {
    * @param parts Record of the drawn controls.
    * @returns Editing row.
    */
-  private renderEditingRow(entry: Element, field: HTMLTextAreaElement, parts: PlacedPart[]): HTMLElement {
+  private renderEditingRow(entry: Element, field: CommentField, parts: PlacedPart[]): HTMLElement {
     const row = this.editingRow ?? this.popup.ownerDocument.createElement('div');
     this.editingRow = row;
     this.editingEntry = entry;
@@ -353,7 +362,7 @@ export class CommentThreadView {
       children.push(meta);
     }
     children.push(
-      field,
+      field.element,
       this.createTextButton({ kind: 'save', field: 'edit' }, 'commentThread.save', parts, () => {
         this.ports.save('edit');
       }),
@@ -361,7 +370,7 @@ export class CommentThreadView {
         this.ports.cancel('edit');
       }),
     );
-    placeChildren(row, children, field);
+    placeChildren(row, children, field.element);
     return row;
   }
 
@@ -377,12 +386,12 @@ export class CommentThreadView {
   private renderSection(
     section: HTMLElement,
     field: 'body' | 'reply',
-    state: { readonly field: HTMLTextAreaElement; readonly active: boolean },
+    state: { readonly field: CommentField; readonly active: boolean },
     hidden: boolean,
     parts: PlacedPart[],
   ): void {
     section.hidden = hidden;
-    const children: Element[] = [state.field];
+    const children: Element[] = [state.field.element];
     if (state.active) {
       children.push(
         this.createTextButton({ kind: 'save', field }, 'commentThread.save', parts, () => {
@@ -393,7 +402,7 @@ export class CommentThreadView {
         }),
       );
     }
-    placeChildren(section, children, state.field);
+    placeChildren(section, children, state.field.element);
   }
 
   /**
@@ -499,13 +508,13 @@ export class CommentThreadView {
     if (placed !== undefined) {
       return { kind: 'part', part: placed.part };
     }
-    if (active === inputs.body.field) {
+    if (inputs.body.field.contains(active)) {
       return { kind: 'field', field: 'body', entry: undefined };
     }
-    if (active === inputs.reply.field) {
+    if (inputs.reply.field.contains(active)) {
       return { kind: 'field', field: 'reply', entry: undefined };
     }
-    if (active === inputs.edit.field) {
+    if (inputs.edit.field.contains(active)) {
       return { kind: 'field', field: 'edit', entry: this.editingEntry };
     }
     return { kind: 'none' };
@@ -558,8 +567,8 @@ export class CommentThreadView {
    * @param field Field.
    * @returns `true` when it is placed and not inside a hidden section.
    */
-  private isFieldShown(field: HTMLTextAreaElement): boolean {
-    return this.popup.contains(field) && field.closest('[hidden]') === null;
+  private isFieldShown(field: CommentField): boolean {
+    return this.popup.contains(field.element) && field.element.closest('[hidden]') === null;
   }
 }
 
@@ -605,7 +614,7 @@ function readEntryClass(entry: Element): string {
  * @param field Field kind.
  * @returns Field.
  */
-function readInputField(inputs: CommentThreadInputState, field: CommentThreadField): HTMLTextAreaElement {
+function readInputField(inputs: CommentThreadInputState, field: CommentThreadField): CommentField {
   switch (field) {
     case 'body':
       return inputs.body.field;

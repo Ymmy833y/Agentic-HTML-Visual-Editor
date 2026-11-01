@@ -59,6 +59,18 @@ export interface DiagramViewPorts {
   /** Returns the editor root. */
   readEditorRoot(): HTMLElement | undefined;
 
+  /**
+   * Returns the other elements whose diagrams are shown, such as the fields and the entries of the comment popup.
+   *
+   * @returns The elements. Empty when there are none.
+   */
+  readOtherRoots?(): readonly Element[];
+
+  /**
+   * The selector of every element diagrams are shown in, which scopes the generated rules. Defaults to the editor root.
+   */
+  readonly ruleScope?: string;
+
   /** Loads the diagram renderer. Called at most once. */
   loadRenderer(): Promise<DiagramRenderer>;
 
@@ -230,6 +242,23 @@ export class DiagramView {
   }
 
   /**
+   * Subscribes to the edits of another editing session whose diagrams are shown, such as a field of the comment popup.
+   *
+   * @param session The editing session. Only its registration port is taken.
+   */
+  watch(session: Pick<EditingSession, 'addEditListener'>): void {
+    session.addEditListener(this.onEdit);
+  }
+
+  /** Shows the diagrams of the elements drawn anew outside the editor root, at once with the kept drawings. */
+  refresh(): void {
+    this.runGuarded(() => {
+      this.scan();
+      this.followSelection();
+    });
+  }
+
+  /**
    * Returns the zoom level of a diagram.
    *
    * @param block The diagram source block.
@@ -257,10 +286,7 @@ export class DiagramView {
     } else {
       this.zooms.set(source, level);
     }
-    const root = this.ports.readEditorRoot();
-    if (root !== undefined) {
-      this.runGuarded(() => this.updateRules(root));
-    }
+    this.runGuarded(() => this.updateRules());
     return true;
   }
 
@@ -296,12 +322,8 @@ export class DiagramView {
    * drawing until the new one is ready.
    */
   private scan(): void {
-    const root = this.ports.readEditorRoot();
-    if (root === undefined) {
-      return;
-    }
     const missing = new Map<string, string>();
-    for (const block of findDiagramSources(root)) {
+    for (const block of this.findSources()) {
       toggleMark(block, DIAGRAM_BLOCK_MARK_NAME, true);
       const source = readDiagramSource(block);
       const empty = source.trim() === '';
@@ -319,7 +341,7 @@ export class DiagramView {
         this.applyResult(block, key, result);
       }
     }
-    this.updateRules(root);
+    this.updateRules();
     if (missing.size > 0) {
       this.draw(missing);
     }
@@ -439,17 +461,13 @@ export class DiagramView {
    */
   private readNeededKeys(): Set<string> {
     const needed = new Set<string>();
-    const root = this.ports.readEditorRoot();
-    if (root === undefined) {
-      return needed;
-    }
-    for (const block of findDiagramSources(root)) {
+    for (const block of this.findSources()) {
       const source = readDiagramSource(block);
       if (source.trim() !== '') {
         needed.add(this.toKey(source));
       }
     }
-    const shown = this.readShownTokens(root);
+    const shown = this.readShownTokens();
     for (const [key, token] of this.tokens) {
       if (shown.has(token)) {
         needed.add(key);
@@ -483,30 +501,29 @@ export class DiagramView {
   /**
    * Replaces the generated rules with one rule per image shown in the tree, and moves the zoomed mark to the blocks
    * whose image is shown at another zoom level.
-   *
-   * @param root The editor root.
    */
-  private updateRules(root: Element): void {
+  private updateRules(): void {
     const zoomsByToken = new Map<number, number>();
     for (const [key, token] of this.tokens) {
       // The key holds the theme before the first line break, and the source after it.
       zoomsByToken.set(token, this.zooms.get(key.slice(key.indexOf('\n') + 1)) ?? 1);
     }
     const rules: string[] = [];
-    for (const token of this.readShownTokens(root)) {
+    const scope = this.ports.ruleScope ?? `#${EDITOR_ROOT_ELEMENT_ID}`;
+    for (const token of this.readShownTokens()) {
       const image = this.images.get(token);
       if (image === undefined) {
         continue;
       }
       // The URL is percent-encoded, so it can hold no quote, backslash or line break that would end the string.
       rules.push(
-        `#${EDITOR_ROOT_ELEMENT_ID} pre[*|${DIAGRAM_MARK_NAME}="${token}"]::after {`
+        `${scope} pre[*|${DIAGRAM_MARK_NAME}="${token}"]::after {`
         + ` background-image: url("${image.url}");`
         + ` ${readImageWidth(image, zoomsByToken.get(token) ?? 1)}`
         + ` aspect-ratio: ${image.width} / ${image.height}; }`,
       );
     }
-    for (const block of findDiagramSources(root)) {
+    for (const block of this.findSources()) {
       const token = block.getAttributeNS(DIAGRAM_MARK_NAMESPACE, DIAGRAM_MARK_NAME);
       toggleMark(block, DIAGRAM_ZOOMED_MARK_NAME, token !== null && (zoomsByToken.get(Number(token)) ?? 1) !== 1);
     }
@@ -520,15 +537,11 @@ export class DiagramView {
   /**
    * Returns the tokens of the images the tree shows.
    *
-   * @param root The editor root. Read from the ports when omitted.
    * @returns The tokens.
    */
-  private readShownTokens(root: Element | undefined = this.ports.readEditorRoot()): Set<number> {
+  private readShownTokens(): Set<number> {
     const shown = new Set<number>();
-    if (root === undefined) {
-      return shown;
-    }
-    for (const block of findDiagramSources(root)) {
+    for (const block of this.findSources()) {
       const value = block.getAttributeNS(DIAGRAM_MARK_NAMESPACE, DIAGRAM_MARK_NAME);
       if (value !== null) {
         shown.add(Number(value));
@@ -539,14 +552,31 @@ export class DiagramView {
 
   /** Moves the marks of the selected diagrams to follow the selection. */
   private followSelection(): void {
+    for (const root of this.readRoots()) {
+      const selected = readSelectedDiagrams(root, readSelectionRange(root));
+      for (const block of findDiagramSources(root)) {
+        toggleMark(block, DIAGRAM_SELECTED_MARK_NAME, selected.includes(block));
+      }
+    }
+  }
+
+  /**
+   * Returns every element diagrams are shown in: the editor root, then the others.
+   *
+   * @returns The elements.
+   */
+  private readRoots(): Element[] {
     const root = this.ports.readEditorRoot();
-    if (root === undefined) {
-      return;
-    }
-    const selected = readSelectedDiagrams(root, readSelectionRange(root));
-    for (const block of findDiagramSources(root)) {
-      toggleMark(block, DIAGRAM_SELECTED_MARK_NAME, selected.includes(block));
-    }
+    return [...(root === undefined ? [] : [root]), ...(this.ports.readOtherRoots?.() ?? [])];
+  }
+
+  /**
+   * Returns the diagram source blocks of every element diagrams are shown in.
+   *
+   * @returns The blocks, in the order of the elements and then of the tree.
+   */
+  private findSources(): Element[] {
+    return this.readRoots().flatMap((root) => findDiagramSources(root));
   }
 
   /** Draws every diagram again when the theme changes. */

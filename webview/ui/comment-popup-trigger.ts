@@ -44,6 +44,14 @@ export interface CommentPopupTriggerPorts {
   isInSearchPanel(node: Node | null): boolean;
 
   /**
+   * Returns whether a press target acts on the comment field the user writes in: the fixed toolbar and its popups, the
+   * floating menu, and the menus and buttons the field shows over its tables, code blocks and diagrams.
+   *
+   * @param node The press target.
+   */
+  isFieldOperationPress(node: Node | null): boolean;
+
+  /**
    * Leaves one diagnostic line for maintainers. Not used to notify users.
    *
    * @param detail The line to leave.
@@ -99,6 +107,10 @@ export class CommentPopupTrigger {
       // Search opens the popup to show a match on a comment id. Closing on a press of the search panel would close the
       // comment it has just shown.
       if (this.ports.isInSearchPanel(target)) {
+        return;
+      }
+      // While the user writes in a field, these act on it. Closing would end the input they are meant to change.
+      if (this.ports.isFieldOperationPress(target)) {
         return;
       }
       if (target !== null && isInAnnotatedText(target, comment)) {

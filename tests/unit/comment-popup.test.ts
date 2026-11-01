@@ -222,9 +222,10 @@ describe('Open mark', () => {
 });
 
 describe('Rendering entries', () => {
-  it('code and a elements in entries are not interpreted, and only the text is listed with its line breaks kept', () => {
+  it('entries are listed as blocks: a line of an entry is a paragraph, with its elements, and the blocks of a template stay', () => {
     const harness = createPopup(
-      '<p><comment id="c-1">ab<comment-body>see <code>x</code>\nand <a href="y">link</a></comment-body></comment></p>',
+      '<p><comment id="c-1">ab<comment-body>see <code id="k">x</code>\nand <a href="y" title="t">link</a>'
+      + ' <kbd>K</kbd></comment-body><comment-reply><template><h2>t</h2></template></comment-reply></comment></p>',
     );
     const comment = readElement(harness.root, 'comment');
     giveRect(comment);
@@ -232,7 +233,10 @@ describe('Rendering entries', () => {
     harness.popup.open(comment, false);
 
     const entries = [...harness.element.querySelectorAll('.comment-popup-entry')];
-    expect(entries.map((entry) => [entry.textContent, entry.children.length])).toEqual([['see x\nand link', 0]]);
+    expect(entries.map((entry) => entry.innerHTML)).toEqual([
+      '<p>see <code>x</code></p><p>and <a href="y" title="t">link</a> <kbd>K</kbd></p>',
+      '<h2>t</h2>',
+    ]);
   });
 
   it('leading and trailing whitespace is removed, and entries with empty text are not listed', () => {
@@ -370,6 +374,22 @@ describe('Keys while focus is in the popup', () => {
     const right = pressKey(field, { key: 'ArrowRight', code: 'ArrowRight' });
 
     expect([left.event.defaultPrevented, right.event.defaultPrevented]).toEqual([false, false]);
+  });
+
+  it('Tab moves focus within the popup, and a Tab whose default a field already prevented does not', () => {
+    const harness = createPopup(COMMENT);
+    openWithFocus(harness);
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    harness.element.append(first, second);
+    first.focus();
+    pressKey(first, { key: 'Tab', code: 'Tab' });
+    const moved = document.activeElement === second;
+
+    second.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
+    pressKey(second, { key: 'Tab', code: 'Tab' });
+
+    expect([moved, document.activeElement === second]).toEqual([true, true]);
   });
 
   it('Ctrl+B registered with the receiver still has its default and propagation stopped as before', () => {

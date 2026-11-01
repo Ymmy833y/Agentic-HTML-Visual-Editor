@@ -1,4 +1,5 @@
 import { findBlock, isEmptyBlock, removePlaceholderBreak } from './block';
+import type { BlockRewriteProgress } from './block-format';
 import { placeCaret, readSelectionRange } from './caret';
 import { COMPOSITION_PLACEHOLDER_TEXT } from './code-composition';
 import { toVisibleSpaces } from './comment-input';
@@ -15,7 +16,7 @@ import type { DiagnosticReporter, InputRule } from './input-dispatcher';
 import type { PendingFormat } from './pending-format';
 
 /** What a composition that started under a pending format left behind, kept until the composition ends. */
-interface PendingComposition {
+export interface PendingComposition {
   /** The block the placeholder was wrapped in. */
   readonly block: Element;
   /** The selection before the placeholder went in, to return to when nothing is committed. */
@@ -92,32 +93,55 @@ export function createPendingFormatRule(
       return 'pass';
     }
 
-    let changed = false;
+    const progress: BlockRewriteProgress = { changed: false };
     try {
       // A format element directly under the editor root would leave a bare run with no settled block to
       // normalize, so the run is wrapped in a paragraph first. Ensuring moves the selection, so it is read again.
       if (findBlock(range.startContainer, root) === undefined && ports.ensureTargetBlock() !== undefined) {
-        changed = true;
+        progress.changed = true;
       }
       const caret = readSelectionRange(root) ?? range;
-      const block = findBlock(caret.startContainer, root);
-      const wasEmpty = block !== undefined && isEmptyBlock(block);
-
       const typed = toVisibleSpaces(root, { container: caret.startContainer, offset: caret.startOffset }, text);
-      const inserted = insertTextAt(caret, typed);
-      changed = true;
-      if (wasEmpty && block !== undefined) {
-        // The height placeholder of an empty block is not needed once a character is in it.
-        removePlaceholderBreak(block);
-      }
-      flipFormatsAround(root, inserted, formats);
-      placeCaret(inserted, inserted.data.length);
+      insertFormattedText(root, caret, typed, formats, progress);
       return 'edited';
     } catch (error) {
       reportDiagnostic(`Could not give the pending format to the typed text: ${String(error)}`);
-      return changed ? 'edited' : 'consumed';
+      return progress.changed ? 'edited' : 'consumed';
     }
   };
+}
+
+/**
+ * Inserts text at a caret, applies or removes each pending format around it, and places the caret after it.
+ *
+ * The formats are decided from the ancestors of the inserted text, the same way a toggle over a range is: a held
+ * format already on the ancestors is removed, any other is applied.
+ *
+ * @param root The root the formats are read and normalized under.
+ * @param caret A collapsed range at the position to insert at.
+ * @param text The text to insert, exactly as it goes into the tree. Not empty.
+ * @param formats The pending formats, in the order they were toggled.
+ * @param progress Where it is held whether the tree was changed. Set to true once the text is in.
+ * @returns The inserted text node.
+ */
+export function insertFormattedText(
+  root: Element,
+  caret: Range,
+  text: string,
+  formats: readonly ToggleFormat[],
+  progress: BlockRewriteProgress,
+): Text {
+  const block = findBlock(caret.startContainer, root);
+  const wasEmpty = block !== undefined && isEmptyBlock(block);
+  const inserted = insertTextAt(caret, text);
+  progress.changed = true;
+  if (wasEmpty && block !== undefined) {
+    // The height placeholder of an empty block is not needed once a character is in it.
+    removePlaceholderBreak(block);
+  }
+  flipFormatsAround(root, inserted, formats);
+  placeCaret(inserted, inserted.data.length);
+  return inserted;
 }
 
 /**
@@ -134,7 +158,7 @@ export function createPendingFormatRule(
  * @param reportDiagnostic The diagnostic reporter for maintainers.
  * @returns What was left behind for the end of the composition, or `undefined` when nothing was placed.
  */
-function preparePendingComposition(
+export function preparePendingComposition(
   root: Element,
   pending: PendingFormat,
   keepPlaceholder: (text: Text) => void,
@@ -187,7 +211,7 @@ function preparePendingComposition(
  * @param committed Whether the composition committed text.
  * @param reportDiagnostic The diagnostic reporter for maintainers.
  */
-function finishPendingComposition(
+export function finishPendingComposition(
   root: Element,
   composition: PendingComposition,
   committed: boolean,
