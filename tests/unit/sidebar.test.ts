@@ -16,6 +16,7 @@ import {
   ACCEPT_ALL_CLASS,
   REJECT_ALL_CLASS,
   RESOLVED_ICON_PATH,
+  SELECT_CHANGE_CLASS,
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_ICON_PATH,
   SIDEBAR_OPEN_ATTRIBUTE,
@@ -40,8 +41,9 @@ interface Harness {
   readonly root: HTMLElement;
   readonly toolbar: Toolbar;
   /**
-   * The targets passed to the move port, as kind:ID, followed by "by keyboard" when chosen with the keyboard, and
-   * "accept all" for each call of the port that accepts every change.
+   * The targets passed to the move port, as kind:ID, followed by "by keyboard" when chosen with the keyboard, "accept
+   * all" and "reject all" for each call of the ports that decide every change, and "accept selected:" or "reject
+   * selected:" followed by the IDs of the chosen marks for each call of the ports that decide the chosen ones.
    */
   readonly moves: string[];
   /** The layout changes passed to the port that keeps them for the views opened afterwards, in the order passed. */
@@ -93,6 +95,8 @@ function attach(html: string, layout?: SidebarLayout, mount = true): Harness {
     move: (target, byKeyboard) => moves.push(`${target.kind}:${target.element.id}${byKeyboard ? ' by keyboard' : ''}`),
     acceptAllChanges: () => moves.push('accept all'),
     rejectAllChanges: () => moves.push('reject all'),
+    acceptSelectedChanges: (heads) => moves.push(`accept selected:${[...heads].map((head) => head.id).join(',')}`),
+    rejectSelectedChanges: (heads) => moves.push(`reject selected:${[...heads].map((head) => head.id).join(',')}`),
     hasShortcut: () => false,
     returnToEditor: () => undefined,
     registerTooltip: () => undefined,
@@ -378,6 +382,99 @@ describe('The sidebar', () => {
       element.querySelector(`.${ACCEPT_ALL_CLASS}`),
       element.querySelector(`.${REJECT_ALL_CLASS}`),
     ]).toEqual([[true, true], 'No changes', null, null]);
+  });
+
+  it('leads each change item with a box that takes no focus and is hidden from assistive technology', () => {
+    const { sidebar, element } = attach('<p><ins id="i">added</ins> <del id="d">removed</del></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+    const boxes = [...element.querySelectorAll<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)];
+
+    expect(boxes.map((box) => [
+      box.type,
+      box.checked,
+      box.tabIndex,
+      box.getAttribute('aria-hidden'),
+      box.nextElementSibling?.textContent,
+    ])).toEqual([
+      ['checkbox', false, -1, 'true', 'added'],
+      ['checkbox', false, -1, 'true', 'removed'],
+    ]);
+  });
+
+  it('moves from a change item to the next item with the down arrow, passing over the box of that item', () => {
+    const { sidebar, element } = attach('<p><ins id="i">added</ins> <del id="d">removed</del></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+    const [first, second] = readItems(element).filter((button) => button.closest('li') !== null);
+    first.focus();
+
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+
+    expect(document.activeElement).toBe(second);
+  });
+
+  it('turns the two buttons into Accept Selected and Reject Selected once a change is chosen, and passes the chosen marks to their ports', () => {
+    const { sidebar, element, moves } = attach(
+      '<p><ins id="i">added</ins> <del id="d">removed</del></p><p><ins id="j">more</ins></p>',
+    );
+    sidebar.open();
+    readTab(element, 'Changes').click();
+    const boxes = [...element.querySelectorAll<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)];
+
+    boxes[2].click();
+    element.querySelectorAll<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)[0].click();
+    element.querySelector<HTMLButtonElement>(`.${ACCEPT_ALL_CLASS}`)?.click();
+    element.querySelector<HTMLButtonElement>(`.${REJECT_ALL_CLASS}`)?.click();
+
+    expect([
+      [...element.querySelectorAll<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)].map((box) => box.checked),
+      element.querySelector(`.${ACCEPT_ALL_CLASS}`)?.textContent,
+      element.querySelector(`.${REJECT_ALL_CLASS}`)?.textContent,
+      moves,
+    ]).toEqual([
+      [true, false, true],
+      'Accept Selected',
+      'Reject Selected',
+      ['accept selected:j,i', 'reject selected:j,i'],
+    ]);
+  });
+
+  it('turns the buttons back into Accept All and Reject All once every chosen change is unchosen', () => {
+    const { sidebar, element, moves } = attach('<p><ins id="i">added</ins></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+
+    element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.click();
+    element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.click();
+    element.querySelector<HTMLButtonElement>(`.${ACCEPT_ALL_CLASS}`)?.click();
+
+    expect([
+      element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.checked,
+      element.querySelector(`.${ACCEPT_ALL_CLASS}`)?.textContent,
+      element.querySelector(`.${REJECT_ALL_CLASS}`)?.textContent,
+      moves,
+    ]).toEqual([false, 'Accept All', 'Reject All', ['accept all']]);
+  });
+
+  it('drops the choice of changes on switching to another tab and back, and on closing and opening the sidebar', () => {
+    const { sidebar, element } = attach('<p><ins id="i">added</ins></p>');
+    sidebar.open();
+    readTab(element, 'Changes').click();
+    element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.click();
+    readTab(element, 'Headings').click();
+    readTab(element, 'Changes').click();
+    const afterSwitch = element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.checked;
+    element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.click();
+
+    sidebar.close();
+    sidebar.open();
+
+    expect([
+      afterSwitch,
+      element.querySelector<HTMLInputElement>(`.${SELECT_CHANGE_CLASS}`)?.checked,
+      element.querySelector(`.${ACCEPT_ALL_CLASS}`)?.textContent,
+    ]).toEqual([false, false, 'Accept All']);
   });
 
   it('names the chosen tab on the tab panel, so that the stylesheet can set the headings apart by depth', () => {

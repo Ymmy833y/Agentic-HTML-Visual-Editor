@@ -237,6 +237,8 @@ export const MESSAGE_KEYS = [
   'exportPdf.exported',
   'exportPdf.saveDialog.title',
   'exportPdf.saveDialog.filter',
+  'sidebar.acceptSelected',
+  'sidebar.rejectSelected',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

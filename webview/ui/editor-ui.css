@@ -1620,6 +1620,26 @@
   background: color-mix(in srgb, var(--ahve-accent) 18%, transparent);
 }
 
+/* The box that chooses a change sits ahead of its item on the same row, and the item takes the rest of the row, so it
+   is pressed and cut with an ellipsis as before. The class is spelled as in sidebar.ts. */
+#editor-sidebar li:has(> .sidebar-change-select) {
+  display: flex;
+  align-items: center;
+  gap: 0.15em;
+}
+
+#editor-sidebar .sidebar-change-select {
+  flex: none;
+  margin: 0 0 0 0.3em;
+  accent-color: var(--ahve-accent);
+  cursor: pointer;
+}
+
+#editor-sidebar li > .sidebar-change-select + button {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The two buttons above the list of changes that accept or reject every change: outlined chips side by side, green
    for accepting (it keeps the insertions) and red for rejecting (it takes them out), so that they read as actions rather
    than as items of the list. The classes are spelled as in sidebar.ts. */
