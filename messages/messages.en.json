@@ -51,6 +51,7 @@
   "restoreFailure.discardFailed": "The discard of the backup couldn't be recorded. Please try again.",
   "openInWysiwyg.failed.message": "The file could not be opened in the visual editor, so the current tab was left unchanged.",
   "openInHtml.failed.message": "The file could not be opened in the text editor, so the current tab was left unchanged.",
+  "addFileToChat.failed.message": "The file could not be added to chat.",
   "splitEditor.unavailable.message": "The visual editor can show a file in only one tab, so the file was not opened in the new editor group.",
   "toolbar.save": "Save",
   "toolbar.bold": "Bold",

@@ -51,6 +51,7 @@
   "restoreFailure.discardFailed": "バックアップの破棄を記録できませんでした。もう一度お試しください。",
   "openInWysiwyg.failed.message": "ファイルをビジュアルエディターで開けなかったため、現在のタブはそのままです。",
   "openInHtml.failed.message": "ファイルをテキストエディターで開けなかったため、現在のタブはそのままです。",
+  "addFileToChat.failed.message": "ファイルをチャットに追加できませんでした。",
   "splitEditor.unavailable.message": "ビジュアルエディターでは 1 つのファイルを 1 つのタブでしか開けないため、新しいエディター グループには開きませんでした。",
   "toolbar.save": "保存",
   "toolbar.bold": "太字",
