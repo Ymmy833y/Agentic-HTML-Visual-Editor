@@ -36,6 +36,7 @@ export default defineConfig({
         'src/link/relative-link-opener.ts',
         'src/session/session-registry.ts',
         'src/clipboard/copy-as-html.ts',
+        'src/chat/add-file-to-chat.ts',
         'src/export/export-pdf.ts',
         'src/export/pdf-link-target.ts',
         'src/export/pdf-writer.ts',

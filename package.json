@@ -71,6 +71,12 @@
         "command": "ahve.exportAsPdf",
         "title": "%command.exportAsPdf.title%",
         "category": "%command.category%"
+      },
+      {
+        "command": "ahve.addFileToChat",
+        "title": "%command.addFileToChat.title%",
+        "category": "%command.category%",
+        "icon": "$(attach)"
       }
     ],
     "customEditors": [
@@ -106,6 +112,11 @@
           "command": "ahve.openInHtmlEditor",
           "group": "navigation",
           "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
+        },
+        {
+          "command": "ahve.addFileToChat",
+          "group": "navigation@1",
+          "when": "activeCustomEditorId == ahve.documentEditor && resourceFilename =~ /\\.html$/i && resourceScheme =~ /^(file|vscode-remote)$/ && chatIsEnabled && ahve.supportsChatFileAttach"
         }
       ],
       "commandPalette": [
@@ -140,6 +151,10 @@
         {
           "command": "ahve.exportAsPdf",
           "when": "activeCustomEditorId =~ /^ahve\\.(documentEditor|editor)$/ && resourceFilename =~ /\\.html$/i"
+        },
+        {
+          "command": "ahve.addFileToChat",
+          "when": "activeCustomEditorId == ahve.documentEditor && resourceFilename =~ /\\.html$/i && resourceScheme =~ /^(file|vscode-remote)$/ && chatIsEnabled && ahve.supportsChatFileAttach"
         }
       ]
     },

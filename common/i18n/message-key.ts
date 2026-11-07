@@ -51,6 +51,7 @@ export const MESSAGE_KEYS = [
   'restoreFailure.discardFailed',
   'openInWysiwyg.failed.message',
   'openInHtml.failed.message',
+  'addFileToChat.failed.message',
   'splitEditor.unavailable.message',
   'toolbar.save',
   'toolbar.bold',
