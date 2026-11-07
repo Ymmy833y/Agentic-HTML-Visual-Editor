@@ -236,5 +236,7 @@
   "toolbar.exportAsPdf": "PDF に書き出す",
   "exportPdf.exported": "PDF に書き出しました",
   "exportPdf.saveDialog.title": "PDF に書き出す",
-  "exportPdf.saveDialog.filter": "PDF"
+  "exportPdf.saveDialog.filter": "PDF",
+  "sidebar.acceptSelected": "選択を承認",
+  "sidebar.rejectSelected": "選択を却下"
 }

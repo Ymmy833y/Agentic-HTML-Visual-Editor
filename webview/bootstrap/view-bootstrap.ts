@@ -39,7 +39,7 @@ import type { CellMergeState, CellRangeSelection } from '../editing/cell-range';
 import { attachClipboardCopy } from '../editing/clipboard-copy';
 import type { ClipboardCopyPorts } from '../editing/clipboard-copy';
 import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
-import { resolveAllChanges, resolveChange } from '../editing/change-resolve';
+import { resolveAllChanges, resolveChange, resolveSelectedChanges } from '../editing/change-resolve';
 import type { ChangeResolvePorts } from '../editing/change-resolve';
 import { canRunCommentItem, runCommentItem } from '../editing/comment-create';
 import type { CommentItemPorts } from '../editing/comment-create';
@@ -943,6 +943,12 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       },
       rejectAllChanges: () => {
         resolveAllChanges(changeResolvePorts, 'reject');
+      },
+      acceptSelectedChanges: (heads) => {
+        resolveSelectedChanges(changeResolvePorts, heads, 'accept');
+      },
+      rejectSelectedChanges: (heads) => {
+        resolveSelectedChanges(changeResolvePorts, heads, 'reject');
       },
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
       returnToEditor: () => viewShell.editorReturn.returnToEditor(),

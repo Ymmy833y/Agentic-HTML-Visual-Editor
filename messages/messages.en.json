@@ -236,5 +236,7 @@
   "toolbar.exportAsPdf": "Export as PDF",
   "exportPdf.exported": "Exported to PDF",
   "exportPdf.saveDialog.title": "Export as PDF",
-  "exportPdf.saveDialog.filter": "PDF"
+  "exportPdf.saveDialog.filter": "PDF",
+  "sidebar.acceptSelected": "Accept Selected",
+  "sidebar.rejectSelected": "Reject Selected"
 }
