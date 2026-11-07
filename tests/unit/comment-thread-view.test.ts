@@ -258,4 +258,15 @@ describe('Looking up entries from entry texts', () => {
     expect([harness.view.readEntryAt(before), harness.view.readEntryAt(after)])
       .toEqual([undefined, readElement(root, 'comment-body')]);
   });
+
+  it('readEntryTexts returns the entry texts in document order and leaves out the empty entry display', () => {
+    const root = mountRoot(
+      '<p><comment id="c-1">ab<comment-body>one</comment-body><comment-reply> </comment-reply>'
+      + '<comment-reply>three</comment-reply></comment></p>',
+    );
+    const harness = createView();
+    harness.view.render(readElement(root, 'comment'), NO_ADJACENT, createState(harness.fields));
+
+    expect(harness.view.readEntryTexts().map((text) => text.textContent)).toEqual(['one', 'three']);
+  });
 });

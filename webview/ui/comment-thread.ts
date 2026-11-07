@@ -361,6 +361,17 @@ export class CommentThread implements CommentPopupContent {
   }
 
   /**
+   * Returns the entry texts drawn in the popup, in document order.
+   *
+   * Used to copy only what the entries hold from a selection in the popup.
+   *
+   * @returns The entry texts. Empty when there is no thread view.
+   */
+  readEntryTexts(): readonly Element[] {
+    return this.view?.readEntryTexts() ?? [];
+  }
+
+  /**
    * Starts editing an entry. Opens it through the same path as pressing the entry's edit control, with a confirmation for AI entries.
    *
    * Does not wait for the confirmation result. The caller is the click handler and does not use the result.
