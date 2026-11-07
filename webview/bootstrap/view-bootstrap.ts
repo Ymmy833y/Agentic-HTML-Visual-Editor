@@ -117,6 +117,7 @@ import { attachCommentCaret } from '../ui/comment-caret';
 import { COMMENT_POPUP_ELEMENT_ID, COMMENT_POPUP_ENTRY_CLASS, attachCommentPopup } from '../ui/comment-popup';
 import { attachCommentPopupResize, readEmbeddedCommentPopupWidth } from '../ui/comment-popup-resize';
 import type { CommentPopup } from '../ui/comment-popup';
+import { attachCommentPopupCopy } from '../ui/comment-popup-copy';
 import { attachCommentPopupPress } from '../ui/comment-popup-press';
 import { attachCommentPopupTrigger } from '../ui/comment-popup-trigger';
 import type { CommentPopupTrigger } from '../ui/comment-popup-trigger';
@@ -1195,6 +1196,10 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
     attachCommentPopupPress(popupElement, {
       readEntryAt: (node) => commentThread?.readEntryAt(node),
       startEdit: (entry) => commentThread?.startEdit(entry),
+      reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+    });
+    attachCommentPopupCopy(popupElement, {
+      readEntryTexts: () => commentThread?.readEntryTexts() ?? [],
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
     });
     attachCommentPopupResize(view, popupElement, {
