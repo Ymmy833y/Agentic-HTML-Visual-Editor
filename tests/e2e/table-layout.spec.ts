@@ -1285,7 +1285,7 @@ test.describe('showing and operating the menu', () => {
   test('fits the whole menu in the visible area near the bottom right even when its size has a fraction below half a pixel', async ({ page }) => {
     await openLayoutEditor(page, `\n<p style="height: 560px">x</p>${TABLE_BODY}`);
     // Sizes that whole-pixel measurement rounds down, whatever the font. Both are larger than the menu's contents.
-    await page.addStyleTag({ content: `${MENU} { box-sizing: border-box; width: 150.25px; height: 400.25px; }` });
+    await page.addStyleTag({ content: `${MENU} { box-sizing: border-box; width: 300.25px; height: 400.25px; }` });
     const cell = await readRect(page, '#f');
     const viewport = page.viewportSize();
 
@@ -1298,7 +1298,7 @@ test.describe('showing and operating the menu', () => {
       menu.height,
       menu.right <= (viewport?.width ?? 0),
       menu.bottom <= (viewport?.height ?? 0),
-    ]).toEqual([150.25, 400.25, true, true]);
+    ]).toEqual([300.25, 400.25, true, true]);
   });
 
   test('gives the menu the menu role and the catalog name, the items the menuitem role, and disabled items aria-disabled="true"', async ({ page }) => {
