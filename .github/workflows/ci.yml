@@ -29,14 +29,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run notices:check
 
-  # Each test layer runs on every OS the extension supports, in a job of its own so that a fast layer
-  # reports without waiting for a slow one.
+  # Pure logic and jsdom tests do not need a separate run on each OS.
   unit:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +46,7 @@ jobs:
       - run: npm run test:unit
       - run: python -m unittest discover -s skills/agentic-html-visual-editor-authoring/scripts
 
+  # Real VS Code and file-system behaviour still need coverage on every supported OS.
   integration:
     strategy:
       fail-fast: false
@@ -95,15 +91,10 @@ jobs:
       # The shard count must match the length of the matrix above.
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
 
+  # Activation checks Web Worker compatibility, so one Linux browser is enough.
   web:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    # A fixed, workspace-relative install path lets one cache step below work across the OS matrix;
-    # Playwright's own per-OS default (~/.cache, ~/Library/Caches, %LOCALAPPDATA%) would not.
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
