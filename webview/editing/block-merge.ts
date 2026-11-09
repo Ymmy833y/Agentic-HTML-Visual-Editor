@@ -5,17 +5,53 @@ import {
   createEmptyBlock,
   fillPlaceholder,
   findBlock,
+  hasBlockChild,
   isEmptyBlock,
   isHtmlWhitespaceOnly,
   isMergeableBlock,
   isSplittableBlock,
 } from './block';
-import { placeCaret } from './caret';
+import { findTrailingPreBreak, placeCaret } from './caret';
 import type { RangeDeleteKeep } from './editing-hooks';
-import { STRUCTURE_TAG_NAMES, isStructureCrossingRange, isTypableLine } from './structure-boundary';
+import { FORMAT_ELEMENT_TAG_NAMES } from './inline-format';
+import { STRUCTURE_TAG_NAMES, isStructureCrossingRange, isStructureElement, isTypableLine } from './structure-boundary';
 
 /** The direction in which to find an adjacent block. */
 export type MergeDirection = 'backward' | 'forward';
+
+/**
+ * Where a merge puts the children of the following block.
+ *
+ * `end` puts them at the end of the preceding block. A range delete joins at the start of the range, and a `br` left
+ * right before it is a line break that the range did not delete. `lastLine` puts them at the end of the last line of
+ * the preceding block. A delete at a block edge joins the lines the author sees, and a trailing `br` shows no line of
+ * its own.
+ */
+export type MergeJoin = 'end' | 'lastLine';
+
+// Inline elements that show nothing once they hold no text. A range delete leaves them empty around its ends, with
+// their attributes. Any other element shows something, or may, so a block that holds one is not blank.
+const BLANK_WRAPPER_TAG_NAMES: ReadonlySet<string> = new Set([...FORMAT_ELEMENT_TAG_NAMES, 'span']);
+
+// Containers that go together with the emptied end block they alone held, and that hold nothing once only blank
+// blocks are left in them.
+const CONTAINER_TAG_NAMES: ReadonlySet<string> = new Set(['ul', 'ol', 'li', 'blockquote', 'div']);
+
+// Lines whose kind the author chooses. When a range delete leaves nothing but blank ones, the editor root goes back to
+// one empty paragraph. A details title and a table cell are parts of a structure, so they are not among them.
+const LINE_TAG_NAMES: ReadonlySet<string> = new Set([
+  'p',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'div',
+  'blockquote',
+  'li',
+  'pre',
+]);
 
 /** One range delete keep entry. Nested entries keep only the outermost one. */
 type KeptPart =
@@ -127,25 +163,32 @@ export function removeWithSeparator(block: Element): void {
  *
  * @param previous The preceding block.
  * @param next The following block.
+ * @param join Where the children of the following block go.
  * @returns The caret position after the merge, or `undefined` when the blocks cannot be merged.
  */
-export function mergeBlocks(previous: Element, next: Element): MergePoint | undefined {
+export function mergeBlocks(previous: Element, next: Element, join: MergeJoin = 'end'): MergePoint | undefined {
   if (!isMergeableBlock(previous) || !isMergeableBlock(next)) {
     return undefined;
   }
 
+  // A trailing `br` shows no line of its own, so the last line of the preceding block ends right before it. Joining
+  // after it would put the moved content, the caret, and whatever is pasted next, on a line below an empty one.
+  const lineEnd = join === 'lastLine' ? readTrailingBreak(previous) : undefined;
+
   // If either side is empty, remove only that side. Moving content and adopting one side's type would turn a
   // heading into a paragraph merely because an adjacent empty line was removed.
   if (isEmptyBlock(next)) {
-    const point = { container: previous, offset: previous.childNodes.length };
+    const offset = previous.childNodes.length - (lineEnd === undefined ? 0 : 1);
     removeWithSeparator(next);
-    return point;
+    return { container: previous, offset };
   }
   if (isEmptyBlock(previous)) {
     removeWithSeparator(previous);
     return { container: next, offset: 0 };
   }
 
+  // The moved content fills the line that the `br` was keeping visible, so the `br` is no longer needed.
+  lineEnd?.remove();
   // The merge point is the end of the preceding block before its children move; afterward the boundary is lost.
   const point = { container: previous, offset: previous.childNodes.length };
 
@@ -155,6 +198,17 @@ export function mergeBlocks(previous: Element, next: Element): MergePoint | unde
   previous.append(...next.childNodes);
   removeWithSeparator(next);
   return point;
+}
+
+/**
+ * Returns the `br` that ends a block, when its last child is one.
+ *
+ * @param block The block to inspect.
+ * @returns The trailing `br`, or `undefined` when the last child is anything else.
+ */
+function readTrailingBreak(block: Element): Element | undefined {
+  const last = block.lastChild;
+  return last instanceof Element && last.localName === 'br' ? last : undefined;
 }
 
 /**
@@ -180,6 +234,10 @@ function placeRange(range: Range, container: Node, offset: number): void {
  * Among the range delete keep, emptied elements keep the element, lose their content and get a placeholder; kept nodes are left untouched.
  * With nothing to keep and no structure crossed, merging and restoring line breaks behave as when there is no guard.
  *
+ * An end block that is left with nothing visible goes, together with the containers that held only it, and when nothing
+ * visible is left in the editor root at all, it goes back to one empty paragraph. Either kind of shell left behind would
+ * take what is pasted or typed next.
+ *
  * @param range The range to delete.
  * @param root The editor root.
  * @param block The block containing the start of the range.
@@ -193,6 +251,9 @@ export function deleteRangeContents(
   keep: RangeDeleteKeep = NO_KEEP,
 ): Element {
   const endBlock = findBlock(range.endContainer, root);
+  // Deleting the range empties the elements that hold its ends but keeps them, so record them first: what is left of
+  // them is what the author deleted, not an empty element that was already there.
+  const rangeEnds = collectRangeEnds(range, root);
   // A line break between blocks is also deleted when covered by the range, so record its presence first.
   const hadSeparator = isSeparatorText(block.nextSibling);
   const parts = arrangeKeptParts(range, keep);
@@ -222,9 +283,12 @@ export function deleteRangeContents(
     if (point !== undefined) {
       // The emptied side remains, so add a placeholder before positioning the caret to preserve line height.
       const remaining = point.container === block ? block : endBlock;
+      // The placeholder replaces the children that the merge point counted, so a caret placed by that count would sit
+      // after the placeholder, and pasted or formatted text would then land below an empty line.
+      const emptied = isEmptyBlock(remaining);
       fillPlaceholder(remaining);
-      placeRange(range, point.container, point.offset);
-      return remaining;
+      placeRange(range, point.container, emptied ? 0 : point.offset);
+      return resetBlankRoot(range, root, rangeEnds) ?? remaining;
     }
   }
 
@@ -249,6 +313,11 @@ export function deleteRangeContents(
   if (structures !== undefined) {
     insertLineBetween(structures);
   }
+  if (endBlock !== undefined) {
+    // After the line between structures is in, so that a structure left at the end of the range still has a line next
+    // to it once an emptied code block after it is gone.
+    removeEmptiedEnd(endBlock, block, root, emptiedElements, rangeEnds);
+  }
 
   if (codeStart !== undefined) {
     // When deleting the range moves the start outside `pre`, the caret ends up after `code`, and subsequently typed characters, line breaks
@@ -260,7 +329,205 @@ export function deleteRangeContents(
   }
 
   moveRangeIntoProtected(range, emptiedElements);
-  return block;
+  return resetBlankRoot(range, root, rangeEnds) ?? block;
+}
+
+/**
+ * Returns the elements that hold the start or the end of a range, up to the editor root.
+ *
+ * Deleting the range removes the elements it holds whole, but keeps these, emptied of the part it covers.
+ *
+ * @param range The range before the delete.
+ * @param root The editor root. Not included.
+ * @returns The elements that hold an end of the range.
+ */
+function collectRangeEnds(range: Range, root: Element): ReadonlySet<Element> {
+  const ends = new Set<Element>();
+  for (const container of [range.startContainer, range.endContainer]) {
+    for (
+      let current: Element | null = container instanceof Element ? container : container.parentElement;
+      current !== null && current !== root;
+      current = current.parentElement
+    ) {
+      ends.add(current);
+    }
+  }
+  return ends;
+}
+
+/**
+ * Removes the end block of a range delete when nothing visible is left in it, then removes outward, in turn, each
+ * container that held only it.
+ *
+ * A container that holds the start block stays. Table cells, captions and details titles, and the blocks inside them,
+ * stay as well, since the table skeleton and the title are kept by their guards.
+ *
+ * @param endBlock The block that held the end of the range.
+ * @param block The block that held the start of the range.
+ * @param root The editor root.
+ * @param emptiedElements The elements a guard emptied instead of deleting.
+ * @param rangeEnds The elements that held an end of the range before the delete.
+ */
+function removeEmptiedEnd(
+  endBlock: Element,
+  block: Element,
+  root: Element,
+  emptiedElements: readonly Element[],
+  rangeEnds: ReadonlySet<Element>,
+): void {
+  if (
+    endBlock === block
+    || !root.contains(endBlock)
+    || endBlock.contains(block)
+    || emptiedElements.includes(endBlock)
+    || isInStructurePart(endBlock, root)
+    || !isBlankBlock(endBlock, rangeEnds)
+  ) {
+    return;
+  }
+
+  let container: Element | null = endBlock.parentElement;
+  removeWithSeparator(endBlock);
+  while (
+    container !== null
+    && container !== root
+    && !container.contains(block)
+    && CONTAINER_TAG_NAMES.has(container.localName)
+    && [...container.childNodes].every((child) => isSeparatorText(child))
+  ) {
+    const parent = container.parentElement;
+    removeWithSeparator(container);
+    container = parent;
+  }
+}
+
+/**
+ * Determines whether a block is, or is inside, a table cell, a caption or a details title.
+ *
+ * @param block The block to inspect.
+ * @param root The editor root. Not inspected.
+ * @returns `true` for a part of a table skeleton or a title, or a block inside one.
+ */
+function isInStructurePart(block: Element, root: Element): boolean {
+  for (let current: Element | null = block; current !== null && current !== root; current = current.parentElement) {
+    // A code block and a details section are structures too, but they are not parts that a guard keeps: an emptied
+    // code block goes, and the body of an open details section is the author's lines.
+    if (isStructureElement(current) && current.localName !== 'pre' && current.localName !== 'details') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Determines whether a block shows nothing.
+ *
+ * Text other than whitespace and elements other than one `br` count as content. Format elements left empty count as
+ * nothing, as they are editing artifacts that saving drops or what is left of a range the author deleted; one with
+ * attributes that held no end of the range was empty before the delete and counts. Inside `pre`, every character
+ * counts except the trailing line break, which forms no line, and the `code` right under it counts as nothing.
+ *
+ * @param block The block to inspect.
+ * @param rangeEnds The elements that held an end of the range before the delete.
+ * @returns `true` when nothing in the block shows.
+ */
+function isBlankBlock(block: Element, rangeEnds: ReadonlySet<Element>): boolean {
+  const insidePre = block.localName === 'pre';
+  const trailing = insidePre ? findTrailingPreBreak(block) : undefined;
+  let breaks = 0;
+  const walker = block.ownerDocument.createTreeWalker(
+    block,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT | NodeFilter.SHOW_COMMENT,
+  );
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (node instanceof Text) {
+      const data = node === trailing?.text ? node.data.slice(0, trailing.offset) : node.data;
+      if (insidePre ? data.length > 0 : !isHtmlWhitespaceOnly(data)) {
+        return false;
+      }
+      continue;
+    }
+    // An HTML comment is a note by the author. Treating it as nothing would let it go with the block.
+    if (!(node instanceof Element)) {
+      return false;
+    }
+    if (node.localName === 'br') {
+      breaks += 1;
+      if (breaks > 1) {
+        return false;
+      }
+      continue;
+    }
+    // The `code` right under a `pre` is the frame of the code block, so its attributes, such as a language class, do not
+    // keep an emptied code block from going.
+    if (insidePre && node.localName === 'code' && node.parentNode === block) {
+      continue;
+    }
+    // An empty element with attributes that held no end of the range was empty before the delete. It may be a link
+    // target or a mark that saving keeps, so it counts as content and keeps its line from being replaced or removed.
+    if (!BLANK_WRAPPER_TAG_NAMES.has(node.localName) || (node.attributes.length > 0 && !rangeEnds.has(node))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Determines whether a node holds nothing that shows.
+ *
+ * @param node A child of the editor root, or a node inside one.
+ * @param rangeEnds The elements that held an end of the range before the delete.
+ * @returns `true` for whitespace, a blank line, or a list, blockquote or `div` that holds only those.
+ */
+function holdsNothing(node: Node, rangeEnds: ReadonlySet<Element>): boolean {
+  if (node instanceof Text) {
+    return isHtmlWhitespaceOnly(node.data);
+  }
+  if (!(node instanceof Element)) {
+    return false;
+  }
+  const name = node.localName;
+  if (name === 'ul' || name === 'ol' || (CONTAINER_TAG_NAMES.has(name) && hasBlockChild(node))) {
+    return [...node.childNodes].every((child) => holdsNothing(child, rangeEnds));
+  }
+  return LINE_TAG_NAMES.has(name) && isBlankBlock(node, rangeEnds);
+}
+
+/**
+ * Puts one empty paragraph in place of what a range delete left, when nothing in the editor root shows any more.
+ *
+ * A heading or a code block left empty would take the first line of what is pasted next, and an empty list would keep
+ * its marker. The first element becomes the paragraph and the others go. HTML comments directly under the editor root
+ * stay, as they are notes by the author that the range could not select.
+ *
+ * @param range The range after the delete. Moved to the start of the paragraph.
+ * @param root The editor root.
+ * @param rangeEnds The elements that held an end of the range before the delete.
+ * @returns The empty paragraph, or `undefined` when something in the editor root still shows.
+ */
+function resetBlankRoot(range: Range, root: Element, rangeEnds: ReadonlySet<Element>): Element | undefined {
+  const children = [...root.childNodes];
+  if (!children.every((child) => child instanceof Comment || holdsNothing(child, rangeEnds))) {
+    return undefined;
+  }
+  const [first, ...rest] = children.filter((child): child is Element => child instanceof Element);
+  if (first === undefined) {
+    return undefined;
+  }
+
+  const document = root.ownerDocument;
+  let paragraph = first;
+  if (first.localName === 'p') {
+    first.replaceChildren(document.createElement('br'));
+  } else {
+    paragraph = createEmptyBlock(document, 'p');
+    first.replaceWith(paragraph);
+  }
+  for (const element of rest) {
+    removeWithSeparator(element);
+  }
+  placeRange(range, paragraph, 0);
+  return paragraph;
 }
 
 /**
