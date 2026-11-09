@@ -462,6 +462,30 @@ test.describe('Formatting in a comment field', () => {
     expect([paragraphs, await page.locator(LAST_REPLY).innerHTML()]).toEqual([['one', 'two'], 'one\ntwo']);
   });
 
+  test('Ctrl+Shift+V after Backspace merges an empty line made with Shift+Enter in the reply field puts the text at the start of the line', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await typeReply(page, '');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Backspace');
+    await writeClipboard(page, { 'text/plain': 'X' });
+
+    await page.keyboard.press('ControlOrMeta+Shift+V');
+
+    await expect.poll(() => page.locator(REPLY_FIELD).innerHTML()).toBe('<p>X</p>');
+  });
+
+  test('selecting all of a line made a heading in the reply field and deleting it leaves one empty paragraph, not a heading', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await typeReply(page, 'title');
+    await chooseBlockTypeItem(page, BLOCK_KIND_MESSAGE_KEY.heading2);
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+
+    expect(await page.locator(REPLY_FIELD).innerHTML()).toBe('<p><br></p>');
+  });
+
   test('Tab in a bulleted list of the reply field nests the item, and Tab outside a list moves focus within the popup', async ({ page }) => {
     await openCommentEditor(page, HUMAN_COMMENT);
     await typeReply(page, 'x');

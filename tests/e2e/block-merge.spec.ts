@@ -8,6 +8,7 @@ import {
   installReceiver,
   openEditor,
   placeCaret,
+  pressPrimaryShortcut,
   readBodyHtml,
   readRecord,
   selectAll,
@@ -163,5 +164,107 @@ test.describe('block merge', () => {
     await page.keyboard.press('Backspace');
 
     await expect(page.locator(`${EDITOR_ROOT} p`)).toHaveText('ac');
+  });
+
+  test('puts only the bold character into the heading when Ctrl+B and typing follow Backspace in the empty paragraph after an empty heading', async ({ page }) => {
+    await openEditor(page, '\n<h2><br></h2>\n<p><br></p>\n');
+    await focusEditor(page);
+    // The fourth child of the editor root is the empty paragraph, so the caret goes to its start.
+    await placeCaret(page, { selector: EDITOR_ROOT, childIndex: 3, offset: 0 });
+    await page.keyboard.press('Backspace');
+
+    await pressPrimaryShortcut(page, 'B');
+    await page.keyboard.type('X');
+
+    expect(await readBodyHtml(page)).toBe('\n<h2><strong>X</strong></h2>\n');
+  });
+
+  test('moves the next paragraph into the empty last line when Backspace is pressed at its start after a paragraph that ends with a line break', async ({ page }) => {
+    await openEditor(page, '\n<p>ab<br><br></p>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p:nth-of-type(2)`, childIndex: 0, offset: 0 });
+
+    await page.keyboard.press('Backspace');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab<br>cd</p>\n');
+  });
+
+  test('leaves only one empty paragraph after selecting all of a document starting with a heading and pressing Delete', async ({ page }) => {
+    await openEditor(page, '\n<h2>ab</h2>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('Delete');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><br></p>\n');
+  });
+
+  test('leaves only one empty paragraph after selecting all of a document starting with a code block and pressing Backspace', async ({ page }) => {
+    await openEditor(page, '\n<pre><code>ab</code></pre>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><br></p>\n');
+  });
+
+  test('leaves no list when Delete removes a selection from the middle of a paragraph to the end of the last item', async ({ page }) => {
+    await openEditor(page, '\n<p>abc</p>\n<ul><li>def</li></ul>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 1 });
+    for (let index = 0; index < 6; index += 1) {
+      await page.keyboard.press('Shift+ArrowRight');
+    }
+
+    await page.keyboard.press('Delete');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>a</p>\n');
+  });
+
+  test('leaves no code block when Delete removes a selection from the middle of a paragraph to the end of the code block', async ({ page }) => {
+    await openEditor(page, '\n<p>abc</p>\n<pre><code>def</code></pre>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 1 });
+    for (let index = 0; index < 6; index += 1) {
+      await page.keyboard.press('Shift+ArrowRight');
+    }
+
+    await page.keyboard.press('Delete');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>a</p>\n');
+  });
+
+  test('leaves only one empty paragraph after selecting all of a document starting with a code block whose code has a class and pressing Backspace', async ({ page }) => {
+    await openEditor(page, '\n<pre><code class="language-js">ab</code></pre>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><br></p>\n');
+  });
+
+  test('leaves no code block when Delete removes a selection from the middle of a paragraph to the end of a code block whose code has a class', async ({ page }) => {
+    await openEditor(page, '\n<p>abc</p>\n<pre><code class="language-js">def</code></pre>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: `${EDITOR_ROOT} p`, childIndex: 0, offset: 1 });
+    for (let index = 0; index < 6; index += 1) {
+      await page.keyboard.press('Shift+ArrowRight');
+    }
+
+    await page.keyboard.press('Delete');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>a</p>\n');
+  });
+
+  test('leaves only one empty paragraph after selecting all of a document starting with a heading whose text is a link and pressing Backspace', async ({ page }) => {
+    await openEditor(page, '\n<h2><a href="#x">ab</a></h2>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('Backspace');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><br></p>\n');
   });
 });

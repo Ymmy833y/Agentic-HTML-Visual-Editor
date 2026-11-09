@@ -55,7 +55,8 @@ export function readDeleteKind(inputType: string): DeleteKind | undefined {
  *
  * The browser's default merge inserts formatting `span` elements and deletes body content across structural
  * boundaries. Selected ranges are deleted by the same rule used for Enter and paste. At an edge, this rule merges
- * only with a mergeable neighbor and otherwise does nothing. Positions away from an edge pass to the browser.
+ * only with a mergeable neighbor and otherwise does nothing. The merge joins the lines the author sees, so it goes to
+ * the end of the last line of the preceding block. Positions away from an edge pass to the browser.
  *
  * Only a deletion with a range selection goes through the guard; deletion from the caret is unchanged.
  *
@@ -98,7 +99,9 @@ export function createDeleteRule(root: Element, hooks?: EditingHooks): InputRule
       return 'consumed';
     }
 
-    const point = kind.backward ? mergeBlocks(candidate, block) : mergeBlocks(block, candidate);
+    const point = kind.backward
+      ? mergeBlocks(candidate, block, 'lastLine')
+      : mergeBlocks(block, candidate, 'lastLine');
     if (point === undefined) {
       return 'consumed';
     }
