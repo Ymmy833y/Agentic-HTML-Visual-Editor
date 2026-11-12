@@ -65,6 +65,24 @@ describe('deciding input that goes through the range delete', () => {
       needsRangeReplacement(caretAt(text, 1), root),
     ]).toEqual([true, false]);
   });
+
+  it('returns true for a range ending right after a whole diagram and false for a range with text on both sides of a whole diagram', () => {
+    const root = createRoot('<p>ab</p><pre class="mermaid">graph TD</pre><p>cd</p><pre class="mermaid">graph LR</pre>');
+    const [first, second] = [...root.querySelectorAll('p')].map((paragraph) => readChildText(paragraph, 0));
+
+    expect([
+      needsRangeReplacement(createRange(second, 0, root, root.childNodes.length), root),
+      needsRangeReplacement(createRange(first, 0, second, 2), root),
+    ]).toEqual([true, false]);
+  });
+
+  it('returns false for a range from the end of a list item over a whole diagram to the middle of the next paragraph', () => {
+    const root = createRoot('<ul><li>ab</li></ul><pre class="mermaid">graph TD</pre><p>cd</p>');
+    const item = readChildText(readElement(root, 'li'), 0);
+    const paragraph = readChildText(readElement(root, 'p'), 0);
+
+    expect(needsRangeReplacement(createRange(item, 2, paragraph, 1), root)).toBe(false);
+  });
 });
 
 describe('inserting characters after deleting the range', () => {
