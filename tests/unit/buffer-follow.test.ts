@@ -5,6 +5,7 @@ import {
   BUFFER_FOLLOW_POLL_MS,
   BUFFER_FOLLOW_TIMEOUT_MS,
   pollTextBuffer,
+  waitForFollowTimeout,
 } from '../../src/save/buffer-follow';
 
 const WRITTEN_TEXT = '<!DOCTYPE html>\n<html>\n<body>\n<p>ab</p>\n</body>\n</html>\n';
@@ -87,5 +88,28 @@ describe('wait for text buffer follow', () => {
     );
 
     expect(received).toEqual([WRITTEN_TEXT]);
+  });
+});
+
+describe('waiting for the follow timeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('settles only once the follow timeout has passed', async () => {
+    let settled = false;
+    void waitForFollowTimeout().then(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS - 1);
+    const settledBeforeTimeout = settled;
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect([settledBeforeTimeout, settled]).toEqual([false, true]);
   });
 });

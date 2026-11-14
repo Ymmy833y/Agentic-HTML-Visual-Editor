@@ -6,6 +6,12 @@ export interface WriteReconcile {
   readonly previousSource: string;
   /** Write time, used as the origin for the remaining buffer-follow timeout. */
   readonly writtenAt: number;
+  /**
+   * Whether the written full text has already been written back once because the text buffer did not follow it, even if
+   * that write failed. A buffer that stays behind after that ends in a follow timeout rather than in one write after
+   * another.
+   */
+  readonly writtenBack: boolean;
 }
 
 /**
@@ -106,7 +112,22 @@ export class DocumentSyncState {
    * @param previousSource Full source text immediately before the write (LF).
    */
   retainWriteReconcile(writtenBody: string, previousSource: string): void {
-    this.reconcile = { writtenBody, previousSource, writtenAt: Date.now() };
+    this.reconcile = { writtenBody, previousSource, writtenAt: Date.now(), writtenBack: false };
+  }
+
+  /**
+   * Records that the written full text was written back once for the text buffer to reload, whether or not that write
+   * succeeded.
+   *
+   * The write reconcile is replaced by a new value timed at the write-back, so the follow timeout starts over from there.
+   * Being a new value also tells a follow deadline check scheduled for the original write that the write was taken care
+   * of. Does nothing when no write reconcile is held.
+   */
+  markWrittenBack(): void {
+    if (this.reconcile === undefined) {
+      return;
+    }
+    this.reconcile = { ...this.reconcile, writtenAt: Date.now(), writtenBack: true };
   }
 
   /**
