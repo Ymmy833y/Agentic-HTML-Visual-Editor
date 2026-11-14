@@ -574,6 +574,28 @@ test.describe('Formatting in a comment field', () => {
     expect(opened).toBe(FLOWCHART);
   });
 
+  test('selecting all in the edit field of an entry that ends with a diagram and pressing Backspace removes the diagram too and leaves one empty paragraph', async ({ page }) => {
+    await openCommentEditor(
+      page,
+      '<p>x<comment id="c-1">ab<comment-body data-author="human"><template>\n<p>note</p>\n'
+      + '<pre class="mermaid">flowchart TD\n  A --&gt; B</pre>\n</template></comment-body></comment>y</p>',
+    );
+    await page.locator(COMMENT).click({ position: { x: 2, y: 5 } });
+    await page.locator(`${POPUP} .comment-thread-entry`).first()
+      .getByRole('button', { name: englishMessages['commentThread.editEntry'], exact: true })
+      .click();
+    await expect(page.locator(EDIT_FIELD)).toBeFocused();
+    // Until the diagram is drawn, its source still shows, and the browser's select-all would take it in anyway.
+    await expect.poll(() => page.locator(`${EDIT_FIELD} pre`).evaluate(
+      (block) => block.hasAttributeNS('urn:ahve:diagram', 'data-ahve-diagram'),
+    )).toBe(true);
+
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+
+    expect(await page.locator(EDIT_FIELD).innerHTML()).toBe('<p><br></p>');
+  });
+
   test('an image inserted in the reply field is shown, and the reply is written with the source as entered and shown with the image', async ({ page }) => {
     await openCommentEditor(page, HUMAN_COMMENT, NESTED_DOCUMENT_URI);
     await typeReply(page, '');

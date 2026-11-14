@@ -1,4 +1,5 @@
-import { findBlock, isHtmlWhitespaceOnly } from './block';
+import { findDiagramSources } from '../diagram/diagram-source';
+import { containsNode, findBlock, isHtmlWhitespaceOnly } from './block';
 import type { BlockRewriteProgress } from './block-format';
 import { placeCaret, readSelectionRange } from './caret';
 import { placeRangeInEmptyCode } from './code-block-text';
@@ -15,18 +16,21 @@ const LINE_CONTENT_SELECTOR = 'img, br, comment';
  *
  * The browser's default replacement, over a structure-crossing range, deletes table rows and captions as whole elements and moves the rest of the following paragraph into the start cell,
  * `pre` or title. Over a range whose start is at a between-blocks position, even without crossing a structure, it turns the following paragraph or the whole document
- * into bare text. Both are deleted with the range delete before inserting.
+ * into bare text. Over a range that starts right before a whole diagram or ends right after one, it replaces only what lies between the positions the caret
+ * can rest on, so a diagram that select-all took in at an edge of the range stays behind. All three are deleted with the range delete before inserting.
  *
  * @param range The selection range.
  * @param root The editor root.
- * @returns `true` if there is a range selection that is a structure-crossing range or starts at a between-blocks position.
+ * @returns `true` if there is a range selection that is a structure-crossing range, starts at a between-blocks position, or starts right before or ends
+ *   right after a whole diagram.
  */
 export function needsRangeReplacement(range: Range, root: Element): boolean {
   if (range.collapsed) {
     return false;
   }
   return isStructureCrossingRange(range, root)
-    || isBetweenBlocksPosition(root, range.startContainer, range.startOffset);
+    || isBetweenBlocksPosition(root, range.startContainer, range.startOffset)
+    || holdsDiagramAtEdge(range, root);
 }
 
 /**
@@ -95,6 +99,48 @@ export function collapseStructureCrossingSelection(root: Element, reportDiagnost
     // The composition cannot be stopped, so even on failure return without changing the selection and let it continue with the default behavior.
     reportDiagnostic(`Could not collapse the structure-crossing selection before the composition: ${String(error)}`);
   }
+}
+
+/**
+ * Determines whether a range starts right before a whole diagram or ends right after one, as select-all does when it takes in a diagram at an edge.
+ *
+ * Any other range over a diagram goes with the browser's default replacement, which deletes the diagram as well and joins the rest of the end block to the
+ * start block. The range delete would turn a heading or a quote at the start back into a paragraph, and would leave the rest of the end block apart from a
+ * list item or a quote it starts in.
+ *
+ * @param range A range selection.
+ * @param root The editor root.
+ * @returns `true` if only whitespace between blocks lies between the start and the first whole diagram, or between the last whole diagram and the end.
+ */
+function holdsDiagramAtEdge(range: Range, root: Element): boolean {
+  const diagrams = findDiagramSources(root).filter((block) => containsNode(range, block));
+  const first = diagrams.at(0);
+  const last = diagrams.at(-1);
+  if (first === undefined || last === undefined) {
+    return false;
+  }
+  const probe = root.ownerDocument.createRange();
+  probe.setStart(range.startContainer, range.startOffset);
+  probe.setEndBefore(first);
+  if (isBlankBetweenBlocks(probe.cloneContents())) {
+    return true;
+  }
+  probe.setEnd(range.endContainer, range.endOffset);
+  probe.setStartAfter(last);
+  return isBlankBetweenBlocks(probe.cloneContents());
+}
+
+/**
+ * Determines whether a fragment holds only whitespace between blocks.
+ *
+ * A fragment cut out of a block that the range starts or ends in keeps that block as an element even when the cut part is empty, so the range does not
+ * start or end right at the diagram.
+ *
+ * @param fragment The fragment between an edge of a range and a diagram.
+ * @returns `true` if the fragment holds no element and only whitespace text.
+ */
+function isBlankBetweenBlocks(fragment: DocumentFragment): boolean {
+  return fragment.childElementCount === 0 && isHtmlWhitespaceOnly(fragment.textContent ?? '');
 }
 
 /**

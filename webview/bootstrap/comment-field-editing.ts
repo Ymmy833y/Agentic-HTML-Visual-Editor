@@ -13,6 +13,7 @@ import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
 import { attachDetailsReceivers, registerDetailsRules } from '../editing/details-input-rule';
 import { attachLeadingDiagramKey, removeDiagram, updateDiagramSource } from '../editing/diagram-edit';
 import type { DiagramEditPorts } from '../editing/diagram-edit';
+import { attachSelectAllKey } from '../editing/diagram-select-all';
 import { runFormatOperation } from '../editing/format-command';
 import type { FormatCommandPorts } from '../editing/format-command';
 import { registerFormatRules } from '../editing/format-input-rule';
@@ -304,6 +305,7 @@ export function attachCommentFieldEditing(field: CommentField, deps: CommentFiel
   });
   attachDiagramClick(root, (block) => editing.openDiagramDialog(block));
   attachLeadingDiagramKey(root, diagramEditPorts);
+  attachSelectAllKey(root, deps.platform, reportDiagnostic);
   attachClipboardCopy(root, {
     isComposing,
     isInputStopped,

@@ -59,6 +59,7 @@ import type { FormatShortcutPorts } from '../editing/format-shortcuts';
 import { registerHtmlPasteRule } from '../editing/html-paste-rule';
 import { attachLeadingDiagramKey, removeDiagram, updateDiagramSource } from '../editing/diagram-edit';
 import type { DiagramEditPorts } from '../editing/diagram-edit';
+import { attachSelectAllKey } from '../editing/diagram-select-all';
 import { updateImage } from '../editing/image-edit';
 import { insertImage } from '../editing/image-insert';
 import type { ImageInsertPorts } from '../editing/image-insert';
@@ -1256,6 +1257,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   attachDiagramClick(target.root, openDiagram);
   // The caret never enters a diagram, so ArrowUp adds the line a leading diagram leaves no room for.
   attachLeadingDiagramKey(target.root, diagramEditPorts);
+  // For the same reason, the browser's select-all leaves out the diagrams at the start and the end.
+  attachSelectAllKey(target.root, platform, (detail) => postDiagnostic(channel, detail));
   // The copy and cut listeners attach to the editor root whether or not a toolbar exists. The editor root stays the
   // same element across document replacement, so attach them only on the first mount. Document replacement swaps the
   // editing session and the input stop changes from moment to moment, so the ports are read on every call.
