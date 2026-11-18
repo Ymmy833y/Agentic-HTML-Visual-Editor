@@ -30,62 +30,14 @@ Rules:
 
 - The comments in the HTML are the only record. The editor has no other place where it stores them, so do not keep them anywhere else.
 - A comment never contains another comment, and its annotated text never contains a block element. Put the comment inside one block, such as a `p`, an `li`, or a `td`, around the phrase it is about.
-- An entry takes the same formatting as the document body. Write text and inline formatting directly in the entry, as you write the text of a paragraph: `&` and `<` escaped as in any HTML text, and the inline markup described in [formatting.md](formatting.md), such as `strong`, `em`, `code`, or `a` with an `href`.
-- Write a line break as a line break in the text, not as `br`. The editor shows each line of an entry as a paragraph.
-- When an entry needs a block other than a paragraph, such as a heading, a list, a table, a code block, an alert, a collapsible section, or a diagram, put its whole content inside one `template` element, and write it there as blocks, the way the document body is written and as [formatting.md](formatting.md) describes. Put nothing else in that entry, apart from whitespace around the `template`. A block written directly inside an entry would end the paragraph the comment sits in when the document is opened again.
-- Do not put a comment inside an entry. The editor shows it as its text only.
+- An entry takes the same formatting as the document body: text and inline markup, or one `template` that holds blocks. [replying.md](replying.md#writing-an-entry) describes how to write the content of an entry and how to choose its format.
 - The editor decides that an entry comes from an agent by checking that `data-author` is exactly `ai`.
-
-## Choosing a format
-
-Write an entry as plain text only when it is a short answer of one or two sentences, like the reply in the example above. Give anything longer a structure that the reader can take in at a glance:
-
-| Content | Format |
-| --- | --- |
-| Several points to confirm, or steps | A numbered list |
-| Options or values to compare | A table |
-| An assumption, a risk, or a caveat | An alert |
-| The source of a statement | A link |
-| The conclusion | Bold text |
-
-Links and bold text are inline formatting and need no `template`. Lists, tables, and alerts are blocks and go inside one.
-
-An entry with a table and its conclusion:
-
-```html
-<p>The cache is <comment id="c-b5c6d7e8">cleared every hour<comment-body contenteditable="false" data-author="ai" data-updated="2026-01-15T09:30:00.000Z"><template>
-<p>The interval is not decided yet. The two candidates:</p>
-<table>
-<tbody>
-<tr><th scope="col">Interval</th><th scope="col">Load</th><th scope="col">Stale data</th></tr>
-<tr><td>Every 30 minutes</td><td>Twice the current load</td><td>Up to 30 minutes old</td></tr>
-<tr><td>On each deploy</td><td>The lowest</td><td>Until the next deploy</td></tr>
-</tbody>
-</table>
-<p><strong>Every 30 minutes is suggested</strong>, because stale data is the larger risk.</p>
-</template></comment-body></comment>.</p>
-```
-
-An entry with an alert and a numbered list:
-
-```html
-<p>An export finishes <comment id="c-c9d0e1f2">within a minute<comment-body contenteditable="false" data-author="ai" data-updated="2026-01-15T09:45:00.000Z"><template>
-<blockquote data-alert="warning">
-<p>Measured on a test project of 200 files only.</p>
-</blockquote>
-<p>Please confirm:</p>
-<ol>
-<li>The number of files in the largest project.</li>
-<li>Whether a minute is acceptable for that project.</li>
-</ol>
-</template></comment-body></comment>.</p>
-```
 
 ## Appending and resolving
 
 Apart from the resolved mark described below, keep every existing comment exactly as it is. Do not change its text, its author, its time, its `id`, or the order of its entries, and do not delete any of it. When you revise the text that a comment is about, leave the `comment` element and all its entries in place around the revised text.
 
-To answer a comment, append a `comment-reply` as the last child of that `comment`, with `data-author="ai"` and the current time:
+To answer a comment, append a reply with `scripts/add_reply.py`, as [replying.md](replying.md#appending-a-reply) describes. The script writes the markup below. When you write a reply by hand, append a `comment-reply` as the last child of that `comment`, with `data-author="ai"` and the current time:
 
 ```html
 <comment-reply contenteditable="false" data-author="ai" data-updated="2026-01-15T11:20:05.000Z"><template>
@@ -112,15 +64,18 @@ A person can open the thread by clicking its annotated text or its sidebar entry
 `scripts/list_comments.py` reads the comments of one or more HTML files and prints them as a JSON array. It only reads the files.
 
 ```bash
-python3 scripts/list_comments.py [--status all|unresolved|resolved] file.html [more.html ...]
+python3 scripts/list_comments.py [--status all|unresolved|resolved|awaiting-reply] file.html [more.html ...]
 ```
 
-Files are listed in the order given, and the comments of a file in document order. For a file `report.html` that holds the comment shown at the top, the output is:
+`--status` takes `all` (the default), `unresolved`, `resolved`, or `awaiting-reply`. `awaiting-reply` keeps the unresolved comments whose last entry is not by `ai`: the threads that wait for your answer.
+
+Files are listed in the order given, and the comments of a file in document order. For a file `report.html` that holds the comment shown at the top on line 12, the output is:
 
 ```json
 [
   {
     "file": "report.html",
+    "line": 12,
     "id": "c-a1b2c3d4",
     "resolved": false,
     "target": "cleared every hour",
@@ -145,6 +100,7 @@ Files are listed in the order given, and the comments of a file in document orde
 | Field | Meaning |
 | --- | --- |
 | `file` | The path as it was given on the command line. |
+| `line` | The line of the file where the start tag of the `comment` is, counting from 1. |
 | `id` | The `id` of the `comment`. An empty string when it has none. |
 | `resolved` | `true` when the `comment` has `data-resolved`, whatever its value. |
 | `target` | The annotated text on one line: line breaks and runs of whitespace become one space, and the body and the replies are left out. |
@@ -191,7 +147,7 @@ Problems are listed in the order of the files given, and those of a file in the 
 | `template-misuse` | `error` | An entry has other content beside its `template`, an entry has more than one `template`, or a `template` is outside an entry. |
 | `block-outside-template` | `error` | An entry contains a block element that is not inside a `template`. Only the outermost block is reported. |
 | `comment-in-entry` | `error` | A comment is inside an entry of another comment. |
-| `long-plain-entry` | `warning` | An entry without a `template` has 3 or more lines, or 150 or more characters, not counting tags. See [Choosing a format](#choosing-a-format). |
+| `long-plain-entry` | `warning` | An entry without a `template` has 3 or more lines, or 150 or more characters, not counting tags. See [Choosing a format](replying.md#choosing-a-format). |
 | `future-updated` | `warning` | An entry's `data-updated` is later than the time the script runs. |
 
 - The exit code is 0 when there is no error, even with warnings, and 1 when there is at least one error.
