@@ -33,12 +33,13 @@ _EDITABLE_VALUE = 'false'
 _TEMPLATE_TAG_NAME = 'template'
 
 # Block elements. A comment sits inside a paragraph, and the browser ends that paragraph at the first of these written
-# directly inside it, which tears the comment apart when the document is opened again.
+# directly inside it, which tears the comment apart when the document is opened again. The browser ends a paragraph at
+# obsolete or rarely used ones such as `center`, `dir`, `listing` and `search` as well, so they count too.
 _BLOCK_TAG_NAMES = frozenset({
-    'address', 'article', 'aside', 'blockquote', 'caption', 'col', 'colgroup', 'dd', 'details', 'dialog', 'div', 'dl',
-    'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hgroup',
-    'hr', 'li', 'main', 'menu', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th',
-    'thead', 'tr', 'ul',
+    'address', 'article', 'aside', 'blockquote', 'caption', 'center', 'col', 'colgroup', 'dd', 'details', 'dialog',
+    'dir', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'header', 'hgroup', 'hr', 'li', 'listing', 'main', 'menu', 'nav', 'ol', 'p', 'pre', 'search', 'section', 'summary',
+    'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
 })
 
 # An entry without a `template` at or beyond either size is reported as long: it may read better as a list, a table,

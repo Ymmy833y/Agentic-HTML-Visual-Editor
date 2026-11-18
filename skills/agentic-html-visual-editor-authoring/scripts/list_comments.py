@@ -4,7 +4,7 @@ A tool for checking comments without opening the editor. Comments live only in t
 keeps no separate record and reads the files every time it is called. Input files are only read, never modified.
 
 Usage:
-    python scripts/list_comments.py [--status all|unresolved|resolved] file.html [...]
+    python scripts/list_comments.py [--status all|unresolved|resolved|awaiting-reply] file.html [...]
 """
 
 import argparse
@@ -16,10 +16,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 # The statuses that can be specified. The first one applies when none is given.
-_STATUSES = ('all', 'unresolved', 'resolved')
+_STATUSES = ('all', 'unresolved', 'resolved', 'awaiting-reply')
 
 _BODY_TAG_NAME = 'body'
 _COMMENT_TAG_NAME = 'comment'
+
+# The author of the entries an agent writes. As in the editor, an entry is the agent's only when its author is exactly
+# this value; any other value, or none, counts as a person's.
+_AGENT_AUTHOR = 'ai'
 
 # Entry element names mapped to the `kind` in the result.
 _ENTRY_KINDS = {'comment-body': 'body', 'comment-reply': 'reply'}
@@ -103,11 +107,18 @@ class _CommentCollector(HTMLParser):
     this class, so that both scripts read a document the same way.
     """
 
-    def __init__(self, file_name, body):
+    def __init__(self, file_name, body, first_line=1):
+        """
+        Args:
+            file_name: The name to put in `file` of the records.
+            body: The text inside `<body>`.
+            first_line: The line of the file on which the body starts, so that `line` counts from the start of the file.
+        """
         super().__init__(convert_charrefs=True)
         self.comments = []
         self._file_name = file_name
         self._body = body
+        self._body_first_line = first_line
         # Where each line of the body starts, to turn the line and column of `getpos` into a position in the body.
         self._line_starts = [0, *(match.end() for match in re.finditer('\n', body))]
         self._open_elements = []
@@ -240,6 +251,9 @@ class _CommentCollector(HTMLParser):
         if tag == _COMMENT_TAG_NAME:
             comment = {
                 'file': self._file_name,
+                # The line of the start tag, so that a reader can open the file around the comment without reading
+                # all of it.
+                'line': self._body_first_line + self.getpos()[0] - 1,
                 'id': attributes.get('id', ''),
                 # Whether a comment is resolved depends only on whether the attribute is present. Its value is
                 # ignored, even `false`.
@@ -392,13 +406,13 @@ def _find_tag_end(text, index):
 
 
 def _find_end_tag_end(text, index):
-    """Find the `>` that closes an end tag as the HTML specification does, starting at `index` right after its name.
+    """Find the `>` that closes a tag as the HTML specification does, starting at `index` right after its name.
 
-    Returns the position right after it, or -1 if there is none. A quotation mark encloses a value only when it
-    comes right after `=`, and a `>` inside it does not close the tag. A quotation mark in the middle of a name or
-    inside an unquoted value is just a character. `_find_tag_end` copies the editor's body boundary scan, which
-    takes a value to start wherever a quotation mark appears, so it is not used for end tags in the body that
-    the browser reads.
+    The rules are the same for an end tag and a start tag. Returns the position right after it, or -1 if there is
+    none. A quotation mark encloses a value only when it comes after `=` and any whitespace, and a `>` inside it does
+    not close the tag. A quotation mark in the middle of a name or inside an unquoted value is just a character.
+    `_find_tag_end` copies the editor's body boundary scan, which takes a value to start wherever a quotation mark
+    appears, so it is not used for end tags in the body that the browser reads.
     """
     length = len(text)
     while index < length:
@@ -508,7 +522,7 @@ def extract_comments(file_name: str, html: str) -> list[dict]:
         html: The text of the whole document.
 
     Returns:
-        A list of comment records (`file`, `id`, `resolved`, `target`, `entries`), one per comment.
+        A list of comment records (`file`, `line`, `id`, `resolved`, `target`, `entries`), one per comment.
         An empty list if there are no comments.
 
     Raises:
@@ -517,7 +531,7 @@ def extract_comments(file_name: str, html: str) -> list[dict]:
     # Only the body found by the editor's scan is passed to `HTMLParser`.
     start, end = locate_body(file_name, html)
     body = html[start:end]
-    collector = _CommentCollector(file_name, body)
+    collector = _CommentCollector(file_name, body, html.count('\n', 0, start) + 1)
     collector.feed(body)
     collector.close()
     return collector.comments
@@ -551,18 +565,26 @@ def filter_comments(comments: list[dict], status: str) -> list[dict]:
 
     Args:
         comments: A list of comment records.
-        status: One of `all`, `unresolved` and `resolved`.
+        status: One of `all`, `unresolved`, `resolved` and `awaiting-reply`. `awaiting-reply` keeps the unresolved
+            comments whose last entry is not by the agent: the threads that wait for an answer.
 
     Returns:
         A list of the comments that match the status.
 
     Raises:
-        ValueError: The status is none of the three.
+        ValueError: The status is none of the four.
     """
     if status not in _STATUSES:
         raise ValueError(f'unknown status: {status} (choose from {", ".join(_STATUSES)})')
     if status == 'all':
         return list(comments)
+    if status == 'awaiting-reply':
+        # A comment without entries holds nothing to answer.
+        return [
+            comment
+            for comment in comments
+            if not comment['resolved'] and comment['entries'] and comment['entries'][-1]['author'] != _AGENT_AUTHOR
+        ]
     return [comment for comment in comments if comment['resolved'] == (status == 'resolved')]
 
 
@@ -590,7 +612,8 @@ def main(argv: list[str] | None = None) -> int:
         '--status',
         choices=_STATUSES,
         default=_STATUSES[0],
-        help='resolution status of the comments to return (default: all)',
+        help='status of the comments to return (default: all). awaiting-reply returns the unresolved comments whose'
+        ' last entry is not by ai',
     )
     parser.add_argument('files', nargs='+', metavar='file.html', help='HTML files to read (UTF-8)')
     try:
