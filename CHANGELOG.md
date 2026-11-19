@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-19
+
+This release updates the Agent Skill. Run `npx skills add Ymmy833y/Agentic-HTML-Visual-Editor` again to install the new version.
+
+### Added
+
+- Agent Skill: answer comments without reading the whole document. When an agent only answers comments, the new `references/replying.md` has it read the threads that wait for its answer and the lines around them
+- Agent Skill: add `add_reply.py`, which appends a reply by `ai` with the current time to a comment and checks it as `check_comments.py` does. A reply that would add an error, contain a tag the editor forbids, or reach beyond its comment is not written
+- Agent Skill: add `--status awaiting-reply` to `list_comments.py`, which lists the unresolved comments whose last entry is not by `ai`, and give each comment the `line` of the file where it starts
+- Add **Add File to Chat** to the visual editor's title bar and the Command Palette, which attaches the open document to VS Code's chat. It appears in VS Code 1.96 or later while chat is enabled; the chat reads the file on disk, so unsaved visual edits are not included
+- Select changes with check boxes in the sidebar's **Changes** tab, and accept or reject only those with **Accept Selected** or **Reject Selected**; the decision is one step to undo
+- Undo and redo the draft in a comment field while the field has focus. Once the draft is back where it started, the keys continue with the document's history
+
+### Changed
+
+- Agent Skill: move how to write the content of an entry from `references/comments.md` to `references/replying.md`, and how to run `list_comments.py` and `check_comments.py` from `SKILL.md` to `references/comments.md`
+- Include diagrams at the start or end of the document or a comment field in `Ctrl+A`, so deleting the selection removes them and copying it includes their source
+- Leave one empty paragraph after deleting everything in the document or a comment field, and leave no empty block or container behind when a deleted range reaches the end of the last block
+- Show a tooltip above its target when there is room, otherwise below it with a gap, and keep it shown while the pointer moves onto it; link hover hints behave the same way
+- Copy only the formatting of the entries, not the look of the popup, when copying from the comment popup; pasting the entries no longer brings in the popup's background color
+
+### Fixed
+
+- Agent Skill: treat `center`, `dir`, `listing`, and `search` as block elements in `check_comments.py`, since a browser ends a comment's paragraph at them as well
+- Start pasted text, and text typed with formatting, at the beginning of a line emptied by joining empty lines with `Backspace` or by deleting a range, instead of after a leftover empty line
+- Put content joined with `Backspace` into a paragraph that ends with a line break, and text typed next, on that paragraph's empty last line
+- Start a view opened right after resizing the comment popup or the sidebar with the new width and layout
+- Keep the text buffer in step with a save when VS Code misses the change of the file, which could leave it empty or at the previous content
+
 ## [1.1.0] - 2026-11-01
 
 ### Added

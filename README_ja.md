@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor：AI エージェントと人間をつなぐ WYSIWYG エディタ" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.1.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.2.0-F59E0B?style=for-the-badge" alt="Marketplace のバージョン" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 以降" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT ライセンス" /></a>
 </p>
@@ -80,6 +80,8 @@ AI エージェントと人間が共同で編集・レビューする設計メ�
 
 新しい空のファイルでは、画面の **HTML の骨組みを作って開く** を選ぶと、基本の HTML 構造を書き込んで編集を始められます。
 
+文書を VS Code のチャットに渡すには、エディタのタイトルバーの **ファイルをチャットに追加** を押します。このボタンは、VS Code 1.96 以降でチャットが有効なときに表示されます。チャットはディスク上のファイルを読むので、最新の編集を渡したいときは先に保存してください。
+
 ## 🤖 Agent Skill
 
 このリポジトリには Agent Skill が入っています。AI エージェントに、このエディタ向けの HTML の書き方とレビューコメントの扱い方を教えるものです。次のコマンドで導入します。
@@ -88,7 +90,9 @@ AI エージェントと人間が共同で編集・レビューする設計メ�
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-導入されるのは `agentic-html-visual-editor-authoring` というスキルです。このスキルには、文書のコメントを一覧にするスクリプト（`list_comments.py`）と、コメントのマークアップを検査するスクリプト（`check_comments.py`）が付いていて、動かすには Python 3.11 以上が必要です。
+導入されるのは `agentic-html-visual-editor-authoring` というスキルです。スキルを更新するときも、同じコマンドを実行します。
+
+エージェントがコメントに答えるだけのときは、文書の全体ではなく、回答を待つスレッドとその前後の行だけを読ませます。このスキルには、文書のコメントを一覧にするスクリプト（`list_comments.py`）、コメントのマークアップを検査するスクリプト（`check_comments.py`）、返信を書き足すスクリプト（`add_reply.py`）が付いていて、動かすには Python 3.11 以上が必要です。
 
 ## 👀 機能の一覧
 
@@ -100,7 +104,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 | 🔽 **折りたたみ** | 画面上で開閉でき、状態も保存される `<details>` |
 | 💡 **アラート** | GitHub 風の引用（note・tip・important・warning・caution） |
 | 💬 **レビューコメント** | HTML の中に残るスレッド。書いた人と日時、解決済みかどうか、書式付きの文章、幅を変えられるポップアップ |
-| 🔄 **変更のレビュー** | エージェントが記した挿入・削除・置換のマーク。個別または一括で承認・却下 |
+| 🔄 **変更のレビュー** | エージェントが記した挿入・削除・置換のマーク。個別、選んだものだけ、または一括で承認・却下 |
 | 🔗 **リンクと画像** | ダイアログでの挿入と編集。`Ctrl`+クリックでリンクを開く |
 | 📊 **Mermaid の図** | VS Code のテーマに合わせて表示し、ファイルにはソースを残す |
 | 🔍 **検索と置換** | `Ctrl+F` で検索。大文字小文字の区別、単語単位、コメント ID での検索。`Ctrl+H` で置換 |
@@ -169,6 +173,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 - 文字を選び、ツールバーかフローティングメニューからコメントを付けます。色の付いた文字を押すか、その中にキャレットを置いて `Alt+Enter` を押すと、スレッドが開きます。
 - 本文と返信には、文書と同じ書式（インラインの書式、リンク、見出し、リスト、コードブロック、表などのブロック）を付けて書けます。入力欄でも、ツールバー、フローティングメニュー、キーボードショートカットを使えます。
 - ポップアップの右端をドラッグすると、幅を変えられます。幅は表示範囲の内側に収まり、ほかのコメントにもほかのファイルにも引き継がれます。
+- 入力欄で元に戻す・やり直しを使うと、まず書きかけの文章を 1 操作ずつ戻し、書き始めまで戻ると文書の履歴に移ります。
 - 本文と返信は、追加・編集・削除ができます。書き込みごとに書いた人と日時が記録され、アバターの色で人間と AI エージェントの書き込みを見分けられます。
 - スレッドは解決済みにでき、解決済みのスレッドは目立たない表示になります。
 - AI エージェントの書き込みを編集・削除するときは、先に確認のダイアログが出ます。
@@ -180,7 +185,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 - エージェントは、提案する変更を HTML の `<ins>` と `<del>`、または要素全体の `data-change="ins"` / `data-change="del"` で記します。画面での編集では、マークを自動で付けません。
 - 挿入と削除をそれぞれ強調表示します。マークを押すか、サイドバーで選ぶか、マーク内にキャレットを置いて `Alt+Enter` を押すと、書いた人、日時、**承認**・**却下** の操作が表示されます。
 - 削除と挿入が隣り合い、どちらも AI、またはどちらも人間の変更として記されている場合は、1 つの置換として扱います。承認すると新しい文字が残り、却下すると元の文字に戻ります。
-- サイドバーの **変更** タブには、**すべて承認** と **すべて却下** があります。個別・一括のどちらも、1 回の元に戻す操作で戻せます。
+- サイドバーの **変更** タブには、**すべて承認** と **すべて却下** があります。変更のチェックボックスを 1 つ以上選ぶと、ボタンが **選択を承認** と **選択を却下** に替わり、選んだ変更だけを承認・却下できます。どの承認・却下も、1 回の元に戻す操作で戻せます。
 
 ### 🔗 リンクと画像
 
@@ -202,6 +207,7 @@ npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 - ツールバーから図を挿入できます。既存の図を押すと、ダイアログでソースを編集できます。
 - ファイルに残るのはソースだけで、描画した図は保存しません。構文に誤りがあるとエラーが表示されますが、ソースは引き続き編集できます。
 - 図の上に出るボタンか `Ctrl`+ホイール（macOS では `Cmd`+ホイール）で、50%〜400% に拡大・縮小できます。リセットで 100% に戻ります。倍率を変えても HTML は変わりません。
+- `Ctrl+A` の全選択には、文書の先頭や末尾にある図も入ります。そのまま消すと図も消え、コピーすると図のソースも写ります。
 
 ### 🔍 検索と置換
 
