@@ -77,6 +77,7 @@ export interface TestSupportApi {
   showConflictsForTest(documentUri: string): boolean;
   closeWithoutSavingForTest(documentUri: string): Promise<boolean>;
   exportPdfForTest(documentUri: string, destinationUri: string): Promise<boolean>;
+  addFileToChatForTest(argument: unknown): Promise<readonly string[]>;
 }
 
 /** The minimal shape of a session that the test drive hooks may touch. */
@@ -118,6 +119,14 @@ export interface TestSupportDependencies {
    * The dialog is a native window that a test cannot answer, and every other step stays the one the command takes.
    */
   readonly exportPdfForTest: (documentUri: string, destinationUri: string) => Promise<boolean>;
+  /**
+   * Runs "Add File to Chat" with the given command argument through the command's own path, recording the source URIs
+   * handed to the chat instead of handing them over.
+   *
+   * Handing a file to the chat opens the chat view and moves focus there, and what the chat then holds cannot be read
+   * through the extension API.
+   */
+  readonly addFileToChatForTest: (argument: unknown) => Promise<readonly string[]>;
 }
 
 /** The copy returned when inspection is disabled: no registrations and no active target. */
@@ -254,6 +263,12 @@ export function createTestSupportApi(dependencies: TestSupportDependencies): Tes
         return false;
       }
       return dependencies.exportPdfForTest(dependencies.normalizeDocumentUri(documentUri), destinationUri);
+    },
+    addFileToChatForTest: async (argument) => {
+      if (!enabled) {
+        return [];
+      }
+      return dependencies.addFileToChatForTest(argument);
     },
   };
 }

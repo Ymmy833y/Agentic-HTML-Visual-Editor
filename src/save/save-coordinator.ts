@@ -34,7 +34,7 @@ import type {
   RecordedEndpoints,
 } from '../history/edit-history-coordinator';
 import { PendingRequests } from '../messaging/pending-requests';
-import { BUFFER_FOLLOW_TIMEOUT_MS, pollTextBuffer } from './buffer-follow';
+import { BUFFER_FOLLOW_TIMEOUT_MS, pollTextBuffer, waitForFollowTimeout } from './buffer-follow';
 import { DocumentOperationQueue } from './document-operation-queue';
 import type { QueuedOperationResult } from './document-operation-queue';
 import type { DocumentSyncState } from './document-sync-state';
@@ -318,9 +318,11 @@ export interface RecoveryOperationPort {
  *
  * Only file change notifications poll a buffer still at the sync base until the timeout because a file notification
  * can arrive before the text buffer follows the change. Initial reconciliation performs the same polling only when a
- * notification was missed while the sync base was uninitialized.
+ * notification was missed while the sync base was uninitialized. A follow deadline is raised by the coordinator itself
+ * when a write is still unreconciled once its follow timeout has passed, because VS Code can leave a buffer behind a
+ * write without sending any notification.
  */
-export type SourceChangeTrigger = 'textBufferChange' | 'fileChange' | 'initialReconcile';
+export type SourceChangeTrigger = 'textBufferChange' | 'fileChange' | 'initialReconcile' | 'followDeadline';
 
 /** Source reread trigger. Save and Revert use the same source-resolution process. */
 export type SourceResolutionTrigger = SourceChangeTrigger | 'save' | 'revert';
@@ -355,6 +357,14 @@ interface BufferText {
 
 /** Clean full text resolved by buffer follow, or dirty state detected while waiting. */
 type BufferFollowOutcome = BufferText | { readonly kind: 'dirty' };
+
+/**
+ * What writing the file back for a text buffer left behind came to.
+ *
+ * A file that no longer holds the written full text is kept apart from a failed write: only that file makes a source
+ * still mid-write at the deadline count as a truncation made outside.
+ */
+type FollowWriteBack = 'writtenBack' | 'fileDiffers' | 'writeFailed';
 
 /**
  * Result of full-document application determined by the host.
@@ -1251,6 +1261,9 @@ export class SaveCoordinator {
   /**
    * Waits for an unreconciled write or for a buffer that has not moved yet to follow the disk.
    *
+   * A buffer still behind an unreconciled write at the deadline gets the file written back once, and the wait starts
+   * over from there.
+   *
    * @param trigger Trigger that initiated reconciliation.
    * @param current Buffer content from the initial read.
    * @returns A resolved clean buffer, dirty state detected while waiting, or `undefined` on timeout.
@@ -1271,16 +1284,19 @@ export class SaveCoordinator {
       const isMidWrite = (text: string): boolean => text !== reconcile.previousSource
         && text.length < reconcile.writtenBody.length
         && reconcile.writtenBody.startsWith(text);
-      const settled = await this.pollBuffer(
-        // If the buffer is still at the previous source or in the middle of the write, the direct write has not reached
-        // it. Poll and wait. Either a match or a later external change settles the buffer follow being awaited.
-        (text) => text === reconcile.writtenBody || (text !== reconcile.previousSource && !isMidWrite(text)),
-        current,
-        remaining,
-        // Past the deadline a mid-write source cannot be told apart from a truncation made outside, so it is taken
-        // as a later external change, like any other content that differs from both texts.
-        isMidWrite,
-      );
+      // If the buffer is still at the previous source or in the middle of the write, the direct write has not reached
+      // it. Poll and wait. Either a match or a later external change settles the buffer follow being awaited.
+      const hasFollowed = (text: string): boolean => text === reconcile.writtenBody
+        || (text !== reconcile.previousSource && !isMidWrite(text));
+      // The last read is taken even at the deadline, so that a buffer left behind can be told apart below.
+      let settled = await this.pollBuffer(hasFollowed, current, remaining, () => true);
+      let writeBack: FollowWriteBack | undefined;
+      if (settled !== undefined && !('kind' in settled) && !hasFollowed(settled.text) && !reconcile.writtenBack) {
+        writeBack = await this.writeBackForFollow(reconcile.writtenBody);
+        if (writeBack === 'writtenBack') {
+          settled = await this.pollBuffer(hasFollowed, settled, BUFFER_FOLLOW_TIMEOUT_MS, () => true);
+        }
+      }
 
       if (settled === undefined) {
         return undefined;
@@ -1289,6 +1305,11 @@ export class SaveCoordinator {
         // Dirty state does not settle buffer follow. Clearing the write reconcile here could misidentify a buffer that
         // becomes clean with its pre-write content as an external change, rolling back the preceding save.
         return settled;
+      }
+      // Past the deadline, a source still mid-write is a truncation made outside only when the file no longer holds the
+      // written full text either. Any other buffer still behind is a follow timeout, and the write reconcile is kept.
+      if (!hasFollowed(settled.text) && (writeBack !== 'fileDiffers' || !isMidWrite(settled.text))) {
+        return undefined;
       }
       syncState.clearWriteReconcile();
       // The buffer has been confirmed to follow the written full text. As long as that content remains the sync base,
@@ -1717,10 +1738,11 @@ export class SaveCoordinator {
   }
 
   /**
-   * Retains the write reconcile after a successful write, then advances the sync base to the candidate.
+   * Retains the write reconcile after a successful write, advances the sync base to the candidate, and schedules the
+   * follow deadline check.
    *
-   * Reversing this order would move only the sync base while no write reconcile exists. A change notification arriving
-   * in that interval could not distinguish this extension's write from an external change.
+   * Reversing the first two would move only the sync base while no write reconcile exists. A change notification
+   * arriving in that interval could not distinguish this extension's write from an external change.
    *
    * @param writtenBody Full document text that was written (LF).
    * @param previousSource Full source text immediately before the write (LF).
@@ -1729,6 +1751,73 @@ export class SaveCoordinator {
     const syncState = this.state.syncState;
     syncState.retainWriteReconcile(writtenBody, previousSource);
     syncState.completeSync(writtenBody);
+    this.scheduleFollowDeadline();
+  }
+
+  /**
+   * Reconciles once the follow timeout of the write just retained has passed, unless its write reconcile was settled or
+   * replaced first.
+   *
+   * VS Code can leave a clean text buffer behind a direct write without sending any change notice, and then nothing
+   * would ever wait for the buffer or write the file back to make it reload.
+   */
+  private scheduleFollowDeadline(): void {
+    const syncState = this.state.syncState;
+    const reconcile = syncState.writeReconcile;
+    void waitForFollowTimeout().then(() => {
+      if (this.queue.isClosed || reconcile === undefined || syncState.writeReconcile !== reconcile) {
+        return;
+      }
+      void this.queue.run(async () => {
+        // An operation queued earlier may have settled this write, or written it back, while this one waited its turn.
+        if (syncState.writeReconcile === reconcile) {
+          await this.reconcileSourceChange('followDeadline');
+        }
+      }).then(undefined, (error: unknown) => {
+        this.host.reportInternalError(`A follow deadline check ended with an error: ${String(error)}`);
+      });
+    });
+  }
+
+  /**
+   * Writes the file's own full text back once, while it still holds the written full text, so that VS Code reloads a
+   * text buffer it left behind.
+   *
+   * A reload can land in the middle of a direct write, and the rest of the write can then go unnoticed: on macOS, VS
+   * Code's file watcher drops a change whose modification time equals the previous one, and it can miss changes. Writing
+   * the file is the only way the extension can make VS Code reload a buffer. Writing the file's own text changes neither
+   * the content nor its line endings, and a file that no longer holds the written full text is left alone, because
+   * writing it would overwrite a change made outside.
+   *
+   * @param writtenBody Full document text that was written (LF).
+   * @returns Whether the file was written back, no longer holds the written full text, or could not be written.
+   */
+  private async writeBackForFollow(writtenBody: string): Promise<FollowWriteBack> {
+    let fileText: string;
+    try {
+      fileText = await this.host.readFile(this.documentUri);
+    } catch {
+      // This extension writes only UTF-8, so a file that cannot be read as UTF-8, or at all, was changed outside.
+      return 'fileDiffers';
+    }
+    if (normalizeLineEndings(fileText) !== writtenBody) {
+      return 'fileDiffers';
+    }
+
+    try {
+      await this.host.writeFile(this.documentUri, fileText);
+    } catch (error) {
+      this.host.reportInternalError(
+        `Failed to write ${this.documentUri} back for the text buffer to reload: ${String(error)}`,
+      );
+      // The write empties the file before writing, so a failed one can leave only the start of the written full text.
+      // Once marked, a buffer reloaded from that file ends in a follow timeout instead of replacing the view as an
+      // external change.
+      this.state.syncState.markWrittenBack();
+      return 'writeFailed';
+    }
+    this.state.syncState.markWrittenBack();
+    return 'writtenBack';
   }
 
   /**

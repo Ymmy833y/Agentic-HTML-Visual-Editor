@@ -72,13 +72,15 @@ describe('the sidebar layout store', () => {
     ]);
   });
 
-  it('goes on reading the layout it wrote while the global state returns the value it replaced, even after the write settles', async () => {
+  it('goes on reading the layout it wrote while the global state returns the value it replaced, even 3 seconds after the write settles', async () => {
     const state = createState({ sidebarLayout: { open: false } });
-    // The write settles, but the global state still returns the value from before it for a while.
+    let now = 1000;
+    // The write settles, but the global state still returns the value from before it.
     const lagging = { get: state.get, update: (): Promise<void> => Promise.resolve() };
-    const store = new SidebarLayoutStore(lagging);
+    const store = new SidebarLayoutStore(lagging, () => now);
 
     await store.write({ width: 300 });
+    now = 4000;
 
     expect(store.read()).toEqual({ open: false, width: 300 });
   });
@@ -94,15 +96,30 @@ describe('the sidebar layout store', () => {
     expect(store.read()).toEqual({ open: false, width: 500 });
   });
 
-  it('reads the layout another window puts back to the one before the write, once the global state has returned the written one', async () => {
+  it('goes on reading the layout it wrote when, right after returning it, the global state goes back to the value it replaced', async () => {
     const state = createState({ sidebarLayout: { open: false } });
-    const store = new SidebarLayoutStore(state);
+    const store = new SidebarLayoutStore(state, () => 0);
+    await store.write({ open: true });
+
+    // Stands for the notice of an earlier write arriving after this one and bringing back the value it replaced.
+    state.values.set('sidebarLayout', { open: false });
+
+    expect(store.read()).toEqual({ open: true });
+  });
+
+  it('reads the layout another window puts back to the one before the write, once 3 seconds have passed since the global state returned the written one', async () => {
+    const state = createState({ sidebarLayout: { open: false } });
+    let now = 1000;
+    const store = new SidebarLayoutStore(state, () => now);
     await store.write({ open: true });
 
     // Stands for another window closing the sidebar this one opened.
     state.values.set('sidebarLayout', { open: false });
+    now = 3999;
+    const beforeTheHoldEnds = store.read();
+    now = 4000;
 
-    expect(store.read()).toEqual({ open: false });
+    expect([beforeTheHoldEnds, store.read()]).toEqual([{ open: true }, { open: false }]);
   });
 
   it('stores only the open state when there is no width', async () => {

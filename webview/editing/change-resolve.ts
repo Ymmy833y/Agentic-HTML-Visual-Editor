@@ -25,6 +25,8 @@ export const CHANGE_EDIT_KIND = {
   reject: 'change:reject',
   acceptAll: 'change:acceptAll',
   rejectAll: 'change:rejectAll',
+  acceptSelected: 'change:acceptSelected',
+  rejectSelected: 'change:rejectSelected',
 } as const;
 
 /** What the user decided about a change mark. */
@@ -133,14 +135,69 @@ export function resolveChange(ports: ChangeResolvePorts, change: Element, decisi
  * @returns Whether the tree was changed. `false` when input is stopped, the attempt cannot start, or there is no mark.
  */
 export function resolveAllChanges(ports: ChangeResolvePorts, decision: ChangeDecision): boolean {
+  return resolveChangesInOrder(
+    ports,
+    decision === 'accept' ? CHANGE_EDIT_KIND.acceptAll : CHANGE_EDIT_KIND.rejectAll,
+    decision,
+    () => true,
+    'every change',
+  );
+}
+
+/**
+ * Accepts or rejects only the change marks chosen in the list, in document order, in one edit attempt.
+ *
+ * Each mark is decided by the same rule as when deciding them all, so a chosen replacement pair is decided as one, and
+ * the marks left out stay marks. A chosen mark taken out takes the marks inside it along, chosen or not. The selection
+ * is not touched, as when deciding them all.
+ *
+ * @param ports Ports for resolving change marks.
+ * @param heads The chosen marks. A replacement pair is chosen through its head, the deletion.
+ * @param decision Whether to accept or reject them.
+ * @returns Whether the tree was changed. `false` when input is stopped, the attempt cannot start, or no chosen mark is
+ *   in the tree.
+ */
+export function resolveSelectedChanges(
+  ports: ChangeResolvePorts,
+  heads: ReadonlySet<Element>,
+  decision: ChangeDecision,
+): boolean {
+  return resolveChangesInOrder(
+    ports,
+    decision === 'accept' ? CHANGE_EDIT_KIND.acceptSelected : CHANGE_EDIT_KIND.rejectSelected,
+    decision,
+    (change) => heads.has(readChangeHead(change)),
+    'the selected changes',
+  );
+}
+
+/**
+ * Accepts or rejects the marks of the editor root that pass the filter, in document order, in one edit attempt.
+ *
+ * @param ports Ports for resolving change marks.
+ * @param kind The edit kind of the attempt.
+ * @param decision Whether to accept or reject them.
+ * @param isChosen Whether a mark is to be decided.
+ * @param subject What is being decided, for the diagnostic line.
+ * @returns Whether the tree was changed.
+ */
+function resolveChangesInOrder(
+  ports: ChangeResolvePorts,
+  kind: string,
+  decision: ChangeDecision,
+  isChosen: (change: Element) => boolean,
+  subject: string,
+): boolean {
   const root = ports.readEditorRoot();
   if (ports.isInputStopped() || root === undefined) {
     return false;
   }
-  return ports.runCommandEdit(decision === 'accept' ? CHANGE_EDIT_KIND.acceptAll : CHANGE_EDIT_KIND.rejectAll, () => {
+  return ports.runCommandEdit(kind, () => {
     const progress: BlockRewriteProgress = { changed: false };
     try {
-      for (const change of readChanges(root)) {
+      // Chosen before anything is touched: taking out the deletion of a pair leaves its insertion without a head, so it
+      // would no longer read as part of the chosen pair.
+      for (const change of readChanges(root).filter(isChosen)) {
         // A mark taken out before this one took it out of the tree together with the content.
         if (!change.isConnected) {
           continue;
@@ -153,7 +210,7 @@ export function resolveAllChanges(ports: ChangeResolvePorts, decision: ChangeDec
         }
       }
     } catch (error) {
-      ports.reportDiagnostic(`Could not finish resolving every change: ${String(error)}`);
+      ports.reportDiagnostic(`Could not finish resolving ${subject}: ${String(error)}`);
     }
     return progress.changed;
   });

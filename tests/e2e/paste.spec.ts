@@ -83,6 +83,29 @@ test.describe('plain-text paste', () => {
 
     expect(await readBodyHtml(page)).toBe('\n<p>aXd</p>\n');
   });
+
+  test('pastes from the start of the heading after Backspace in the empty paragraph after an empty heading', async ({ page }) => {
+    await openEditor(page, '\n<h2><br></h2>\n<p><br></p>\n');
+    await focusEditor(page);
+    // The fourth child of the editor root is the empty paragraph, so the caret goes to its start.
+    await placeCaret(page, { selector: EDITOR_ROOT, childIndex: 3, offset: 0 });
+    await page.keyboard.press('Backspace');
+
+    await paste(page, { 'text/plain': 'X' });
+
+    expect(await readBodyHtml(page)).toBe('\n<h2>X</h2>\n');
+  });
+
+  test('pastes into the empty last line of a paragraph that ends with a line break after Backspace in the empty paragraph after it', async ({ page }) => {
+    await openEditor(page, '\n<p>ab<br><br></p>\n<p><br></p>\n');
+    await focusEditor(page);
+    await placeCaret(page, { selector: EDITOR_ROOT, childIndex: 3, offset: 0 });
+    await page.keyboard.press('Backspace');
+
+    await paste(page, { 'text/plain': 'X' });
+
+    expect(await readBodyHtml(page)).toBe('\n<p>ab<br>X</p>\n');
+  });
 });
 
 test.describe('paste with an HTML form and rule order', () => {

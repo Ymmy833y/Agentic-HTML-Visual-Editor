@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-import { HOST_TO_VIEW_MESSAGE_TYPE, VIEW_TO_HOST_MESSAGE_TYPE } from '../../common/index';
+import { EDITOR_ROOT_ELEMENT_ID, HOST_TO_VIEW_MESSAGE_TYPE, VIEW_TO_HOST_MESSAGE_TYPE } from '../../common/index';
 import { SEARCH_HIGHLIGHT_NAME } from '../../webview/search/search-highlight';
 import { ACTION_DIALOG_ELEMENT_ID } from '../../webview/ui/action-dialog';
 import { CODE_BLOCK_COPY_ELEMENT_ID } from '../../webview/ui/code-block-copy';
 import { TOOLBAR_ELEMENT_ID } from '../../webview/ui/toolbar';
 import { TOOLBAR_SLOT } from '../../webview/ui/toolbar-slots';
-import { EDITOR_ROOT, openEditor, paste } from './helpers/editing';
+import { EDITOR_ROOT, focusEditor, openEditor, paste, readBodyHtml, selectAll } from './helpers/editing';
 import { getOutboundMessages, openProductionWebviewHost, sendToWebview } from './helpers/page';
 
 const PROLOGUE = '<!DOCTYPE html>\n<html><body>';
@@ -24,6 +24,10 @@ const FLOWCHART = 'flowchart TD\n  A[Start] --> B[End]';
 const FLOWCHART_MARKUP = FLOWCHART.replace(/>/g, '&gt;');
 const DIAGRAM = `${EDITOR_ROOT} pre`;
 const BODY = `\n<p>before</p>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>after</p>\n`;
+// A body that begins and ends with a diagram, which the browser's select-all leaves out.
+const EDGE_BODY = `\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>middle</p>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n`;
+const FIRST_DIAGRAM = `${EDITOR_ROOT} pre:first-of-type`;
+const LAST_DIAGRAM = `${EDITOR_ROOT} pre:last-of-type`;
 const DIAGRAM_ITEM = `#${TOOLBAR_ELEMENT_ID} [data-slot="${TOOLBAR_SLOT.diagram}"] > button`;
 const DIALOG = `#${ACTION_DIALOG_ELEMENT_ID}`;
 const SOURCE_FIELD = `${DIALOG} textarea`;
@@ -39,6 +43,8 @@ declare global {
     __diagramCopies?: string[];
     /** The content security policy violations reported by the page. */
     __cspViolations?: { directive: string; blocked: string }[];
+    /** The codes of keydown events that reached the window's bubbling phase, as VS Code would forward them. */
+    __forwardedKeys?: string[];
   }
 }
 
@@ -196,6 +202,33 @@ async function readSentTypes(page: Page): Promise<unknown[]> {
   return (await getOutboundMessages(page)).map((message) => (
     typeof message === 'object' && message !== null ? Reflect.get(message, 'type') : undefined
   ));
+}
+
+/**
+ * Starts recording the keys that reach the window's bubbling phase, where VS Code picks them up.
+ *
+ * @param page The page.
+ */
+async function installForwardRecord(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const record: string[] = [];
+    window.__forwardedKeys = record;
+    window.addEventListener('keydown', (event) => record.push(event.code));
+  });
+}
+
+/**
+ * Reads the start and the end of the selection as the text of each container and the offset in it.
+ *
+ * @param page The page.
+ * @returns The text and offset of the start, then of the end.
+ */
+async function readSelectionEnds(page: Page): Promise<(string | number | undefined)[]> {
+  return page.evaluate(() => {
+    const range = window.getSelection()?.getRangeAt(0);
+    return [range?.startContainer.textContent ?? undefined, range?.startOffset,
+      range?.endContainer.textContent ?? undefined, range?.endOffset];
+  });
 }
 
 test.describe('Drawing diagram source blocks', () => {
@@ -449,6 +482,117 @@ test.describe('Removing diagrams', () => {
 
     await expect(page.locator(DIAGRAM)).toHaveCount(0);
     await expect.poll(() => readBodyOutput(page)).toBe('\n<p>before</p>\n<p>after</p>\n');
+  });
+});
+
+test.describe('Selecting all with diagrams', () => {
+  test('Ctrl+A in a document that begins and ends with a diagram frames both diagrams and keeps the key from VS Code', async ({ page }) => {
+    await openEditor(page, EDGE_BODY);
+    await waitForDrawing(page, FIRST_DIAGRAM);
+    await focusEditor(page);
+    await installForwardRecord(page);
+
+    await selectAll(page);
+
+    await expect.poll(async () => [
+      await hasMark(page, SELECTED_MARK, FIRST_DIAGRAM),
+      await hasMark(page, SELECTED_MARK, LAST_DIAGRAM),
+    ]).toEqual([true, true]);
+    expect(await page.evaluate(() => window.__forwardedKeys ?? [])).not.toContain('KeyA');
+  });
+
+  test('Delete after Ctrl+A in a document that begins and ends with a diagram removes the diagrams too and leaves one empty paragraph', async ({ page }) => {
+    await openEditor(page, EDGE_BODY);
+    await waitForDrawing(page, FIRST_DIAGRAM);
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('Delete');
+
+    expect(await readBodyHtml(page)).toBe('\n<p><br></p>\n');
+  });
+
+  test('Ctrl+C after Ctrl+A in a document that begins and ends with a diagram writes both source blocks into the HTML form', async ({ page }) => {
+    await openEditor(page, EDGE_BODY);
+    await waitForDrawing(page, FIRST_DIAGRAM);
+    await page.evaluate(() => {
+      window.__diagramCopies = [];
+      window.addEventListener('copy', (event) => window.__diagramCopies?.push(event.clipboardData?.getData('text/html') ?? ''));
+    });
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.press('ControlOrMeta+C');
+
+    await expect.poll(() => page.evaluate(() => window.__diagramCopies ?? [])).toEqual([
+      `<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>middle</p>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>`,
+    ]);
+  });
+
+  test('typing after Ctrl+A in a document that ends with a diagram removes the diagram too and leaves only the paragraph of the typed character', async ({ page }) => {
+    await openEditor(page, `\n<p>before</p>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n`);
+    await waitForDrawing(page);
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>x</p>\n');
+  });
+
+  test('typing after Ctrl+A in a document whose blockquote begins with a diagram removes the diagram and the blockquote and leaves only the paragraph of the typed character', async ({ page }) => {
+    await openEditor(
+      page,
+      `\n<blockquote><pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>quote</p></blockquote>\n<p>after</p>\n`,
+    );
+    await waitForDrawing(page);
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<p>x</p>\n');
+  });
+
+  test('typing after Ctrl+A in a document that begins with a heading and has a diagram only in the middle removes the diagram and keeps the heading for the typed character', async ({ page }) => {
+    await openEditor(page, `\n<h1>title</h1>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>after</p>\n`);
+    await waitForDrawing(page);
+    await focusEditor(page);
+    await selectAll(page);
+
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<h1>x</h1>\n');
+  });
+
+  test('typing over a range from the end of a list item over a diagram to the middle of the next paragraph removes the diagram and joins the rest of the paragraph to the item', async ({ page }) => {
+    await openEditor(page, `\n<ul><li>ab</li></ul>\n<pre class="mermaid">${FLOWCHART_MARKUP}</pre>\n<p>cd</p>\n`);
+    await waitForDrawing(page);
+    await page.evaluate((rootId) => {
+      document.getElementById(rootId)?.focus();
+      const item = document.querySelector('li')?.firstChild;
+      const paragraph = document.querySelector('p')?.firstChild;
+      if (item !== null && item !== undefined && paragraph !== null && paragraph !== undefined) {
+        window.getSelection()?.setBaseAndExtent(item, 2, paragraph, 1);
+      }
+    }, EDITOR_ROOT_ELEMENT_ID);
+
+    await page.keyboard.type('x');
+
+    expect(await readBodyHtml(page)).toBe('\n<ul><li>abxd</li></ul>\n');
+  });
+
+  test('Ctrl+A in a document without a diagram keeps the browser select-all over both paragraphs and lets the key reach VS Code', async ({ page }) => {
+    await openEditor(page, '\n<p>ab</p>\n<p>cd</p>\n');
+    await focusEditor(page);
+    await installForwardRecord(page);
+
+    await selectAll(page);
+
+    expect([
+      await readSelectionEnds(page),
+      (await page.evaluate(() => window.__forwardedKeys ?? [])).includes('KeyA'),
+    ]).toEqual([['ab', 0, 'cd', 2], true]);
   });
 });
 

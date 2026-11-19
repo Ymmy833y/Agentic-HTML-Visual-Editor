@@ -598,6 +598,8 @@ describe('the queued unit of a save', () => {
     const release = harness.holdRoundTripEnd();
 
     const outcome = await harness.coordinator.save(notCancelled);
+    // The buffer follows the first write, so the next save does not wait out the follow timeout.
+    harness.setBuffer(VIEW_TEXT, false);
     // Queue the next save before the save committed send has finished. While the unit is still
     // running, no output is requested yet.
     const following = harness.coordinator.save(notCancelled);
@@ -803,19 +805,20 @@ describe('Revert', () => {
     expect([await reverting, readsWhileWaiting > readsAfterSave + 1]).toEqual(['completed', true]);
   });
 
-  it('notifies recovery steps and retains the write reconcile when the previous source remains until timeout', async () => {
+  it('notifies recovery steps and retains the write reconcile when the previous source remains past the timeout even after writing the file back', async () => {
     const harness = createHarness();
     harness.syncState.initialize(DISK_TEXT);
     await harness.coordinator.save(notCancelled);
 
     const reverting = harness.coordinator.revert(notCancelled);
-    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS + BUFFER_FOLLOW_POLL_MS);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS * 2 + BUFFER_FOLLOW_POLL_MS);
 
     expect([
       await reverting,
+      harness.written.map((record) => record.text),
       harness.notifications,
       harness.syncState.writeReconcile !== undefined,
-    ]).toEqual(['failed', ['bufferFollowTimeout.message'], true]);
+    ]).toEqual(['failed', [VIEW_TEXT, VIEW_TEXT], ['bufferFollowTimeout.message'], true]);
   });
 });
 
@@ -1131,18 +1134,172 @@ describe('a source read mid-write', () => {
     ]);
   });
 
-  it('takes a source still mid-write at the timeout as a later external change', async () => {
+  it('takes a source still mid-write at the timeout as a later external change when the file holds it too', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer('', false);
+    // Truncated outside: writing the written full text back would overwrite that change.
+    harness.setFileText('');
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS + BUFFER_FOLLOW_POLL_MS);
+
+    expect([
+      harness.written.map((record) => record.text),
+      harness.appliedOfKind('externalChange'),
+      harness.syncState.writeReconcile,
+    ]).toEqual([[VIEW_TEXT], [''], undefined]);
+  });
+});
+
+// A reload in the middle of a write can leave the buffer behind, with no later change notice to bring it up to date.
+describe('writing the file back for a text buffer left behind', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('writes the file back once for a buffer still empty at the timeout, and clears the write reconcile without replacing the view or entering protection once it follows', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer('', false);
+    // A view cannot open an empty document, so taking it as an external change would fail and enter protection.
+    harness.setViewBehavior('unavailable');
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS);
+    const writtenAtTimeout = harness.written.map((record) => record.text);
+    harness.setBuffer(VIEW_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([
+      writtenAtTimeout,
+      harness.appliedOfKind('externalChange'),
+      harness.history.protections,
+      harness.syncState.writeReconcile,
+    ]).toEqual([[VIEW_TEXT, VIEW_TEXT], [], [], undefined]);
+  });
+
+  it('writes the file back once for a buffer still at the previous source, and the next save merges the written full text once it follows', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    const nextViewText = VIEW_TEXT.replace('<p>ab</p>', '<p>abc</p>');
+    harness.setViewText(nextViewText);
+
+    const saving = harness.coordinator.save(notCancelled);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS);
+    harness.setBuffer(VIEW_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([await saving, harness.written.map((record) => record.text)]).toEqual([
+      'completed',
+      [VIEW_TEXT, VIEW_TEXT, nextViewText],
+    ]);
+  });
+
+  it('neither writes back a second time nor takes a buffer still mid-write after the write-back as an external change, and notifies a follow timeout', async () => {
     const harness = createHarness();
     harness.syncState.initialize(DISK_TEXT);
     await harness.coordinator.save(notCancelled);
     harness.setBuffer('', false);
 
     harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS * 2 + BUFFER_FOLLOW_POLL_MS);
+
+    expect([
+      harness.written.map((record) => record.text),
+      harness.appliedOfKind('externalChange'),
+      harness.notifications,
+      harness.syncState.writeReconcile !== undefined,
+    ]).toEqual([[VIEW_TEXT, VIEW_TEXT], [], ['bufferFollowTimeout.message'], true]);
+  });
+
+  it('writes a CRLF file back with its CRLF line endings', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    harness.setBuffer(asCrlf(DISK_TEXT), false);
+    await harness.coordinator.save(notCancelled);
+
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS);
+
+    expect(harness.written.map((record) => record.text)).toEqual([asCrlf(VIEW_TEXT), asCrlf(VIEW_TEXT)]);
+  });
+
+  it('records a write-back that fails after emptying the file, and does not take a buffer reloaded from that file as an external change', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    let writeBackAttempts = 0;
+    harness.setWriteObserver(() => {
+      writeBackAttempts += 1;
+      // A write empties the file before writing, so one that fails can leave the file empty.
+      harness.setFileText('');
+    });
+    harness.setWriteFailing(true);
+
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS);
+    harness.setBuffer('', false);
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
     await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS + BUFFER_FOLLOW_POLL_MS);
 
-    expect([harness.appliedOfKind('externalChange'), harness.syncState.writeReconcile]).toEqual([
-      [''],
+    expect([
+      writeBackAttempts,
+      harness.logLines,
+      harness.appliedOfKind('externalChange'),
+      harness.notifications,
+      harness.syncState.writeReconcile?.writtenBack,
+    ]).toEqual([
+      1,
+      [`Failed to write ${DOCUMENT_URI} back for the text buffer to reload: Error: The file could not be written`],
+      [],
+      ['bufferFollowTimeout.message', 'bufferFollowTimeout.message'],
+      true,
+    ]);
+  });
+});
+
+describe('the follow deadline check', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('writes the file back once when no change notice arrives and the buffer stays at the previous source past the timeout, and clears the write reconcile once it follows', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS);
+    const writtenAtTimeout = harness.written.map((record) => record.text);
+    harness.setBuffer(VIEW_TEXT, false);
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_POLL_MS);
+
+    expect([writtenAtTimeout, harness.syncState.writeReconcile]).toEqual([[VIEW_TEXT, VIEW_TEXT], undefined]);
+  });
+
+  it('does not write the file back after the timeout when a reconciliation before it cleared the write reconcile', async () => {
+    const harness = createHarness();
+    harness.syncState.initialize(DISK_TEXT);
+    await harness.coordinator.save(notCancelled);
+    harness.setBuffer(VIEW_TEXT, false);
+    harness.coordinator.receiveSourceChangeNotice('textBufferChange');
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(BUFFER_FOLLOW_TIMEOUT_MS + BUFFER_FOLLOW_POLL_MS);
+
+    expect([harness.syncState.writeReconcile, harness.written]).toEqual([
       undefined,
+      [{ uri: DOCUMENT_URI, text: VIEW_TEXT }],
     ]);
   });
 });

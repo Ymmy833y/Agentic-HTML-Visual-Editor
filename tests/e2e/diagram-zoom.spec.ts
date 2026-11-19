@@ -20,6 +20,7 @@ const EPILOGUE = '</body></html>';
 const MARK_NAMESPACE = 'urn:ahve:diagram';
 const DRAWN_MARK = 'data-ahve-diagram';
 const ERROR_MARK = 'data-ahve-diagram-error';
+const ZOOMED_MARK = 'data-ahve-diagram-zoomed';
 
 const DIAGRAM = `${EDITOR_ROOT} pre`;
 const PARAGRAPH = `${EDITOR_ROOT} p`;
@@ -370,5 +371,27 @@ test.describe('Scroll bar of a zoomed diagram', () => {
     await page.mouse.click(bar.x, bar.y);
 
     expect([bar.height > 0, await page.locator(DIALOG).count()]).toEqual([true, 0]);
+  });
+});
+
+test.describe('Selecting all with a zoomed diagram', () => {
+  test('Delete after Ctrl+A in a document that begins with a zoomed diagram removes the diagram too and leaves one empty paragraph', async ({ page }) => {
+    await openDiagramEditor(page, '\n<pre class="mermaid">flowchart TD\n  A --&gt; B</pre>\n<p>after</p>\n');
+    await waitForMark(page);
+    await hoverDiagram(page);
+    await page.locator(ZOOM_IN).click();
+    await waitForMark(page, ZOOMED_MARK);
+    await page.evaluate((rootId) => {
+      document.getElementById(rootId)?.focus();
+      const text = document.querySelector('p')?.firstChild;
+      if (text !== null && text !== undefined) {
+        window.getSelection()?.collapse(text, 0);
+      }
+    }, EDITOR_ROOT_ELEMENT_ID);
+
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Delete');
+
+    expect(await page.locator(EDITOR_ROOT).innerHTML()).toBe('\n<p><br></p>\n');
   });
 });

@@ -125,16 +125,82 @@ export function createCopyContent(
   reportDiagnostic: DiagnosticReporter,
 ): CopyContent | undefined {
   try {
-    const copied = cloneRangeFragment(range);
-    wrapRangeFragment(copied, range, root);
-    removeCommentAnnotations(copied.fragment);
-    removeClosedDetailsBodies(copied, range, root, reportDiagnostic);
-    removeBoundaryEmptyBlocks(copied.fragment);
-    return serializeCopyFragment(copied.fragment);
+    return serializeCopyFragment(createCopyFragment(range, root, reportDiagnostic));
   } catch (error) {
     reportDiagnostic(`Could not create the copy content: ${String(error)}`);
     return undefined;
   }
+}
+
+/** A range to copy, and the element that stands as the editor root for it. */
+export interface CopyRange {
+  /** The range. */
+  readonly range: Range;
+  /** The element that holds the range, treated as the editor root. */
+  readonly root: Element;
+}
+
+/**
+ * Creates one copy content from several ranges, each copied by the same rules as `createCopyContent`, in the order
+ * given.
+ *
+ * Copying the entries of a comment thread gives one range per entry. Lined up as they are, two runs of inline content
+ * would run into one line, so when there are two or more ranges, the content of a range that has no block is wrapped
+ * in a paragraph. A single range gives the same copy content as `createCopyContent`.
+ *
+ * @param ranges The ranges, in document order.
+ * @param reportDiagnostic The diagnostic reporter for maintainers.
+ * @returns The copy content. If an exception occurs along the way, records one diagnostic line and returns
+ *   `undefined`.
+ */
+export function createRangesCopyContent(
+  ranges: readonly CopyRange[],
+  reportDiagnostic: DiagnosticReporter,
+): CopyContent | undefined {
+  try {
+    const fragments = ranges.map(({ range, root }) => createCopyFragment(range, root, reportDiagnostic));
+    const first = fragments[0];
+    if (first === undefined || fragments.length === 1) {
+      return serializeCopyFragment(first ?? new DocumentFragment());
+    }
+    const document = first.ownerDocument;
+    const joined = document.createDocumentFragment();
+    for (const fragment of fragments) {
+      const piece = document.importNode(fragment, true);
+      if (piece.childNodes.length === 0) {
+        continue;
+      }
+      if ([...piece.children].every((child) => INLINE_RUN_TAG_NAMES.has(child.localName))) {
+        const paragraph = document.createElement('p');
+        paragraph.append(piece);
+        joined.append(paragraph);
+      } else {
+        joined.append(piece);
+      }
+    }
+    return serializeCopyFragment(joined);
+  } catch (error) {
+    reportDiagnostic(`Could not create the copy content: ${String(error)}`);
+    return undefined;
+  }
+}
+
+/**
+ * Clones a range into an inert document and applies rewrapping, annotations, closed bodies and boundary empty blocks,
+ * in that order. Finishing is left to the caller.
+ *
+ * @param range The range to copy.
+ * @param root The editor root.
+ * @param reportDiagnostic The diagnostic reporter for maintainers.
+ * @returns The fragment.
+ */
+function createCopyFragment(range: Range, root: Element, reportDiagnostic: DiagnosticReporter): DocumentFragment {
+  const copied = cloneRangeFragment(range);
+  wrapRangeFragment(copied, range, root);
+  removeCommentAnnotations(copied.fragment);
+  removeClosedDetailsBodies(copied, range, root, reportDiagnostic);
+  removeBoundaryEmptyBlocks(copied.fragment);
+  return copied.fragment;
 }
 
 /**

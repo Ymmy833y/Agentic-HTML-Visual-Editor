@@ -66,12 +66,33 @@ MIXED_DOCUMENT = (
     '</body></html>\n'
 )
 
+# A document with a comment in each state that decides whether a thread waits for an answer: the last entry by a
+# person, without an author, with another author value, by the agent, no entries at all, and resolved, in that order.
+REPLY_STATE_DOCUMENT = (
+    '<html><body>\n'
+    '<p><comment id="c-wait0001">Person last'
+    '<comment-body data-author="ai">Question.</comment-body>'
+    '<comment-reply data-author="human">Answer.</comment-reply></comment></p>\n'
+    '<p><comment id="c-wait0002">No author'
+    '<comment-body>Note.</comment-body></comment></p>\n'
+    '<p><comment id="c-wait0003">Another author'
+    '<comment-body data-author="AI">Only the exact value ai is the agent.</comment-body></comment></p>\n'
+    '<p><comment id="c-done0004">Agent last'
+    '<comment-body data-author="human">Question.</comment-body>'
+    '<comment-reply data-author="ai">Answered.</comment-reply></comment></p>\n'
+    '<p><comment id="c-none0001">No entries</comment></p>\n'
+    '<p><comment id="c-done0005" data-resolved="">Resolved'
+    '<comment-body data-author="human">Done.</comment-body></comment></p>\n'
+    '</body></html>\n'
+)
+
 
 def expected_document_comments(file):
     """The results that should be read from `DOCUMENT`, written down from the document without running the script."""
     return [
         {
             'file': file,
+            'line': 9,
             'id': 'c-a1b2c3d4',
             'resolved': False,
             'target': '1 \u6642\u9593\u3054\u3068',
@@ -92,6 +113,7 @@ def expected_document_comments(file):
         },
         {
             'file': file,
+            'line': 10,
             'id': 'c-e5f6g7h8',
             'resolved': True,
             'target': '\u7af6\u5408\u306e\u6271\u3044 \u3092\u6c7a\u3081\u308b',
@@ -112,6 +134,7 @@ def expected_second_document_comments(file):
     return [
         {
             'file': file,
+            'line': 1,
             'id': 'c-second01',
             'resolved': False,
             'target': 'Another document',
@@ -375,6 +398,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'blocks.html',
+                        'line': 1,
                         'id': 'c-0000b10c',
                         'resolved': False,
                         'target': 'target',
@@ -416,6 +440,7 @@ class ListCommentsTests(unittest.TestCase):
         raw_text_comments = [
             {
                 'file': 'raw-text.html',
+                'line': 1,
                 'id': 'c-00000005',
                 'resolved': False,
                 'target': 'target',
@@ -485,6 +510,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'plaintext.html',
+                        'line': 1,
                         'id': 'c-00000007',
                         'resolved': False,
                         'target': 'target',
@@ -513,6 +539,7 @@ class ListCommentsTests(unittest.TestCase):
                             [
                                 {
                                     'file': 'raw-text-script.html',
+                                    'line': 1,
                                     'id': 'c-00000008',
                                     'resolved': False,
                                     'target': 'target',
@@ -620,6 +647,7 @@ class ListCommentsTests(unittest.TestCase):
                         [
                             {
                                 'file': 'html-comment.html',
+                                'line': 1,
                                 'id': 'c-00000009',
                                 'resolved': False,
                                 'target': 'target',
@@ -745,6 +773,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'self-closing.html',
+                        'line': 1,
                         'id': 'c-00000024',
                         'resolved': False,
                         'target': 'target',
@@ -783,6 +812,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'body-in-body.html',
+                        'line': 1,
                         'id': 'c-00000025',
                         'resolved': False,
                         'target': 'target<1 <1',
@@ -866,6 +896,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'duplicate-attributes.html',
+                        'line': 1,
                         'id': 'c-00000031',
                         'resolved': True,
                         'target': 'target',
@@ -875,6 +906,7 @@ class ListCommentsTests(unittest.TestCase):
                     },
                     {
                         'file': 'duplicate-attributes.html',
+                        'line': 1,
                         'id': '',
                         'resolved': False,
                         'target': 'valueless attribute first',
@@ -894,6 +926,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'no-id.html',
+                        'line': 1,
                         'id': '',
                         'resolved': False,
                         'target': 'no attributes',
@@ -901,6 +934,7 @@ class ListCommentsTests(unittest.TestCase):
                     },
                     {
                         'file': 'no-id.html',
+                        'line': 1,
                         'id': '',
                         'resolved': False,
                         'target': 'no values',
@@ -918,6 +952,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'no-entries.html',
+                        'line': 1,
                         'id': 'c-00000000',
                         'resolved': False,
                         'target': 'target only',
@@ -937,6 +972,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'nested.html',
+                        'line': 1,
                         'id': 'c-outer001',
                         'resolved': False,
                         'target': 'outer inner rest',
@@ -944,6 +980,7 @@ class ListCommentsTests(unittest.TestCase):
                     },
                     {
                         'file': 'nested.html',
+                        'line': 1,
                         'id': 'c-inner001',
                         'resolved': False,
                         'target': 'inner',
@@ -965,6 +1002,7 @@ class ListCommentsTests(unittest.TestCase):
                 [
                     {
                         'file': 'entry-in-entry.html',
+                        'line': 1,
                         'id': 'c-00000001',
                         'resolved': False,
                         'target': 'target',
@@ -1068,6 +1106,7 @@ class ListCommentsTests(unittest.TestCase):
                         [
                             {
                                 'file': 'unclosed.html',
+                                'line': 1,
                                 'id': 'c-00000004',
                                 'resolved': False,
                                 'target': 'target',
@@ -1161,6 +1200,47 @@ class ListCommentsTests(unittest.TestCase):
                 list_comments.filter_comments(comments, 'open')
             self.assertIn('unresolved', str(raised.exception))
 
+        with self.subTest(
+            'awaiting-reply returns, in document order, the unresolved comments whose last entry is not by ai'
+        ):
+            # A last entry by a person, without an author, or with another author value waits for an answer. A last
+            # entry by the agent, no entries, and a resolved comment do not.
+            states = list_comments.extract_comments('states.html', REPLY_STATE_DOCUMENT)
+            self.assertEqual(list_comments.filter_comments(states, 'awaiting-reply'), states[:3])
+
+        with self.subTest('an unknown status names awaiting-reply among the statuses that can be specified'):
+            with self.assertRaises(ValueError) as raised:
+                list_comments.filter_comments(comments, 'open')
+            self.assertIn('awaiting-reply', str(raised.exception))
+
+    def test_line(self):
+        """`line` is the line of the comment's start tag, counted from the start of the file."""
+        # In English, the document has two comments on line 5 and one whose start tag begins on line 6 and runs on.
+        document = (
+            '<!DOCTYPE html>\n'
+            '<html>\n'
+            '<head><title>Lines</title></head>\n'
+            '<body>\n'
+            '<p>first <comment id="c-line0001">one</comment> and <comment id="c-line0002">two</comment></p>\n'
+            '<p><comment\n'
+            ' id="c-line0003">three\n'
+            'continued</comment></p>\n'
+            '</body>\n'
+            '</html>\n'
+        )
+
+        with self.subTest(
+            'counts the lines before the body, gives comments on the same line the same line, and gives a start tag'
+            ' spread over lines the line of its `<`'
+        ):
+            comments = list_comments.extract_comments('lines.html', document)
+            self.assertEqual([comment['line'] for comment in comments], [5, 5, 6])
+
+        with self.subTest('a BOM and CRLF line endings give the same lines'):
+            path = self.write('crlf.html', b'\xef\xbb\xbf' + document.replace('\n', '\r\n').encode('utf-8'))
+            comments = list_comments.read_comments_from_files([path])
+            self.assertEqual([comment['line'] for comment in comments], [5, 5, 6])
+
     def test_cli(self):
         """The command returns matching comments as UTF-8 JSON, and fails without JSON on invalid arguments."""
         document = self.write('memo.html', DOCUMENT.encode('utf-8'))
@@ -1174,6 +1254,10 @@ class ListCommentsTests(unittest.TestCase):
 
         with self.subTest('resolved returns only resolved comments'):
             self.assertEqual(self.read_json(run_cli('--status', 'resolved', document)), expected[1:])
+
+        with self.subTest('awaiting-reply returns only the threads that wait for an answer'):
+            # The first comment ends with a person's reply, and the second one is resolved.
+            self.assertEqual(self.read_json(run_cli('--status', 'awaiting-reply', document)), expected[:1])
 
         with self.subTest('with no matching comments, it returns an empty array and exits successfully'):
             plain = self.write('plain.html', '<html><body><p>No comments</p></body></html>'.encode('utf-8'))
@@ -1195,6 +1279,9 @@ class ListCommentsTests(unittest.TestCase):
             error_output = completed.stderr.decode('utf-8')
             self.assertEqual((completed.returncode, completed.stdout), (1, b''), error_output)
             self.assertIn('unresolved', error_output)
+
+        with self.subTest('an unknown status names awaiting-reply among the statuses that can be specified'):
+            self.assertIn('awaiting-reply', run_cli('--status', 'open', document).stderr.decode('utf-8'))
 
         with self.subTest('without files, it fails without JSON and shows the usage'):
             completed = run_cli()

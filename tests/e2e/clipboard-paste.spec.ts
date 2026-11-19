@@ -344,6 +344,33 @@ test.describe('registration', () => {
   });
 });
 
+test.describe('plain text paste after a delete', () => {
+  test('Ctrl+Shift+V after deleting a range over the whole lines of a paragraph and a heading puts the text at the start of the paragraph left', async ({ page }) => {
+    await openPasteEditor(page, '\n<p>ab</p>\n<h2>cd</h2>\n<p>ef</p>\n');
+    await selectRange(page, at(PARAGRAPH, 0, 0), at(`${EDITOR_ROOT} h2`, 2, 0));
+    await page.keyboard.press('Delete');
+    await writeClipboard(page, { 'text/plain': 'X' });
+
+    await pastePlainText(page);
+    await waitForClipboardRead(page);
+
+    expect(await readBodyHtml(page)).toBe('\n<p>X</p>\n<p>ef</p>\n');
+  });
+
+  test('Ctrl+Shift+V of two lines after selecting all of a document starting with a heading and deleting it puts the first line in a paragraph too', async ({ page }) => {
+    await openPasteEditor(page, '\n<h2>ab</h2>\n<p>cd</p>\n');
+    await placeCaretAt(page, at(`${EDITOR_ROOT} h2`, 0, 0));
+    await pressPrimaryShortcut(page, 'A');
+    await page.keyboard.press('Backspace');
+    await writeClipboard(page, { 'text/plain': 'X\nY' });
+
+    await pastePlainText(page);
+    await waitForClipboardRead(page);
+
+    expect(await readBodyHtml(page)).toBe('\n<p>X</p>\n<p>Y</p>\n');
+  });
+});
+
 test.describe('clipboard paste events', () => {
   for (const source of ['th', 'td']) {
     for (const destination of ['th', 'td']) {

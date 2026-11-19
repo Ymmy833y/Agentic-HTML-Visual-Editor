@@ -70,6 +70,9 @@ export const ACCEPT_ALL_CLASS = 'sidebar-accept-all';
 /** The class of the button above the list of changes that rejects every change. Spelled as in the stylesheet. */
 export const REJECT_ALL_CLASS = 'sidebar-reject-all';
 
+/** The class of the box ahead of each item in the list of changes that chooses the change. Spelled as in the stylesheet. */
+export const SELECT_CHANGE_CLASS = 'sidebar-change-select';
+
 // The class of the row that holds the two buttons. Spelled as in the stylesheet.
 const CHANGE_ACTIONS_CLASS = 'sidebar-change-actions';
 
@@ -152,6 +155,20 @@ export interface SidebarPorts {
   rejectAllChanges(): void;
 
   /**
+   * Accepts only the chosen change marks as one edit.
+   *
+   * @param heads The chosen marks. A replacement pair is chosen through its head, the deletion.
+   */
+  acceptSelectedChanges(heads: ReadonlySet<Element>): void;
+
+  /**
+   * Rejects only the chosen change marks as one edit.
+   *
+   * @param heads The chosen marks. A replacement pair is chosen through its head, the deletion.
+   */
+  rejectSelectedChanges(heads: ReadonlySet<Element>): void;
+
+  /**
    * Returns only whether the pressed key matches a registered shortcut, without running its operation.
    *
    * @param event The pressed key.
@@ -222,11 +239,18 @@ export class Sidebar {
 
   private readonly targets = new Map<HTMLButtonElement, SidebarTarget>();
 
-  // The buttons above the list of changes that accept or reject every change. Only while the changes tab lists
-  // something.
+  // The buttons above the list of changes that accept or reject every change, or only the chosen ones while some are
+  // chosen. Only while the changes tab lists something.
   private acceptAll: HTMLButtonElement | undefined;
 
   private rejectAll: HTMLButtonElement | undefined;
+
+  // The changes chosen in the list, by the mark each item points at. Kept across rebuilds for the marks still listed,
+  // and dropped on leaving the changes tab or closing the sidebar.
+  private readonly selected = new Set<Element>();
+
+  // The boxes of the shown list of changes, and the mark each chooses.
+  private readonly checkboxes = new Map<HTMLInputElement, Element>();
 
   // The wait that folds the edits of one frame into one rebuild. Rebuilding on every keystroke would clog typing.
   private pending: number | undefined;
@@ -317,6 +341,8 @@ export class Sidebar {
     this.targets.clear();
     this.acceptAll = undefined;
     this.rejectAll = undefined;
+    this.selected.clear();
+    this.checkboxes.clear();
     this.panel.replaceChildren();
   }
 
@@ -338,6 +364,9 @@ export class Sidebar {
     // The stylesheet sets the headings apart by their depth, which the flat lists of comments and changes have none of,
     // so it looks up the chosen tab with this attribute.
     this.panel.dataset.tab = tab;
+    if (changed) {
+      this.selected.clear();
+    }
     if (changed && this.opened) {
       this.render(false);
     }
@@ -391,6 +420,11 @@ export class Sidebar {
    * @param event The click.
    */
   handleClick(event: MouseEvent): void {
+    const change = event.target instanceof HTMLInputElement ? this.checkboxes.get(event.target) : undefined;
+    if (change !== undefined) {
+      this.toggleSelected(change);
+      return;
+    }
     const target = event.target instanceof Element ? event.target.closest('button') : null;
     if (!(target instanceof HTMLButtonElement)) {
       return;
@@ -402,11 +436,19 @@ export class Sidebar {
       }
     }
     if (target === this.acceptAll) {
-      this.ports.acceptAllChanges();
+      if (this.selected.size > 0) {
+        this.ports.acceptSelectedChanges(new Set(this.selected));
+      } else {
+        this.ports.acceptAllChanges();
+      }
       return;
     }
     if (target === this.rejectAll) {
-      this.ports.rejectAllChanges();
+      if (this.selected.size > 0) {
+        this.ports.rejectSelectedChanges(new Set(this.selected));
+      } else {
+        this.ports.rejectAllChanges();
+      }
       return;
     }
     const item = this.targets.get(target);
@@ -595,6 +637,20 @@ export class Sidebar {
     }
   }
 
+  /**
+   * Chooses a change, or takes it out of the choice, and rebuilds the list at once, so that the box and the wording of
+   * the buttons follow the press.
+   *
+   * @param change The mark the pressed box chooses.
+   */
+  private toggleSelected(change: Element): void {
+    if (!this.selected.delete(change)) {
+      this.selected.add(change);
+    }
+    this.cancelPending();
+    this.render(true);
+  }
+
   /** Rebuilds the list in the next frame while the sidebar is open. Edits within the same frame share one rebuild. */
   private scheduleRender(): void {
     if (!this.opened || this.pending !== undefined) {
@@ -634,6 +690,7 @@ export class Sidebar {
     this.targets.clear();
     this.acceptAll = undefined;
     this.rejectAll = undefined;
+    this.checkboxes.clear();
     try {
       const root = this.ports.readEditorRoot();
       const list = root === undefined ? undefined : this.buildList(root);
@@ -643,6 +700,7 @@ export class Sidebar {
       this.targets.clear();
       this.acceptAll = undefined;
       this.rejectAll = undefined;
+      this.checkboxes.clear();
       this.panel.replaceChildren();
       this.ports.reportDiagnostic(`Could not build the sidebar list: ${String(error)}`);
     }
@@ -674,6 +732,14 @@ export class Sidebar {
       return comments.length === 0 ? undefined : this.buildCommentList(comments);
     }
     const changes = readChangeOutline(root);
+    // A mark decided or replaced since the last build is gone from the list, and from the choice with it, so that the
+    // buttons go back to deciding every change once nothing chosen is left.
+    const listed = new Set(changes.map((change) => change.element));
+    for (const change of [...this.selected]) {
+      if (!listed.has(change)) {
+        this.selected.delete(change);
+      }
+    }
     return changes.length === 0 ? undefined : this.buildChangeList(changes);
   }
 
@@ -723,7 +789,8 @@ export class Sidebar {
   }
 
   /**
-   * Builds the change marks as one flat list in document order, led by the buttons that accept or reject every change.
+   * Builds the change marks as one flat list in document order, each item led by the box that chooses it, and the list
+   * led by the buttons that accept or reject every change, or only the chosen ones while some are chosen.
    *
    * The buttons are ordinary Tab stops before the list, so that a keyboard user reaches them on the way to the items.
    *
@@ -739,8 +806,9 @@ export class Sidebar {
       button.textContent = this.ports.localizer.getMessage(key);
       return button;
     };
-    const acceptAll = createAction(ACCEPT_ALL_CLASS, 'sidebar.acceptAll');
-    const rejectAll = createAction(REJECT_ALL_CLASS, 'sidebar.rejectAll');
+    const chosen = this.selected.size > 0;
+    const acceptAll = createAction(ACCEPT_ALL_CLASS, chosen ? 'sidebar.acceptSelected' : 'sidebar.acceptAll');
+    const rejectAll = createAction(REJECT_ALL_CLASS, chosen ? 'sidebar.rejectSelected' : 'sidebar.rejectAll');
     this.acceptAll = acceptAll;
     this.rejectAll = rejectAll;
     const actions = document.createElement('div');
@@ -749,8 +817,20 @@ export class Sidebar {
 
     const list = document.createElement('ul');
     for (const change of changes) {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = SELECT_CHANGE_CLASS;
+      checkbox.checked = this.selected.has(change.element);
+      // Only a pointer chooses a change. The box takes no focus and is hidden from assistive technology, so the Tab stops
+      // and the keys of the list stay as they were, and Enter and Space on an item still move to the change.
+      checkbox.tabIndex = -1;
+      checkbox.setAttribute('aria-hidden', 'true');
+      this.checkboxes.set(checkbox, change.element);
       const item = document.createElement('li');
-      item.append(this.createItemButton(change.text, { kind: 'change', element: change.element }, false, undefined, change.kind));
+      item.append(
+        checkbox,
+        this.createItemButton(change.text, { kind: 'change', element: change.element }, false, undefined, change.kind),
+      );
       list.append(item);
     }
     const container = document.createElement('div');

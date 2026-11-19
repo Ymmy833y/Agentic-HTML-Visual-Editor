@@ -37,6 +37,14 @@ const COMMENT_BODY = '<p>ab<comment id="c">cd<comment-body>note</comment-body></
 // A thread with a human entry. The entry text is selected by dragging, so it has two words.
 const HUMAN_THREAD = '<p>x<comment id="c">ab<comment-body data-author="human" '
   + 'data-updated="2026-01-01T00:00:00.000Z">hello world</comment-body></comment>y</p>';
+// The same thread with a bold word in the entry.
+const FORMATTED_THREAD = '<p>x<comment id="c">ab<comment-body data-author="human" '
+  + 'data-updated="2026-01-01T00:00:00.000Z">hello <strong>world</strong></comment-body></comment>y</p>';
+// A thread with a human body and an AI reply in italics, so that the name and time of the reply lie between the two
+// entry texts.
+const TWO_ENTRY_THREAD = '<p>x<comment id="c">ab<comment-body data-author="human" '
+  + 'data-updated="2026-01-01T00:00:00.000Z">one</comment-body><comment-reply data-author="ai" '
+  + 'data-updated="2026-01-02T00:00:00.000Z"><em>two</em></comment-reply></comment>y</p>';
 // The document URI of a document assumed to live in docs under the fixture. Without this as the base, the relative
 // image path does not point to the image.
 const NESTED_DOCUMENT_URI = `${FIXTURE_DIRECTORY_URL}docs/page.html`;
@@ -376,11 +384,44 @@ test.describe('handling copy', () => {
     expect((await readClipboardRecord(page)).map((entry) => entry.prevented)).toEqual([false]);
   });
 
-  test('dragging to select entry text in the popup and pressing Ctrl+C does not prevent the default, and this feature writes no HTML form', async ({ page }) => {
-    await openClipboardEditor(page, HUMAN_THREAD);
+  test('dragging to select entry text in the popup and pressing Ctrl+C prevents the default and writes only the formatting of the entry, without the look of the popup', async ({ page }) => {
+    await openClipboardEditor(page, FORMATTED_THREAD);
     await openByClick(page);
     await installClipboardRecord(page);
     await dragAcross(page, ENTRY_TEXT);
+
+    await pressPrimaryShortcut(page, 'C');
+
+    expect((await readClipboardRecord(page)).map((entry) => [entry.prevented, entry.html, entry.text]))
+      .toEqual([[true, 'hello <strong>world</strong>', 'hello world']]);
+  });
+
+  test('copying a selection across two entries and the name and time between them writes only the selected parts of the two entries, in separate paragraphs', async ({ page }) => {
+    await openClipboardEditor(page, TWO_ENTRY_THREAD);
+    await openByClick(page);
+    await installClipboardRecord(page);
+    const [first, last] = await page.locator(ENTRY_TEXT).evaluateAll((elements) => elements.map((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, middle: (rect.top + rect.bottom) / 2 };
+    }));
+    await page.mouse.move(first.left + 1, first.middle);
+    await page.mouse.down();
+    await page.mouse.move(last.right - 1, last.middle, { steps: 8 });
+    await page.mouse.up();
+
+    await pressPrimaryShortcut(page, 'C');
+
+    expect((await readClipboardRecord(page)).map((entry) => [entry.prevented, entry.html, entry.text]))
+      .toEqual([[true, '<p>one</p><p><em>two</em></p>', 'one\n\ntwo']]);
+  });
+
+  test('copying a selection of only the name and time of an entry leaves the default as it is, and this feature writes no HTML form', async ({ page }) => {
+    await openClipboardEditor(page, HUMAN_THREAD);
+    await openByClick(page);
+    await installClipboardRecord(page);
+    await dragAcross(page, `${POPUP} .comment-thread-meta`);
 
     await pressPrimaryShortcut(page, 'C');
 

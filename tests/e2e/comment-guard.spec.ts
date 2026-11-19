@@ -1076,7 +1076,7 @@ test.describe('Presses inside the popup', () => {
     await expect(page.locator(EDIT_FIELD)).toHaveText('hello world');
   });
 
-  test('dragging to select an entry text keeps the selection without opening the edit field, the Ctrl+C copy arrives without its default prevented, and the selected text is the text chosen', async ({ page }) => {
+  test('dragging to select an entry text keeps the selection without opening the edit field, the Ctrl+C copy is taken with its default prevented, and the selected text is the text chosen', async ({ page }) => {
     await openCommentEditor(page, HUMAN_THREAD);
     await openByClick(page);
     await page.evaluate(() => {
@@ -1092,7 +1092,7 @@ test.describe('Presses inside the popup', () => {
       await page.locator(EDIT_FIELD).count(),
       await page.evaluate(() => window.__copyPrevented ?? []),
       await page.evaluate(() => window.getSelection()?.toString()),
-    ]).toEqual([0, [false], 'hello world']);
+    ]).toEqual([0, [true], 'hello world']);
   });
 
   test('dragging to select text inside the popup does not show the floating menu', async ({ page }) => {

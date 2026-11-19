@@ -6,11 +6,14 @@ import type { CaretState } from '../editing/caret-state';
 import { readEntryContentKey, toEntryContent } from '../editing/comment-entry-content';
 import { attachEditingCore } from '../editing/editing-session';
 import type { EditingSession } from '../editing/editing-session';
-import type { EditTransactionLifecycle } from '../history/edit-transaction-controller';
+import type { EditEndpointSelections, EditTransactionLifecycle } from '../history/edit-transaction-controller';
 import { PendingFormat } from '../editing/pending-format';
-import { captureSelection } from '../selection/selection-capture';
+import { captureRange, captureSelection } from '../selection/selection-capture';
 import { restoreSelection } from '../selection/selection-restore';
 import type { ActionDialogResult, ActionDialogSpec } from './action-dialog';
+import { CommentFieldHistory } from './comment-field-history';
+import type { CommentFieldHistoryRoute } from './comment-field-history';
+import { readHistoryKey } from './history-key';
 
 /** The class of a field's frame. Kept in line with the spelling in the bundled stylesheet. */
 export const COMMENT_FIELD_CLASS = 'comment-thread-field';
@@ -29,6 +32,23 @@ const PLACEHOLDER_ATTRIBUTE = 'data-placeholder';
 
 // Elements a caret cannot go inside. Placing the caret at the end stops before them.
 const CARET_STOP_TAG_NAMES: ReadonlySet<string> = new Set(['br', 'hr', 'img', 'table']);
+
+/**
+ * keyCode of a key the IME is processing. Some browsers deliver the key that starts a composition without isComposing
+ * set, so this is also used to tell it apart.
+ */
+export const IME_PROCESS_KEY_CODE = 229;
+
+/** Where an undo or redo in a field went: back or forward in the field, to the document, or nowhere. */
+export type CommentFieldHistoryResult = 'field' | 'document' | 'none';
+
+/** A state of the field's content: copies of its nodes and the selection in it. */
+interface FieldSnapshot {
+  /** The markup of the content, which tells whether two states differ. */
+  readonly key: string;
+  readonly nodes: readonly Node[];
+  readonly selection: EncodedSelection | undefined;
+}
 
 /**
  * Ports a comment field reads.
@@ -67,8 +87,8 @@ export interface CommentFieldPorts {
  *
  * It has an editing core of its own, so the input rules of the document apply to it, and the toolbar, the floating menu
  * and the keys are attached to it from outside, with ports that point at it. The field is not part of the document:
- * its edits open no attempt in the history, and what is written in it reaches the history only when it is committed to
- * an entry.
+ * its edits open no attempt in the document's history, and what is written in it reaches that history only when it is
+ * committed to an entry. Until then, the draft has a history of its own, stacked on top of the document's.
  */
 export class CommentField {
   /** The frame. Placed in the popup. */
@@ -82,6 +102,10 @@ export class CommentField {
 
   /** The formats held for the next character typed in the field. */
   readonly pending = new PendingFormat();
+
+  // The draft's own history. What is written in a field is not in the document, so the document's history cannot
+  // take it back.
+  private readonly history = new CommentFieldHistory<FieldSnapshot>();
 
   /**
    * @param document Document of the view.
@@ -110,6 +134,7 @@ export class CommentField {
 
     // Attached before the editing core, so that a drop is turned into a paste before the core prevents it.
     this.root.addEventListener('beforeinput', (event) => this.handleDrop(event));
+    this.root.addEventListener('keydown', (event) => this.handleHistoryKey(event));
     this.session = attachEditingCore(
       this.root,
       () => undefined,
@@ -206,6 +231,7 @@ export class CommentField {
     this.ports.prepareContent(copy);
     this.root.replaceChildren(copy);
     this.pending.clear();
+    this.history.reset();
     this.markEmpty();
   }
 
@@ -218,7 +244,27 @@ export class CommentField {
   clear(): void {
     this.root.replaceChildren(createEmptyBlock(this.root.ownerDocument, 'p'));
     this.pending.clear();
+    this.history.reset();
     this.markEmpty();
+  }
+
+  /**
+   * Takes back one operation of the draft. Once the draft is back where writing started, the undo is left to the
+   * document, whose history the draft is stacked on.
+   *
+   * @returns Where the undo went.
+   */
+  undo(): CommentFieldHistoryResult {
+    return this.follow(this.history.undo(), 'historyUndo');
+  }
+
+  /**
+   * Redoes one operation: in the document first while undos went there, then in the draft.
+   *
+   * @returns Where the redo went.
+   */
+  redo(): CommentFieldHistoryResult {
+    return this.follow(this.history.redo(), 'historyRedo');
   }
 
   /**
@@ -285,17 +331,102 @@ export class CommentField {
   }
 
   /**
-   * Creates the endpoints of the edits in the field. Every edit may start, and none reaches the history: a field is not
-   * part of the document.
+   * Creates the endpoints of the edits in the field. Every edit may start, and none reaches the document's history: a
+   * field is not part of the document. The field's own history records them instead.
    *
    * @returns The lifecycle.
    */
   private createLifecycle(): EditTransactionLifecycle {
     return {
-      beginEdit: () => true,
-      completeEdit: () => this.handleChanged(),
-      abortEdit: () => undefined,
+      beginEdit: (kind, endpoints) => {
+        this.history.begin(kind, () => this.capture(endpoints, 'start'), () => this.capture(endpoints, 'end'));
+        return true;
+      },
+      completeEdit: () => {
+        this.history.end();
+        this.handleChanged();
+      },
+      abortEdit: () => this.history.end(),
     };
+  }
+
+  /**
+   * Captures the content and a selection in it.
+   *
+   * @param endpoints The selections a standalone edit records at its endpoints. Omitted, the live selection is used.
+   * @param side Which endpoint is captured.
+   * @returns The state.
+   */
+  private capture(endpoints: EditEndpointSelections | undefined, side: 'start' | 'end'): FieldSnapshot {
+    const range = endpoints?.[side];
+    let selection: EncodedSelection | undefined;
+    if (range === undefined) {
+      selection = captureSelection(this.root)?.selection;
+    } else if (range !== null) {
+      selection = captureRange(this.root, range)?.selection;
+    }
+    return {
+      key: this.root.innerHTML,
+      nodes: Array.from(this.root.childNodes, (node) => node.cloneNode(true)),
+      selection,
+    };
+  }
+
+  /**
+   * Applies where the history sent an undo or redo.
+   *
+   * @param route The route.
+   * @param kind The edit kind told to the editing core, so that what watches its edits (the diagrams) sees the new content.
+   * @returns Where it went.
+   */
+  private follow(route: CommentFieldHistoryRoute<FieldSnapshot>, kind: string): CommentFieldHistoryResult {
+    if (route.kind === 'field') {
+      this.restore(route.snapshot, kind);
+    }
+    return route.kind;
+  }
+
+  /**
+   * Puts the content and the selection of a state back.
+   *
+   * @param snapshot The state.
+   * @param kind The edit kind told to the editing core.
+   */
+  private restore(snapshot: FieldSnapshot, kind: string): void {
+    this.root.replaceChildren(...snapshot.nodes.map((node) => node.cloneNode(true)));
+    this.pending.clear();
+    this.root.focus({ preventScroll: true });
+    if (snapshot.selection === undefined) {
+      placeCaretAtEnd(this.root);
+    } else {
+      restoreSelection(this.root, snapshot.selection);
+    }
+    this.session.notifyChange(kind);
+    this.handleChanged();
+  }
+
+  /**
+   * Takes undo and redo pressed in the field.
+   *
+   * A key the field takes does not reach VS Code; a key left to the document does. During a composition the draft is
+   * the newest change, so the key is kept from the document, and what it does to the composition is left to the IME.
+   *
+   * @param event The key press.
+   */
+  private handleHistoryKey(event: KeyboardEvent): void {
+    const operation = readHistoryKey(event);
+    if (operation === undefined) {
+      return;
+    }
+    if (event.isComposing || event.keyCode === IME_PROCESS_KEY_CODE) {
+      event.stopPropagation();
+      return;
+    }
+    if ((operation === 'undo' ? this.undo() : this.redo()) === 'document') {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   /**

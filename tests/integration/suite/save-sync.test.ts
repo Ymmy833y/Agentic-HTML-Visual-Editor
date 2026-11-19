@@ -1,6 +1,7 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
 
+import { DelayedFileSystem } from '../helpers/delayed-file-system';
 import { customTabMatchesSource } from '../helpers/editor-tabs';
 
 const EXTENSION_ID = 'YuyaMiyamoto.agentic-html-visual-editor';
@@ -620,6 +621,94 @@ describe('save-time merge', () => {
 
     assert.strictEqual(await readFileText(uri), UNBOUNDED_TEXT);
     assert.strictEqual(findCustomTab(uri)?.isDirty, true);
+  });
+});
+
+// A file on disk can neither be caught half written nor keep VS Code from hearing of a write, so these cases use a file
+// system of their own that decides both.
+describe('a text buffer left behind by a save', () => {
+  let registration: vscode.Disposable | undefined;
+
+  beforeEach(async () => {
+    await resetEditors();
+    (await api()).clearDiagnosticInspection();
+  });
+
+  afterEach(async () => {
+    await resetEditors();
+    registration?.dispose();
+    registration = undefined;
+  });
+
+  // A text buffer stays open after its case and keeps the text it reached, and registering a file system makes VS Code
+  // reload every open buffer of that scheme, so each case uses a scheme of its own.
+  function registerFileSystem(caseName: string): { readonly uri: vscode.Uri; readonly fileSystem: DelayedFileSystem } {
+    const uri = vscode.Uri.parse(`ahve-follow-${caseName}://workspace/notes/follow.html`);
+    const fileSystem = new DelayedFileSystem(uri, INITIAL_TEXT);
+    registration = vscode.Disposable.from(
+      vscode.workspace.registerFileSystemProvider(uri.scheme, fileSystem, { isCaseSensitive: true }),
+      fileSystem,
+    );
+    return { uri, fileSystem };
+  }
+
+  async function readOutcome(uri: vscode.Uri, fileSystem: DelayedFileSystem): Promise<unknown> {
+    const { notifications, logLines } = (await api()).readDiagnosticInspection();
+    return {
+      writes: fileSystem.writtenUris.length,
+      externalChanges: await readReplacements(uri, 'externalChange'),
+      protectionActivated: (await readRecordedMessages(uri)).some(
+        (recorded) => recorded.direction === 'toView' && readMessageType(recorded.message) === 'historyProtectionActivated',
+      ),
+      notifications,
+      logLines,
+    };
+  }
+
+  it('writes the file back so that the text buffer reaches the saved text when its reload read the file mid-write and the rest of the write went unannounced', async () => {
+    const { uri, fileSystem } = registerFileSystem('mid-write');
+    const buffer = await vscode.workspace.openTextDocument(uri);
+    await openWysiwyg(uri);
+    await replaceViewContent(uri, VIEW_EDITED_TEXT);
+    await makeViewDirty(uri, INITIAL_TEXT);
+
+    const write = fileSystem.pauseNextWrite({ emptyWhileHeld: true });
+    const saving = startSave();
+    await write.reached;
+    fileSystem.notifyWrittenFile();
+    await waitUntil(() => buffer.getText() === '', 'the reload read the file mid-write');
+    write.release();
+    await saving;
+    fileSystem.notifyWrites = true;
+
+    await waitUntil(() => buffer.getText() === VIEW_EDITED_TEXT, 'the text buffer reached the saved text');
+    assert.deepStrictEqual(await readOutcome(uri, fileSystem), {
+      writes: 2,
+      externalChanges: [],
+      protectionActivated: false,
+      notifications: [],
+      logLines: [],
+    });
+  });
+
+  it('writes the file back so that the text buffer reaches the saved text when no change of the save was announced', async () => {
+    const { uri, fileSystem } = registerFileSystem('unannounced');
+    const buffer = await vscode.workspace.openTextDocument(uri);
+    await openWysiwyg(uri);
+    await replaceViewContent(uri, VIEW_EDITED_TEXT);
+    await makeViewDirty(uri, INITIAL_TEXT);
+
+    await vscode.commands.executeCommand('workbench.action.files.save');
+    fileSystem.notifyWrites = true;
+
+    await waitUntil(() => buffer.getText() === VIEW_EDITED_TEXT, 'the text buffer reached the saved text');
+    assert.deepStrictEqual(await readOutcome(uri, fileSystem), {
+      writes: 2,
+      externalChanges: [],
+      protectionActivated: false,
+      notifications: [],
+      logLines: [],
+    });
   });
 });
 

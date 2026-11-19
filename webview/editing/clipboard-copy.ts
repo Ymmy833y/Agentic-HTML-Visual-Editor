@@ -49,7 +49,8 @@ export interface ClipboardCopyPorts {
  * Attaches one copy listener and one cut listener to the editor root.
  *
  * The comment popup lies outside the editor root, so copying or cutting a selection inside it never reaches these
- * listeners and keeps the browser default.
+ * listeners. A field in the popup gets listeners of its own through this same call, and the popup takes a copy that
+ * covers entry texts. Any other selection in the popup keeps the browser default.
  *
  * @param root The editor root. It stays the same element across document replacement, so call this once on the first
  *   mount.

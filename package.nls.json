@@ -10,5 +10,6 @@
   "command.openInHtmlEditor.title": "Open in HTML",
   "command.copyAsHtml.title": "Copy as HTML",
   "command.exportAsPdf.title": "Export as PDF",
+  "command.addFileToChat.title": "Add File to Chat",
   "command.category": "Visual Editor"
 }

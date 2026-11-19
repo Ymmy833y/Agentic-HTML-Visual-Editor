@@ -66,7 +66,7 @@ async function openCommentEditor(page: Page, body: string, width?: number): Prom
 }
 
 /**
- * Clicks the annotated text of a comment to open its popup.
+ * Clicks the annotated text of a comment to open its popup, and waits until the popup and its resize strip are drawn.
  *
  * @param page The page to operate on.
  * @param id The ID of the comment.
@@ -74,6 +74,10 @@ async function openCommentEditor(page: Page, body: string, width?: number): Prom
 async function openComment(page: Page, id: string): Promise<void> {
   await page.locator(`${EDITOR_ROOT} comment#${id}`).click({ position: { x: 2, y: 5 } });
   await expect(page.locator(POPUP)).toBeVisible();
+  // The strip gets its height only when the popup's size is next observed, a frame after the popup opens. Until then
+  // its box is empty: a read of its height gives 0, and the middle of the box lies on the popup's rounded corner,
+  // outside the popup, where a press would close it.
+  await expect(page.locator(RESIZER)).toBeVisible();
 }
 
 /**

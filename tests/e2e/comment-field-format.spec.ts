@@ -39,6 +39,7 @@ const FLOATING = `#${FLOATING_MENU_ELEMENT_ID}`;
 const DIALOG = `#${ACTION_DIALOG_ELEMENT_ID}`;
 const TOOLTIP = `#${TOOLTIP_ELEMENT_ID}`;
 const COMMENT = `${EDITOR_ROOT} comment`;
+const BODY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.bodyField']}"]`;
 const REPLY_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.replyField']}"]`;
 const EDIT_FIELD = `${POPUP} [role="textbox"][aria-label="${englishMessages['commentThread.editField']}"]`;
 const RESOLVED = `${POPUP} button[aria-label="${englishMessages['commentThread.resolved']}"]`;
@@ -52,6 +53,13 @@ const ZOOM_IN = `#${DIAGRAM_ZOOM_ELEMENT_ID} button[aria-label="${englishMessage
 // A comment with only a human body.
 const HUMAN_COMMENT = '<p>x<comment id="c-1">ab<comment-body contenteditable="false" data-author="human" '
   + 'data-updated="2026-01-01T00:00:00.000Z">note</comment-body></comment>y</p>';
+
+// A clipboard whose HTML form carries bold, a list and a colored span, as a copy from another page does.
+const FORMATTED_CLIPBOARD = {
+  'text/html': '<p><span style="font-weight: 700">bold</span> text</p>\n<ul>\n  <li>one</li>\n'
+    + '  <li><span style="color: rgb(255, 0, 0)">two</span></li>\n</ul>\n',
+  'text/plain': 'bold text\none\ntwo',
+};
 
 // A flowchart Mermaid draws.
 const FLOWCHART = 'flowchart TD\n  A --> B';
@@ -99,6 +107,20 @@ async function typeReply(page: Page, text: string): Promise<void> {
   if (text !== '') {
     await page.keyboard.type(text);
   }
+}
+
+/**
+ * Reads the number of formatting elements in a field and the texts of its non-empty paragraphs.
+ *
+ * @param page Page to operate.
+ * @param selector The field.
+ * @returns The count of strong, ul and span elements, and the paragraph texts.
+ */
+async function readFieldTexts(page: Page, selector: string): Promise<[number, string[]]> {
+  return page.locator(selector).evaluate((field) => [
+    field.querySelectorAll('strong, ul, span').length,
+    [...field.querySelectorAll('p')].map((paragraph) => paragraph.textContent).filter((text) => text !== ''),
+  ]);
 }
 
 /**
@@ -335,6 +357,46 @@ test.describe('Formatting in a comment field', () => {
     expect(pasted).toEqual(['bold', ['one', 'two'], 'color: rgb(255, 0, 0);']);
   });
 
+  test('Ctrl+Shift+V in the empty body field of a comment just made from the toolbar puts in only the text', async ({ page }) => {
+    await openCommentEditor(page, '<p>abcd</p>');
+    await page.locator(`${EDITOR_ROOT} p`).evaluate((paragraph) => {
+      const text = paragraph.firstChild;
+      const root = paragraph.parentElement;
+      const selection = window.getSelection();
+      if (text === null || root === null || selection === null) {
+        return;
+      }
+      root.focus();
+      const range = document.createRange();
+      range.setStart(text, 1);
+      range.setEnd(text, 3);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await page.locator(toolbarItem(TOOLBAR_SLOT.comment)).click();
+    await expect(page.locator(BODY_FIELD)).toBeFocused();
+    await writeClipboard(page, FORMATTED_CLIPBOARD);
+
+    await page.keyboard.press('ControlOrMeta+Shift+V');
+
+    await expect.poll(() => readFieldTexts(page, BODY_FIELD)).toEqual([0, ['bold text', 'one', 'two']]);
+  });
+
+  test('Ctrl+Shift+V in the edit field of an entry puts in only the text', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await page.locator(COMMENT).click({ position: { x: 2, y: 5 } });
+    await page.locator(`${POPUP} .comment-thread-entry`).first()
+      .getByRole('button', { name: englishMessages['commentThread.editEntry'], exact: true })
+      .click();
+    await expect(page.locator(EDIT_FIELD)).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+A');
+    await writeClipboard(page, FORMATTED_CLIPBOARD);
+
+    await page.keyboard.press('ControlOrMeta+Shift+V');
+
+    await expect.poll(() => readFieldTexts(page, EDIT_FIELD)).toEqual([0, ['bold text', 'one', 'two']]);
+  });
+
   test('dropping HTML with a colored span and bold into the reply field puts it in at the drop position as a paste does and places the caret after it', async ({ page }) => {
     await openCommentEditor(page, HUMAN_COMMENT);
     await typeReply(page, 'ab');
@@ -398,6 +460,30 @@ test.describe('Formatting in a comment field', () => {
     await page.keyboard.press('Enter');
 
     expect([paragraphs, await page.locator(LAST_REPLY).innerHTML()]).toEqual([['one', 'two'], 'one\ntwo']);
+  });
+
+  test('Ctrl+Shift+V after Backspace merges an empty line made with Shift+Enter in the reply field puts the text at the start of the line', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await typeReply(page, '');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Backspace');
+    await writeClipboard(page, { 'text/plain': 'X' });
+
+    await page.keyboard.press('ControlOrMeta+Shift+V');
+
+    await expect.poll(() => page.locator(REPLY_FIELD).innerHTML()).toBe('<p>X</p>');
+  });
+
+  test('selecting all of a line made a heading in the reply field and deleting it leaves one empty paragraph, not a heading', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await typeReply(page, 'title');
+    await chooseBlockTypeItem(page, BLOCK_KIND_MESSAGE_KEY.heading2);
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+
+    expect(await page.locator(REPLY_FIELD).innerHTML()).toBe('<p><br></p>');
   });
 
   test('Tab in a bulleted list of the reply field nests the item, and Tab outside a list moves focus within the popup', async ({ page }) => {
@@ -486,6 +572,28 @@ test.describe('Formatting in a comment field', () => {
     await expect(page.locator(DIALOG)).toHaveCount(0);
     await expect(page.locator(REPLY_FIELD)).toBeFocused();
     expect(opened).toBe(FLOWCHART);
+  });
+
+  test('selecting all in the edit field of an entry that ends with a diagram and pressing Backspace removes the diagram too and leaves one empty paragraph', async ({ page }) => {
+    await openCommentEditor(
+      page,
+      '<p>x<comment id="c-1">ab<comment-body data-author="human"><template>\n<p>note</p>\n'
+      + '<pre class="mermaid">flowchart TD\n  A --&gt; B</pre>\n</template></comment-body></comment>y</p>',
+    );
+    await page.locator(COMMENT).click({ position: { x: 2, y: 5 } });
+    await page.locator(`${POPUP} .comment-thread-entry`).first()
+      .getByRole('button', { name: englishMessages['commentThread.editEntry'], exact: true })
+      .click();
+    await expect(page.locator(EDIT_FIELD)).toBeFocused();
+    // Until the diagram is drawn, its source still shows, and the browser's select-all would take it in anyway.
+    await expect.poll(() => page.locator(`${EDIT_FIELD} pre`).evaluate(
+      (block) => block.hasAttributeNS('urn:ahve:diagram', 'data-ahve-diagram'),
+    )).toBe(true);
+
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+
+    expect(await page.locator(EDIT_FIELD).innerHTML()).toBe('<p><br></p>');
   });
 
   test('an image inserted in the reply field is shown, and the reply is written with the source as entered and shown with the image', async ({ page }) => {

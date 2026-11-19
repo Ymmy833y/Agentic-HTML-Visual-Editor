@@ -1034,6 +1034,192 @@ test.describe('Managing inputs', () => {
   });
 });
 
+test.describe('Undo and redo in a field', () => {
+  test('Ctrl+Z in the reply field takes back the draft one operation at a time and leaves the document as it is', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    const before = await readBodyHtml(page);
+    await page.keyboard.type('abc');
+    await page.keyboard.press('Backspace');
+
+    await page.keyboard.press('ControlOrMeta+z');
+    const once = await page.locator(REPLY_FIELD).textContent();
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect([once, await page.locator(REPLY_FIELD).textContent(), await readBodyHtml(page)]).toEqual(['abc', '', before]);
+  });
+
+  test('Ctrl+Z that takes back the draft does not reach VS Code', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('abc');
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect((await readForwardedKeys(page)).filter((code) => code === 'KeyZ')).toEqual([]);
+  });
+
+  test('Ctrl+Shift+Z and Ctrl+Y redo the draft one operation at a time', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('abc');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+z');
+
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    const once = await page.locator(REPLY_FIELD).textContent();
+    await page.keyboard.press('ControlOrMeta+y');
+
+    expect([once, await page.locator(REPLY_FIELD).textContent()]).toEqual(['abc', 'ab']);
+  });
+
+  test('a character typed after undoing a Backspace goes where the caret was before the Backspace', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('abc');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Backspace');
+
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.type('X');
+
+    expect(await page.locator(REPLY_FIELD).textContent()).toBe('abXc');
+  });
+
+  test('Ctrl+Z after Ctrl+B on text selected in the reply field takes the bold off', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('abc');
+    await page.keyboard.press('Shift+Home');
+    await page.keyboard.press('ControlOrMeta+b');
+    const bold = await page.locator(`${REPLY_FIELD} strong`).count();
+
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect([bold, await page.locator(`${REPLY_FIELD} strong`).count(), await page.locator(REPLY_FIELD).textContent()])
+      .toEqual([1, 0, 'abc']);
+  });
+
+  test('once the draft is back where writing started, Ctrl+Z reaches VS Code, the next Ctrl+Y does too, and the one after redoes the draft', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('a');
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+y');
+    await page.keyboard.press('ControlOrMeta+y');
+
+    expect([
+      (await readForwardedKeys(page)).filter((code) => code === 'KeyZ' || code === 'KeyY'),
+      await page.locator(REPLY_FIELD).textContent(),
+    ]).toEqual([['KeyZ', 'KeyY'], 'a']);
+  });
+
+  test('Ctrl+Y while the draft has operations but none to redo neither reaches VS Code nor changes the field', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('a');
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+y');
+
+    expect([
+      (await readForwardedKeys(page)).filter((code) => code === 'KeyY'),
+      await page.locator(REPLY_FIELD).textContent(),
+    ]).toEqual([[], 'a']);
+  });
+
+  test('Ctrl+Z and Ctrl+Y in a field focused without typing reach VS Code', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+y');
+
+    expect((await readForwardedKeys(page)).filter((code) => code === 'KeyZ' || code === 'KeyY')).toEqual(['KeyZ', 'KeyY']);
+  });
+
+  test('after a reply is committed with Enter, Ctrl+Z in the same field reaches VS Code', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('R');
+    await page.keyboard.press('Enter');
+    await expect(page.locator(REPLY_FIELD)).toBeFocused();
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect((await readForwardedKeys(page)).filter((code) => code === 'KeyZ')).toEqual(['KeyZ']);
+  });
+
+  test('Ctrl+Z in the edit field does not take it back past the content the edit started with', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await entryButton(page, 0, 'commentThread.editEntry').click();
+    await expect(page.locator(EDIT_FIELD)).toBeFocused();
+    await page.keyboard.type('X');
+
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect(await page.locator(EDIT_FIELD).textContent()).toBe('note');
+  });
+
+  test('Ctrl+Z in a reply field reopened after typing, deleting and closing reaches VS Code', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('a');
+    await page.keyboard.press('Backspace');
+    await page.locator(`${EDITOR_ROOT} #tail`).click();
+    await expect(page.locator(POPUP)).toBeHidden();
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await installForwardRecord(page);
+
+    await page.keyboard.press('ControlOrMeta+z');
+
+    expect((await readForwardedKeys(page)).filter((code) => code === 'KeyZ')).toEqual(['KeyZ']);
+  });
+
+  test('Ctrl+Z during a composition in the reply field neither reaches VS Code nor changes the draft', async ({ page }) => {
+    await openCommentEditor(page, HUMAN_COMMENT);
+    await openByClick(page);
+    await page.locator(REPLY_FIELD).click();
+    await page.keyboard.type('ab');
+    const ime = await openImeSession(page);
+    await ime.send('Input.imeSetComposition', { text: 'あ', selectionStart: 1, selectionEnd: 1 });
+    const before = await page.locator(REPLY_FIELD).textContent();
+    await installForwardRecord(page);
+
+    // Physical keys during composition arrive after the composition is committed, so a key marked as composing is sent directly.
+    await page.locator(REPLY_FIELD).dispatchEvent('keydown', {
+      key: 'z',
+      code: 'KeyZ',
+      ctrlKey: true,
+      isComposing: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    expect([await readForwardedKeys(page), await page.locator(REPLY_FIELD).textContent()]).toEqual([[], before]);
+  });
+});
+
 test.describe('Rewriting entries', () => {
   test('the added body and reply enter the body output with contenteditable="false", author human, and a UTC update time with milliseconds', async ({ page }) => {
     await openCommentEditor(page, '<p>x<comment id="c-1">ab</comment>y</p>');

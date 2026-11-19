@@ -1620,6 +1620,26 @@
   background: color-mix(in srgb, var(--ahve-accent) 18%, transparent);
 }
 
+/* The box that chooses a change sits ahead of its item on the same row, and the item takes the rest of the row, so it
+   is pressed and cut with an ellipsis as before. The class is spelled as in sidebar.ts. */
+#editor-sidebar li:has(> .sidebar-change-select) {
+  display: flex;
+  align-items: center;
+  gap: 0.15em;
+}
+
+#editor-sidebar .sidebar-change-select {
+  flex: none;
+  margin: 0 0 0 0.3em;
+  accent-color: var(--ahve-accent);
+  cursor: pointer;
+}
+
+#editor-sidebar li > .sidebar-change-select + button {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The two buttons above the list of changes that accept or reject every change: outlined chips side by side, green
    for accepting (it keeps the insertions) and red for rejecting (it takes them out), so that they read as actions rather
    than as items of the list. The classes are spelled as in sidebar.ts. */
@@ -2357,30 +2377,31 @@ body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialo
 }
 
 /* The tooltip. The ID matches the constant in tooltip.ts.
-   It takes no pointer events: taking them would read as leaving the target, and the tooltip would
-   be shown and hidden over and over.
+   It takes pointer events and its text can be selected, so that the pointer can be moved onto it, out of the way of
+   the text, and the text copied. The script keeps it shown while the pointer is on it.
    It is drawn inverted, in the text color on the background color, so it stands apart from the surface it explains.
-   The script puts it flush against its target, above or below. The element itself is left unpainted and carries a
-   6px margin of air at the top and the bottom; the drawn box is a pseudo-element inside that air, so it stays a little
-   away from the target on either side. A drop shadow follows the drawn shape. */
+   The element is the drawn box alone. The script keeps it a little away from its target, above or below, and leaves
+   the space between them out of it, so that a press there reaches what lies under it. The box is painted by a
+   pseudo-element that fills the element, and a drop shadow follows the drawn shape. */
 #editor-tooltip {
   position: fixed;
   z-index: 5;
   max-width: 24em;
-  padding: calc(6px + 0.3em) 0.65em;
+  padding: 0.3em 0.65em;
   color: var(--ahve-bg);
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.28));
   font-size: 0.9em;
   font-weight: 500;
   line-height: 1.4;
-  pointer-events: none;
+  -webkit-user-select: text;
+  user-select: text;
   animation: bar-fade-in 120ms ease-out;
 }
 
 #editor-tooltip::before {
   content: "";
   position: absolute;
-  inset: 6px 0;
+  inset: 0;
   z-index: -1;
   background: color-mix(in srgb, var(--ahve-fg) 94%, var(--ahve-bg));
   border: 1px solid transparent;

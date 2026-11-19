@@ -39,7 +39,7 @@ import type { CellMergeState, CellRangeSelection } from '../editing/cell-range';
 import { attachClipboardCopy } from '../editing/clipboard-copy';
 import type { ClipboardCopyPorts } from '../editing/clipboard-copy';
 import { registerCodeBlockIndentShortcuts } from '../editing/code-block-indent';
-import { resolveAllChanges, resolveChange } from '../editing/change-resolve';
+import { resolveAllChanges, resolveChange, resolveSelectedChanges } from '../editing/change-resolve';
 import type { ChangeResolvePorts } from '../editing/change-resolve';
 import { canRunCommentItem, runCommentItem } from '../editing/comment-create';
 import type { CommentItemPorts } from '../editing/comment-create';
@@ -59,6 +59,7 @@ import type { FormatShortcutPorts } from '../editing/format-shortcuts';
 import { registerHtmlPasteRule } from '../editing/html-paste-rule';
 import { attachLeadingDiagramKey, removeDiagram, updateDiagramSource } from '../editing/diagram-edit';
 import type { DiagramEditPorts } from '../editing/diagram-edit';
+import { attachSelectAllKey } from '../editing/diagram-select-all';
 import { updateImage } from '../editing/image-edit';
 import { insertImage } from '../editing/image-insert';
 import type { ImageInsertPorts } from '../editing/image-insert';
@@ -117,6 +118,7 @@ import { attachCommentCaret } from '../ui/comment-caret';
 import { COMMENT_POPUP_ELEMENT_ID, COMMENT_POPUP_ENTRY_CLASS, attachCommentPopup } from '../ui/comment-popup';
 import { attachCommentPopupResize, readEmbeddedCommentPopupWidth } from '../ui/comment-popup-resize';
 import type { CommentPopup } from '../ui/comment-popup';
+import { attachCommentPopupCopy } from '../ui/comment-popup-copy';
 import { attachCommentPopupPress } from '../ui/comment-popup-press';
 import { attachCommentPopupTrigger } from '../ui/comment-popup-trigger';
 import type { CommentPopupTrigger } from '../ui/comment-popup-trigger';
@@ -944,6 +946,12 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       rejectAllChanges: () => {
         resolveAllChanges(changeResolvePorts, 'reject');
       },
+      acceptSelectedChanges: (heads) => {
+        resolveSelectedChanges(changeResolvePorts, heads, 'accept');
+      },
+      rejectSelectedChanges: (heads) => {
+        resolveSelectedChanges(changeResolvePorts, heads, 'reject');
+      },
       hasShortcut: (event) => shortcutReceiver?.hasShortcut(event) === true,
       returnToEditor: () => viewShell.editorReturn.returnToEditor(),
       registerTooltip: (element, label, shouldShow) => viewShell.tooltip.registerTarget(element, label, shouldShow),
@@ -1191,6 +1199,10 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
       startEdit: (entry) => commentThread?.startEdit(entry),
       reportDiagnostic: (detail) => postDiagnostic(channel, detail),
     });
+    attachCommentPopupCopy(popupElement, {
+      readEntryTexts: () => commentThread?.readEntryTexts() ?? [],
+      reportDiagnostic: (detail) => postDiagnostic(channel, detail),
+    });
     attachCommentPopupResize(view, popupElement, {
       place: () => popup.place(),
       saveWidth: (width) => channel.post({ type: VIEW_TO_HOST_MESSAGE_TYPE.commentPopupWidthChanged, width }),
@@ -1245,6 +1257,8 @@ function mountInitialDocument(message: InitializeMessage, view: Window, channel:
   attachDiagramClick(target.root, openDiagram);
   // The caret never enters a diagram, so ArrowUp adds the line a leading diagram leaves no room for.
   attachLeadingDiagramKey(target.root, diagramEditPorts);
+  // For the same reason, the browser's select-all leaves out the diagrams at the start and the end.
+  attachSelectAllKey(target.root, platform, (detail) => postDiagnostic(channel, detail));
   // The copy and cut listeners attach to the editor root whether or not a toolbar exists. The editor root stays the
   // same element across document replacement, so attach them only on the first mount. Document replacement swaps the
   // editing session and the input stop changes from moment to moment, so the ports are read on every call.

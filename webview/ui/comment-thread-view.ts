@@ -234,6 +234,17 @@ export class CommentThreadView {
   }
 
   /**
+   * Returns the entry texts of the latest render, in document order.
+   *
+   * The display of an empty entry shows a message, not what the entry holds, so it is not returned.
+   *
+   * @returns The entry texts.
+   */
+  readEntryTexts(): readonly Element[] {
+    return [...this.entryTexts.keys()].filter((text) => !text.classList.contains(EMPTY_ENTRY_CLASS));
+  }
+
+  /**
    * Draws the thread header. Previous and next go on the left, the resolved toggle and comment deletion on the right.
    *
    * @param comment Open comment.

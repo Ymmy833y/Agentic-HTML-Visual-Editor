@@ -7,6 +7,7 @@ import { parseInertFragment } from '../../webview/document/inert-fragment';
 import { CELL_RANGE_MARK_NAME, CELL_RANGE_MARK_NAMESPACE } from '../../webview/editing/cell-range';
 import {
   createCopyContent,
+  createRangesCopyContent,
   removeBoundaryEmptyBlocks,
   removeClosedDetailsBodies,
   removeCommentAnnotations,
@@ -99,6 +100,36 @@ describe('creating the copy content', () => {
     createCopyContent(rangeBetween(root, ['comment', 1], ['details + p', 2]), root, () => undefined);
 
     expect(root.innerHTML).toBe(body);
+  });
+});
+
+describe('creating the copy content from several ranges', () => {
+  // Two holders of entry contents, as the comment popup draws them: one line each.
+  const ENTRY_TEXTS = '<div id="one"><p><strong>ab</strong></p></div><div id="two"><p>cd</p></div>';
+
+  it('puts the inline content of each of two ranges in its own paragraph and separates them with a blank line in the text form', () => {
+    const root = mountRoot(ENTRY_TEXTS);
+    const one = readElement(root, '#one');
+    const two = readElement(root, '#two');
+    const bold = readChildText(readElement(one, 'strong'), 0);
+    const plain = readChildText(readElement(two, 'p'), 0);
+
+    const content = createRangesCopyContent([
+      { range: createRange(bold, 0, bold, 2), root: one },
+      { range: createRange(plain, 0, plain, 2), root: two },
+    ], () => undefined);
+
+    expect(content).toEqual({ html: '<p><strong>ab</strong></p><p>cd</p>', text: 'ab\n\ncd' });
+  });
+
+  it('gives the same copy content as createCopyContent for a single range', () => {
+    const root = mountRoot(ENTRY_TEXTS);
+    const one = readElement(root, '#one');
+    const bold = readChildText(readElement(one, 'strong'), 0);
+    const range = createRange(bold, 0, bold, 1);
+
+    expect(createRangesCopyContent([{ range, root: one }], () => undefined))
+      .toEqual(createCopyContent(range, one, () => undefined));
   });
 });
 

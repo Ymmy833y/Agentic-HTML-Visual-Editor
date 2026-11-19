@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { createLocalizer } from '../common/index';
 import type { Localizer } from '../common/index';
+import { createAddFileToChatPorts, registerAddFileToChatCommand, runAddFileToChat } from './chat/add-file-to-chat-command';
 import { createCopyAsHtmlPorts, registerCopyAsHtmlCommand } from './clipboard/copy-as-html-command';
 import { ErrorReporter } from './diagnostics/error-reporter';
 import type { NotificationPresenter } from './diagnostics/error-reporter';
@@ -81,6 +82,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
   // One set of ports for the command and the toolbar path, so the file is written from one place.
   const exportPdfPorts = createExportPdfPorts(errorReporter, localizer, context.extensionUri);
   context.subscriptions.push(registerExportAsPdfCommand(sessionRegistry, exportPdfPorts));
+  // One set of ports for the command and the test drive hook, so the hook goes through the path the command takes.
+  const addFileToChatPorts = createAddFileToChatPorts(errorReporter);
+  context.subscriptions.push(registerAddFileToChatCommand(sessionRegistry, addFileToChatPorts));
   context.subscriptions.push(registerSplitNotice(errorReporter));
   // Receive the restricted backup access only when registration completes. This keeps the test support API from
   // owning a backup path of its own, so it goes through the production entry points.
@@ -122,6 +126,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<Extens
         ...exportPdfPorts,
         showSaveDialog: () => Promise.resolve(vscode.Uri.parse(destinationUri)),
       });
+    },
+    addFileToChatForTest: async (argument) => {
+      const attached: string[] = [];
+      await runAddFileToChat(argument, sessionRegistry, {
+        ...addFileToChatPorts,
+        attachFile: (sourceUri) => {
+          attached.push(sourceUri.toString());
+          return Promise.resolve();
+        },
+      });
+      return attached;
     },
   });
 

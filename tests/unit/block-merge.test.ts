@@ -112,6 +112,33 @@ describe('block merge', () => {
 
     expect(point).toEqual({ container: first, offset: 1 });
   });
+
+  it('puts the merge point before the placeholder of an empty heading when its last line takes an empty paragraph', () => {
+    const root = createRoot('\n<h2><br></h2>\n<p><br></p>');
+    const heading = selectAll(root, 'h2')[0];
+
+    const point = mergeBlocks(heading, selectAll(root, 'p')[0], 'lastLine');
+
+    expect(point).toEqual({ container: heading, offset: 0 });
+  });
+
+  it('moves the following content into the empty last line of a block that ends with a line break', () => {
+    const root = createRoot('\n<p>a<br><br></p>\n<p>b</p>');
+    const [first, second] = selectAll(root, 'p');
+
+    const point = mergeBlocks(first, second, 'lastLine');
+
+    expect([root.innerHTML, point]).toEqual(['\n<p>a<br>b</p>', { container: first, offset: 2 }]);
+  });
+
+  it('joins the last line of a block whose only line ends with a line break', () => {
+    const root = createRoot('\n<p>a<br></p>\n<p>b</p>');
+    const [first, second] = selectAll(root, 'p');
+
+    mergeBlocks(first, second, 'lastLine');
+
+    expect(root.innerHTML).toBe('\n<p>ab</p>');
+  });
 });
 
 describe('selected range deletion', () => {
@@ -142,7 +169,7 @@ describe('selected range deletion', () => {
     expect(root.innerHTML).toBe('\n<p>af</p>');
   });
 
-  it('leaves one paragraph with a placeholder when deletion empties both ends', () => {
+  it('leaves one paragraph with a placeholder and puts the range at its start when deletion empties both ends', () => {
     const root = createRoot('\n<p>ab</p>\n<p>cd</p>');
     const [first, second] = selectAll(root, 'p');
     const range = spanRange(first, 0, second, 2);
@@ -150,7 +177,134 @@ describe('selected range deletion', () => {
     const remaining = deleteRangeContents(range, root, first);
 
     expect(remaining).toBe(first);
+    expect([root.innerHTML, range.startContainer === first, range.startOffset]).toEqual(['\n<p><br></p>', true, 0]);
+  });
+
+  it('joins the rest after a line break that the range did not delete', () => {
+    const root = createRoot('\n<p>ab<br>cd</p>\n<p>ef</p>');
+    const [first, second] = selectAll(root, 'p');
+    const range = document.createRange();
+    range.setStart(first.lastChild ?? first, 0);
+    range.setEnd(second.firstChild ?? second, 1);
+
+    deleteRangeContents(range, root, first);
+
+    expect(root.innerHTML).toBe('\n<p>ab<br>f</p>');
+  });
+
+  it('removes an emptied paragraph at the end of the range together with the blockquote that held only it', () => {
+    const root = createRoot('\n<p>abc</p>\n<blockquote><p>def</p></blockquote>');
+    const [first, second] = selectAll(root, 'p');
+
+    deleteRangeContents(spanRange(first, 1, second, 3), root, first);
+
+    expect(root.innerHTML).toBe('\n<p>a</p>');
+  });
+
+  it('removes only the emptied first of two list items at the end of the range', () => {
+    const root = createRoot('\n<p>abc</p>\n<ul><li>def</li><li>ghi</li></ul>');
+    const paragraph = selectAll(root, 'p')[0];
+    const item = selectAll(root, 'li')[0];
+
+    deleteRangeContents(spanRange(paragraph, 1, item, 3), root, paragraph);
+
+    expect(root.innerHTML).toBe('\n<p>a</p>\n<ul><li>ghi</li></ul>');
+  });
+
+  it('removes an emptied list item at the end of the range together with the list when the range emptied a link with attributes in it', () => {
+    const root = createRoot('\n<p>abc</p>\n<ul><li><a href="#x">def</a></li></ul>');
+    const paragraph = selectAll(root, 'p')[0];
+
+    deleteRangeContents(spanRange(paragraph, 1, selectAll(root, 'a')[0], 3), root, paragraph);
+
+    expect(root.innerHTML).toBe('\n<p>a</p>');
+  });
+
+  it('removes an emptied code block whose code has a class at the end of the range', () => {
+    const root = createRoot('\n<p>abc</p>\n<pre><code class="language-js">def</code></pre>');
+    const paragraph = selectAll(root, 'p')[0];
+
+    deleteRangeContents(spanRange(paragraph, 1, selectAll(root, 'code')[0], 3), root, paragraph);
+
+    expect(root.innerHTML).toBe('\n<p>a</p>');
+  });
+
+  it.each([
+    ['table cell', '\n<p>ab</p>\n<table><tbody><tr><td>cd</td></tr></tbody></table>', 'td'],
+    ['details title', '\n<p>ab</p>\n<details open=""><summary>cd</summary>\n<p>ef</p>\n</details>', 'summary'],
+  ])('keeps an emptied %s at the end of the range', (_name, html, selector) => {
+    const root = createRoot(html);
+    const paragraph = selectAll(root, 'p')[0];
+    const end = selectAll(root, selector)[0];
+
+    deleteRangeContents(spanRange(paragraph, 1, end, 2), root, paragraph);
+
+    expect(root.contains(end)).toBe(true);
+  });
+
+  it.each([
+    ['a list item', '\n<ul><li>ab</li></ul>\n<p>cd</p>', 'li', 'li'],
+    ['a paragraph of an alert', '\n<blockquote data-alert="note"><p>ab</p></blockquote>\n<p>cd</p>', 'blockquote p', 'blockquote p'],
+    ['a heading left with an empty strong', '\n<h2><strong>ab</strong></h2>\n<p>cd</p>', 'h2 strong', 'h2'],
+  ])('replaces what is left with one empty paragraph and puts the range at its start when the range held all the content, starting in %s', (_name, html, textSelector, blockSelector) => {
+    const root = createRoot(html);
+    const end = selectAll(root, ':scope > p')[0];
+    const range = spanRange(selectAll(root, textSelector)[0], 0, end, 2);
+
+    const remaining = deleteRangeContents(range, root, selectAll(root, blockSelector)[0]);
+
+    expect([root.innerHTML, range.startContainer === remaining, range.startOffset]).toEqual(['\n<p><br></p>', true, 0]);
+  });
+
+  it('replaces what is left with one empty paragraph when the range held all the content, starting in a code block whose code has a class', () => {
+    const root = createRoot('\n<pre><code class="language-js">ab</code></pre>\n<p>cd</p>');
+    const range = spanRange(selectAll(root, 'code')[0], 0, selectAll(root, 'p')[0], 2);
+
+    deleteRangeContents(range, root, selectAll(root, 'pre')[0]);
+
     expect(root.innerHTML).toBe('\n<p><br></p>');
+  });
+
+  it.each([
+    ['a link', '\n<h2><a href="#x">ab</a></h2>\n<p>cd</p>', 'a'],
+    ['a colored span', '\n<p><span style="color: #c00;">ab</span></p>\n<p>cd</p>', 'span'],
+  ])('replaces what is left with one empty paragraph when the range held all the content and emptied %s that has attributes', (_name, html, textSelector) => {
+    const root = createRoot(html);
+    const range = spanRange(selectAll(root, textSelector)[0], 0, selectAll(root, ':scope > :last-child')[0], 2);
+
+    deleteRangeContents(range, root, selectAll(root, ':scope > :first-child')[0]);
+
+    expect(root.innerHTML).toBe('\n<p><br></p>');
+  });
+
+  it('folds an empty line outside the range into the one empty paragraph when all the content is deleted', () => {
+    const root = createRoot('\n<p><br></p>\n<h2>ab</h2>');
+    const heading = selectAll(root, 'h2')[0];
+
+    deleteRangeContents(spanRange(heading, 0, heading, 2), root, heading);
+
+    expect(root.innerHTML).toBe('\n<p><br></p>');
+  });
+
+  it('keeps a line that holds only an empty element with attributes when all the other content is deleted', () => {
+    const root = createRoot('\n<p><a id="top"></a></p>\n<h2>ab</h2>');
+    const heading = selectAll(root, 'h2')[0];
+
+    deleteRangeContents(spanRange(heading, 0, heading, 2), root, heading);
+
+    expect(root.innerHTML).toBe('\n<p><a id="top"></a></p>\n<h2><br></h2>');
+  });
+
+  it.each([
+    ['table', '\n<table><tbody><tr><td>x</td></tr></tbody></table>\n<h2>ab</h2>', 'h2'],
+    ['details section', '\n<details open=""><summary>ab</summary>\n<p><br></p>\n</details>', 'summary'],
+  ])('does not replace the emptied line with a paragraph when a %s is left', (_name, html, selector) => {
+    const root = createRoot(html);
+    const line = selectAll(root, selector)[0];
+
+    deleteRangeContents(spanRange(line, 0, line, 2), root, line);
+
+    expect(root.contains(line)).toBe(true);
   });
 
   it('does not merge into a list and leaves both endpoint blocks separated by a line break', () => {
@@ -379,6 +533,15 @@ describe('range delete that receives a range delete keep', () => {
     });
 
     expect(root.innerHTML).toBe(`\n${table('a')}\n<p><br></p>\n${table('d')}`);
+  });
+
+  it('leaves an empty paragraph after a table and removes the emptied code block when deleting from a cell to the end of the code block', () => {
+    const root = createRoot('\n<table><tbody><tr><td>ab</td></tr></tbody></table>\n<p>mid</p>\n<pre><code>cd</code></pre>');
+    const cell = selectAll(root, 'td')[0];
+
+    deleteRangeContents(spanTexts(cell, 1, selectAll(root, 'code')[0], 2), root, cell);
+
+    expect(root.innerHTML).toBe('\n<table><tbody><tr><td>a</td></tr></tbody></table>\n<p><br></p>');
   });
 
   it('inserts no paragraph between two tables that were already adjacent or for a range inside one table', () => {

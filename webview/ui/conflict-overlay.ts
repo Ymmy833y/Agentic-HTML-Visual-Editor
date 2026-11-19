@@ -2,6 +2,7 @@ import { CONFLICT_CHOICE } from '../../common/index';
 import type { ConflictChoice, ConflictSides, Localizer } from '../../common/index';
 import { buildConflictSidePreview } from './conflict-preview';
 import type { ConflictPreviewContext, ConflictSidePreview } from './conflict-preview';
+import { readHistoryKey } from './history-key';
 import type { OverlayContent } from './overlay-presenter';
 
 // The class of the overlay's own parts. Matched by the stylesheet, which also hides the action dialog while it is up.
@@ -132,29 +133,10 @@ export function handleConflictOverlayKeyDown(event: KeyboardEvent): void {
   if (event.isComposing) {
     return;
   }
-  if (event.key === 'Escape' || isHistoryKey(event)) {
+  if (event.key === 'Escape' || readHistoryKey(event) !== undefined) {
     event.preventDefault();
     event.stopPropagation();
   }
-}
-
-/**
- * Returns whether the key is undo or redo: Ctrl or Cmd with Z, with Shift+Z, or with Y.
- *
- * Both the character and the physical key are checked, so that a layout whose Z key types another character is
- * caught as well.
- *
- * @param event The key press.
- */
-function isHistoryKey(event: KeyboardEvent): boolean {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
-    return false;
-  }
-  const key = event.key.toLowerCase();
-  if (key === 'z' || event.code === 'KeyZ') {
-    return true;
-  }
-  return !event.shiftKey && (key === 'y' || event.code === 'KeyY');
 }
 
 /** The names a region's parts are given. */

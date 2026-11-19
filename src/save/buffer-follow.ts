@@ -25,6 +25,16 @@ function delay(durationMs: number): Promise<void> {
 }
 
 /**
+ * Waits until the buffer-follow timeout has passed.
+ *
+ * A direct write that VS Code never reloads raises no change notice, so the check of whether the buffer followed it has
+ * to start from a timer instead.
+ */
+export function waitForFollowTimeout(): Promise<void> {
+  return delay(BUFFER_FOLLOW_TIMEOUT_MS);
+}
+
+/**
  * Reads the text buffer repeatedly until a decision is reached or the timeout expires.
  *
  * A clean text buffer follows a direct disk write asynchronously, and the extension is not notified when that

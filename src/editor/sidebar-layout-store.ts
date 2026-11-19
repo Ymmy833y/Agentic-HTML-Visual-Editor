@@ -36,11 +36,20 @@ export function parseSidebarLayoutChange(value: unknown): SidebarLayoutChange | 
   };
 }
 
+// How long the written layout is kept after the global state first returns it. VS Code sends the notice of a write a
+// few hundred milliseconds after it, and this leaves room for a slow machine while a later change from another window
+// still applies soon after.
+const WRITTEN_LAYOUT_HOLD_MS = 3000;
+
 /** A layout written to the global state, with the stored value it replaces. */
 interface PendingLayout {
   readonly layout: SidebarLayout;
+  /** The layout as JSON, to compare with what the global state returns. */
+  readonly written: string;
   /** The stored value when the write started, as JSON, so that a copy of it compares equal. */
   readonly replaced: string | undefined;
+  /** When the global state first returned the layout, or `undefined` while it has not. */
+  returnedAt?: number;
 }
 
 /**
@@ -50,29 +59,44 @@ interface PendingLayout {
  * the files they happen to open.
  */
 export class SidebarLayoutStore {
-  // The global state can go on returning the value a write replaces for a while, even after the write settles, and a
-  // change laid over that value would undo the one before it. The written layout is kept until the stored value is
-  // anything else, which also lets a layout another window stores afterwards apply. It is dropped as soon as the
-  // global state returns it, since the replaced value coming back after that is another window's change.
+  // VS Code tells every window about a change of the global state a moment after it is made, so the notice of an
+  // earlier write can arrive after this one and bring back, for a while, the value this write replaced. A view created
+  // meanwhile would start from the layout before the change, and a change laid over that value would undo the one
+  // before it. The written layout is therefore kept while the global state returns either it or the value it replaced,
+  // until the hold after the global state first returns it has passed. Any other value, and the replaced value coming
+  // back after the hold, is another window's change.
   private pending: PendingLayout | undefined;
 
   /**
    * @param state The extension's global state. Only reading and updating are used.
+   * @param now Returns the current time in milliseconds. Tests pass their own to step through the hold.
    */
-  constructor(private readonly state: Pick<vscode.Memento, 'get' | 'update'>) {}
+  constructor(
+    private readonly state: Pick<vscode.Memento, 'get' | 'update'>,
+    private readonly now: () => number = () => Date.now(),
+  ) {}
 
   /**
    * Returns the stored layout.
    *
-   * @returns The layout being written while the global state still returns the value it replaces, or else the stored
-   *   one, or the default when none is stored or the stored value is not a layout.
+   * @returns The layout being written, or the one written last while it is held and the global state returns it or the
+   *   value it replaced; or else the stored one, or the default when none is stored or the stored value is not a
+   *   layout.
    */
   read(): SidebarLayout {
     const stored = this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY);
-    if (this.pending !== undefined && JSON.stringify(stored) === this.pending.replaced) {
-      return this.pending.layout;
+    const pending = this.pending;
+    if (pending !== undefined) {
+      const storedJson = JSON.stringify(stored);
+      if (storedJson === pending.written) {
+        pending.returnedAt ??= this.now();
+      }
+      const held = pending.returnedAt === undefined || this.now() - pending.returnedAt < WRITTEN_LAYOUT_HOLD_MS;
+      if (held && (storedJson === pending.written || storedJson === pending.replaced)) {
+        return pending.layout;
+      }
+      this.pending = undefined;
     }
-    this.pending = undefined;
     return parseSidebarLayout(stored) ?? DEFAULT_SIDEBAR_LAYOUT;
   }
 
@@ -91,12 +115,16 @@ export class SidebarLayoutStore {
     const width = change.width ?? stored.width;
     // Only the fields of the contract are stored, so that nothing else ends up in the global state.
     const layout: SidebarLayout = width === undefined ? { open } : { open, width };
-    const pending = { layout, replaced: JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) };
+    const pending: PendingLayout = {
+      layout,
+      written: JSON.stringify(layout),
+      replaced: JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)),
+    };
     this.pending = pending;
     await this.state.update(SIDEBAR_LAYOUT_STATE_KEY, layout);
-    const returned = JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) === JSON.stringify(layout);
+    const returned = JSON.stringify(this.state.get<unknown>(SIDEBAR_LAYOUT_STATE_KEY)) === pending.written;
     if (this.pending === pending && returned) {
-      this.pending = undefined;
+      pending.returnedAt ??= this.now();
     }
   }
 }

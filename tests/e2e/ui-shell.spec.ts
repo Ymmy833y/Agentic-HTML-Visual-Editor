@@ -1484,7 +1484,7 @@ test.describe('the tooltip', () => {
     await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
     await expect(page.locator(TOOLTIP)).toHaveCount(1);
 
-    // The drawn box is a pseudo-element inside the tooltip's own air, and the shadow is a drop shadow that follows it.
+    // The drawn box is a pseudo-element that fills the tooltip, and the shadow is a drop shadow that follows it.
     expect(await page.locator(TOOLTIP).evaluate((element) => {
       const box = getComputedStyle(element, '::before');
       const radius = 0.55 * parseFloat(getComputedStyle(element).fontSize);
@@ -1494,5 +1494,203 @@ test.describe('the tooltip', () => {
         getComputedStyle(element).filter.includes('drop-shadow'),
       ];
     })).toEqual([true, true, true]);
+  });
+
+  test('goes above a target that has room above, with 6px left between the target and itself', async ({ page }) => {
+    await openEditor(page, '\n<p><a href="a.html">link</a></p>\n');
+    await page.evaluate((rootSelector) => {
+      // Moves the target well below the toolbar, so that there is room above it.
+      const link = document.querySelector(`${rootSelector} a`);
+      if (link instanceof HTMLElement) {
+        link.style.position = 'fixed';
+        link.style.left = '100px';
+        link.style.top = '300px';
+      }
+      window.__uiShellProbe?.()?.tooltip.registerResolver(() => 'Ctrl+Click to follow');
+    }, EDITOR_ROOT);
+
+    await page.locator(`${EDITOR_ROOT} a`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+
+    const [tooltipBottom, linkTop] = await page.locator(TOOLTIP).evaluate((element, rootSelector) => [
+      element.getBoundingClientRect().bottom,
+      document.querySelector(`${rootSelector} a`)?.getBoundingClientRect().top ?? Number.NaN,
+    ], EDITOR_ROOT);
+    expect(Math.abs(linkTop - tooltipBottom - 6)).toBeLessThan(0.5);
+  });
+
+  test('goes below an item of the toolbar at the top edge, with 24px between the item and its box', async ({ page }) => {
+    await openEditor(page, BODY);
+    const save = page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`);
+
+    await save.hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+
+    const [tooltipBox, saveBox] = await Promise.all([
+      page.locator(TOOLTIP).evaluate((element) => {
+        const own = element.getBoundingClientRect();
+        return own.top + parseFloat(getComputedStyle(element, '::before').top);
+      }),
+      save.boundingBox(),
+    ]);
+    expect(Math.abs(tooltipBox - ((saveBox?.y ?? Number.NaN) + (saveBox?.height ?? Number.NaN)) - 24)).toBeLessThan(0.5);
+  });
+
+  test('stays shown while the pointer moves from the item down across the gap onto the text', async ({ page }) => {
+    await openEditor(page, BODY);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    const text = await page.locator(TOOLTIP).evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+
+    await page.mouse.move(text.x, text.y, { steps: 20 });
+
+    // Counted without waiting, to see that it was never hidden on the way.
+    expect(await page.locator(TOOLTIP).count()).toBe(1);
+  });
+
+  test('hides when the pointer moves from the text onto the document', async ({ page }) => {
+    await openEditor(page, BODY);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    await page.locator(TOOLTIP).hover();
+
+    await page.locator(`${EDITOR_ROOT} p`).hover();
+
+    await expect(page.locator(TOOLTIP)).toHaveCount(0);
+  });
+
+  test('stays shown on a press on the text', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    await page.locator(TOOLTIP).hover();
+
+    await page.mouse.down();
+    await page.mouse.up();
+
+    expect(await page.locator(TOOLTIP).count()).toBe(1);
+  });
+
+  test('stays shown when its text is selected by dragging and copied, and the selection holds the whole message', async ({ page }) => {
+    await openEditor(page, BODY);
+    await focusEditor(page);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    const text = await page.locator(TOOLTIP).evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+    });
+
+    await page.mouse.move(text.left + 1, text.y);
+    await page.mouse.down();
+    await page.mouse.move(text.right - 1, text.y, { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.press('ControlOrMeta+c');
+
+    expect([
+      await page.locator(TOOLTIP).count(),
+      await page.evaluate(() => window.getSelection()?.toString()),
+    ]).toEqual([1, SAVE_LABEL]);
+  });
+
+  test('hides on Esc while its text is selected', async ({ page }) => {
+    await openEditor(page, BODY);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    await page.locator(TOOLTIP).click({ clickCount: 3 });
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator(TOOLTIP)).toHaveCount(0);
+  });
+
+  test('lets a press on the gap below an item through to the document under it, and hides', async ({ page }) => {
+    await openEditor(page, BODY);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    // A point in the gap, below the strip and over the editor root.
+    const point = await page.locator(TOOLTIP).evaluate((element, rootSelector) => {
+      const own = element.getBoundingClientRect();
+      const root = document.querySelector(rootSelector)?.getBoundingClientRect();
+      return { x: own.left + 4, y: ((root?.top ?? Number.NaN) + own.top) / 2 };
+    }, EDITOR_ROOT);
+
+    await page.mouse.move(point.x, point.y, { steps: 5 });
+    await page.mouse.down();
+    await page.mouse.up();
+
+    expect([
+      await page.evaluate(() => document.activeElement?.id),
+      await page.locator(TOOLTIP).count(),
+    ]).toEqual([EDITOR_ROOT_ELEMENT_ID, 0]);
+  });
+
+  test('stays shown while the pointer crosses the gap over another target, which shows no message of its own', async ({ page }) => {
+    await openEditor(page, BODY);
+    const save = page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`);
+    await save.hover();
+    await expect(page.locator(TOOLTIP)).toHaveText(SAVE_LABEL);
+    // Lays another target under the gap below the item, as the next row of a wrapped toolbar would.
+    const center = await save.evaluate((button) => {
+      const item = button.getBoundingClientRect();
+      const other = document.createElement('button');
+      other.style.position = 'fixed';
+      other.style.zIndex = '2';
+      other.style.left = `${item.left}px`;
+      other.style.top = `${item.bottom + 4}px`;
+      other.style.width = `${item.width}px`;
+      other.style.height = '16px';
+      document.body.append(other);
+      window.__uiShellProbe?.()?.tooltip.registerTarget(other, 'other');
+      return { x: item.left + item.width / 2, y: item.bottom + 12 };
+    });
+
+    await page.mouse.move(center.x, center.y, { steps: 5 });
+    await page.waitForTimeout(AFTER_TOOLTIP_DELAY_MS);
+
+    expect(await page.locator(TOOLTIP).allTextContents()).toEqual([SAVE_LABEL]);
+  });
+
+  test('hides when the pointer leaves the gap to the side without crossing into another element', async ({ page }) => {
+    await openEditor(page, BODY);
+    await page.locator(`${TOOLBAR} [data-slot="${TOOLBAR_SLOT.save}"] button`).hover();
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+    // A point in the gap, below the strip and over the editor root.
+    const point = await page.locator(TOOLTIP).evaluate((element, rootSelector) => {
+      const own = element.getBoundingClientRect();
+      const root = document.querySelector(rootSelector)?.getBoundingClientRect();
+      return { x: own.left + 4, y: ((root?.top ?? Number.NaN) + own.top) / 2 };
+    }, EDITOR_ROOT);
+    await page.mouse.move(point.x, point.y, { steps: 5 });
+    await expect(page.locator(TOOLTIP)).toHaveCount(1);
+
+    // Still over the editor root, so no element is left on the way.
+    await page.mouse.move(point.x + 300, point.y, { steps: 5 });
+
+    await expect(page.locator(TOOLTIP)).toHaveCount(0);
+  });
+
+  test('shows nothing for an item while its popup is open, even when the pointer moves inside the item and rests for the delay', async ({ page }) => {
+    await openEditor(page, BODY);
+    await registerProbePopup(page);
+    const item = page.locator(`${TOOLBAR} [data-slot="${PROBE_SLOT}"] > button`);
+    await item.click();
+    await expect(item).toHaveAttribute('aria-expanded', 'true');
+    const box = await item.boundingBox();
+
+    // From the icon at the center onto the padding, which starts the wait over on an item that shows a tooltip.
+    await page.mouse.move((box?.x ?? Number.NaN) + 5, (box?.y ?? Number.NaN) + 5, { steps: 5 });
+    await page.waitForTimeout(AFTER_TOOLTIP_DELAY_MS);
+
+    expect(await page.locator(TOOLTIP).count()).toBe(0);
   });
 });

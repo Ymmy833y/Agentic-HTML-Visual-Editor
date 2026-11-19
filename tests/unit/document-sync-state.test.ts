@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DocumentSyncState } from '../../src/save/document-sync-state';
 
@@ -64,6 +64,30 @@ describe('sync completion', () => {
     state.completeRevert(EXTERNAL_TEXT);
 
     expect([state.syncBase, state.writeReconcile]).toEqual([EXTERNAL_TEXT, undefined]);
+  });
+});
+
+describe('writing back for the text buffer to reload', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps both texts, marks the write reconcile written back, and times it at the write-back', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const state = new DocumentSyncState();
+    state.initialize(MOUNTED_TEXT);
+    state.retainWriteReconcile(SAVED_TEXT, MOUNTED_TEXT);
+    vi.setSystemTime(4000);
+
+    state.markWrittenBack();
+
+    expect(state.writeReconcile).toEqual({
+      writtenBody: SAVED_TEXT,
+      previousSource: MOUNTED_TEXT,
+      writtenAt: 4000,
+      writtenBack: true,
+    });
   });
 });
 

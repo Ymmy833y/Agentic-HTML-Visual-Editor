@@ -3,7 +3,7 @@
 <img src="assets/readme/banner.png" alt="Agentic HTML Visual Editor: a WYSIWYG bridge between AI agents and humans" width="100%" />
 
 <p>
-  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.1.0-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=YuyaMiyamoto.agentic-html-visual-editor"><img src="https://img.shields.io/badge/VS%20Marketplace-v1.2.0-F59E0B?style=for-the-badge" alt="VS Marketplace version" /></a>
   <img src="https://img.shields.io/badge/VS%20Code-1.90%2B-F59E0B?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code 1.90 or later" />
   <a href="https://github.com/Ymmy833y/Agentic-HTML-Visual-Editor/blob/HEAD/LICENSE"><img src="https://img.shields.io/badge/license-MIT-F97316?style=for-the-badge" alt="MIT License" /></a>
 </p>
@@ -80,6 +80,8 @@ To open `.html` files in the view by default, run **Reopen Editor With…** and 
 
 For a new, empty file, choose **Create HTML Skeleton and Open** in the view to write the basic HTML structure and start editing.
 
+To hand the document to VS Code's chat, click **Add File to Chat** in the editor title bar. It appears in VS Code 1.96 or later while chat is enabled. The chat reads the file on disk, so save first if it should see your latest edits.
+
 ## 🤖 Agent Skill
 
 This repository provides an Agent Skill that teaches an AI agent how to write HTML for this editor and how to work with its review comments. Install it with:
@@ -88,7 +90,9 @@ This repository provides an Agent Skill that teaches an AI agent how to write HT
 npx skills add Ymmy833y/Agentic-HTML-Visual-Editor
 ```
 
-The command installs the skill `agentic-html-visual-editor-authoring`. The scripts in it that list the comments of a document and check their markup (`list_comments.py` and `check_comments.py`) require Python 3.11 or later.
+The command installs the skill `agentic-html-visual-editor-authoring`. Run it again to update the skill.
+
+When an agent only answers your comments, the skill has it read the threads that wait for an answer and the lines around them, not the whole document. Its scripts list the comments of a document (`list_comments.py`), check their markup (`check_comments.py`), and append a reply (`add_reply.py`). They require Python 3.11 or later.
 
 ## 👀 Features at a Glance
 
@@ -100,7 +104,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 | 🔽 **Collapsible sections** | `<details>` blocks that open and close, with the state saved |
 | 💡 **Alerts** | GitHub-style Note, Tip, Important, Warning, and Caution blockquotes |
 | 💬 **Review comments** | Threads stored in the HTML, with authors, times, a resolved state, formatted text, and a resizable popup |
-| 🔄 **Change review** | Agent-written insertion, deletion, and replacement marks; accept or reject individually or all at once |
+| 🔄 **Change review** | Agent-written insertion, deletion, and replacement marks; accept or reject individually, by selection, or all at once |
 | 🔗 **Links and images** | Dialogs to insert and edit them; `Ctrl`+click follows a link |
 | 📊 **Mermaid diagrams** | Rendered in your VS Code theme, while the file keeps the source |
 | 🔍 **Find and replace** | `Ctrl+F` with match case and whole word, plus lookup by comment ID; `Ctrl+H` to replace |
@@ -169,6 +173,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 - Select text and add a comment from the toolbar or floating menu. Click the highlighted text, or press `Alt+Enter` with the caret inside it, to open its thread.
 - Write the body and the replies with the document's formatting: inline styles, links, headings, lists, code blocks, tables, and the other blocks. The toolbar, the floating menu, and the keyboard shortcuts work inside the comment fields.
 - Drag the popup's right edge to resize it. The width stays within the view and carries over to other comments and other files.
+- Undo and redo in a comment field step through your draft first, then continue with the document's history.
 - Add, edit, and delete the body and the replies. Each entry records its author and time and shows an avatar in the author's color, so entries by people and by AI agents are easy to tell apart.
 - Mark a thread as resolved; resolved threads recede visually.
 - Editing or deleting an entry that an AI agent wrote asks for confirmation first.
@@ -180,7 +185,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 - Agents mark proposed changes in the HTML with `<ins>` and `<del>`, or `data-change="ins"` / `data-change="del"` on whole elements. Editing in the view does not automatically create these marks.
 - Insertions and deletions have distinct highlighting. Click a mark, choose it in the sidebar, or press `Alt+Enter` with the caret inside it to open its author, time, and **Accept** / **Reject** actions.
 - An adjacent deletion and insertion are reviewed as one replacement when both are marked as AI-authored or both as human-authored. Accepting keeps the new text; rejecting restores the old text.
-- The sidebar's **Changes** tab offers **Accept All** and **Reject All**. Each decision, including a decision on every change, can be undone in one step.
+- The sidebar's **Changes** tab offers **Accept All** and **Reject All**. Checking the boxes of one or more changes turns these buttons into **Accept Selected** and **Reject Selected**, which decide only the checked changes. Each decision, including a decision on several changes, can be undone in one step.
 
 ### 🔗 Links and Images
 
@@ -202,6 +207,7 @@ The command installs the skill `agentic-html-visual-editor-authoring`. The scrip
 - Insert a diagram from the toolbar, or click an existing one to edit its source in a dialog.
 - The file keeps the source, never the drawing. Invalid syntax shows an error card, and the source stays editable.
 - Zoom from 50% to 400% with the buttons shown over a diagram or `Ctrl`+wheel (`Cmd`+wheel on macOS). Reset returns to 100%. Zoom does not change the HTML.
+- `Ctrl+A` selects diagrams too, including those at the start or end of the document, so deleting the selection removes them and copying it includes their source.
 
 ### 🔍 Find and Replace
 

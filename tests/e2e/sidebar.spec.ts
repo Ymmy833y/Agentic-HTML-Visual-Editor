@@ -9,7 +9,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   VIEW_TO_HOST_MESSAGE_TYPE,
 } from '../../common/index';
-import type { SidebarLayout, SidebarLayoutChange } from '../../common/index';
+import type { EditTransactionMessage, SidebarLayout, SidebarLayoutChange } from '../../common/index';
 import englishMessages from '../../messages/messages.en.json';
 import { CHANGE_KIND_ICON_PATH, CHANGE_POPUP_ELEMENT_ID } from '../../webview/ui/change-popup';
 import { COMMENT_POPUP_ELEMENT_ID } from '../../webview/ui/comment-popup';
@@ -19,6 +19,7 @@ import {
   ACCEPT_ALL_CLASS,
   REJECT_ALL_CLASS,
   RESOLVED_ICON_PATH,
+  SELECT_CHANGE_CLASS,
   SIDEBAR_ELEMENT_ID,
   SIDEBAR_RESIZER_CLASS,
   SIDEBAR_RESIZING_ATTRIBUTE,
@@ -47,6 +48,7 @@ const RESOLVED_TOGGLE = `${POPUP} button[aria-label="${englishMessages['commentT
 const CHANGE_ITEMS = `${SIDEBAR} [role="tabpanel"] li > button`;
 const ACCEPT_ALL = `${SIDEBAR} .${ACCEPT_ALL_CLASS}`;
 const REJECT_ALL = `${SIDEBAR} .${REJECT_ALL_CLASS}`;
+const SELECT_CHANGE = `${SIDEBAR} .${SELECT_CHANGE_CLASS}`;
 const CHANGE_POPUP = `#${CHANGE_POPUP_ELEMENT_ID}`;
 
 /** Paragraphs that make the document taller than the view. They contain no heading and no comment. */
@@ -1282,6 +1284,93 @@ test.describe('the changes tab', () => {
       types.filter((type) => type === VIEW_TO_HOST_MESSAGE_TYPE.editTransaction).length,
       await page.locator(`${SIDEBAR} [role="tabpanel"]`).textContent(),
     ]).toEqual(['<p>x removed</p><ul><li id="l-a">item</li></ul>', 1, 'No changes']);
+  });
+
+  /** Three marks that pair with none of the others: an insertion, a deletion and another insertion. */
+  const SEPARATE_CHANGES = '<p>x<ins id="i-a" data-author="ai">one</ins></p><p><del id="d-a" data-author="ai">two</del>y</p>'
+    + '<p><ins id="i-b" data-author="ai">three</ins></p>';
+
+  test('Accept Selected accepts only the two chosen marks in one edit transaction, leaves the third listed, and turns back into Accept All', async ({ page }) => {
+    await openSidebarEditor(page, SEPARATE_CHANGES);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+
+    await page.locator(SELECT_CHANGE).nth(0).click();
+    await page.locator(SELECT_CHANGE).nth(1).click();
+    const label = await page.locator(ACCEPT_ALL).textContent();
+    await page.locator(ACCEPT_ALL).click();
+    await settleFrames(page);
+
+    const types = await readEditMessageTypes(page);
+    expect([
+      label,
+      await readBodyOutput(page),
+      types.filter((type) => type === VIEW_TO_HOST_MESSAGE_TYPE.editTransaction).length,
+      await page.locator(CHANGE_ITEMS).allTextContents(),
+      await page.locator(ACCEPT_ALL).textContent(),
+    ]).toEqual([
+      'Accept Selected',
+      '<p>xone</p><p>y</p><p><ins id="i-b" data-author="ai">three</ins></p>',
+      1,
+      ['three'],
+      'Accept All',
+    ]);
+  });
+
+  test('Reject Selected rejects only the chosen marks in one edit transaction that carries them in its before state, so that one undo brings them back', async ({ page }) => {
+    await openSidebarEditor(page, SEPARATE_CHANGES);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+
+    await page.locator(SELECT_CHANGE).nth(0).click();
+    await page.locator(SELECT_CHANGE).nth(1).click();
+    await page.locator(REJECT_ALL).click();
+    await settleFrames(page);
+
+    const transactions = (await getOutboundMessages(page)).filter(
+      (message): message is EditTransactionMessage =>
+        Reflect.get(Object(message), 'type') === VIEW_TO_HOST_MESSAGE_TYPE.editTransaction,
+    );
+    expect([
+      await readBodyOutput(page),
+      transactions.length,
+      transactions[0]?.transaction.before.text.includes('<ins id="i-a"'),
+      transactions[0]?.transaction.before.text.includes('<del id="d-a"'),
+    ]).toEqual(['<p>x</p><p>twoy</p><p><ins id="i-b" data-author="ai">three</ins></p>', 1, true, true]);
+  });
+
+  test('pressing the box of a change neither moves nor opens the popup, and leaves focus and the caret in the editor root', async ({ page }) => {
+    await openSidebarEditor(page, `<p>top</p>${FILLER}<p>x<ins id="i-a" data-author="ai">far</ins>y</p>`);
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+    await placeCaret(page, `${EDITOR_ROOT} p`, 2);
+
+    await page.locator(SELECT_CHANGE).first().click();
+    await settleFrames(page);
+
+    expect([
+      await page.locator(SELECT_CHANGE).first().isChecked(),
+      await page.locator(CHANGE_POPUP).isVisible(),
+      await readFocus(page),
+      await readCaretPrefix(page),
+    ]).toEqual([true, false, 'editor', 'to']);
+  });
+
+  test('a chosen change stays chosen when typing in the document rebuilds the list', async ({ page }) => {
+    await openSidebarEditor(page, '<p>x<ins id="i-a" data-author="ai">one</ins></p><p>plain</p>');
+    await openSidebar(page);
+    await sidebarTab(page, 'Changes').click();
+    await placeCaret(page, `${EDITOR_ROOT} p:nth-of-type(2)`, 5);
+
+    await page.locator(SELECT_CHANGE).first().click();
+    await page.keyboard.type('z');
+    await settleFrames(page);
+
+    expect([
+      await readBodyOutput(page),
+      await page.locator(SELECT_CHANGE).first().isChecked(),
+      await page.locator(ACCEPT_ALL).textContent(),
+    ]).toEqual(['<p>x<ins id="i-a" data-author="ai">one</ins></p><p>plainz</p>', true, 'Accept Selected']);
   });
 
   test('on the changes tab, Shift+Tab after the reach key moves to the item, then to Reject All, then to Accept All, then to the tab', async ({ page }) => {

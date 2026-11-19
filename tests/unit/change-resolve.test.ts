@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EncodedSelection } from '../../common/index';
-import { CHANGE_EDIT_KIND, resolveAllChanges, resolveChange } from '../../webview/editing/change-resolve';
+import { CHANGE_EDIT_KIND, resolveAllChanges, resolveChange, resolveSelectedChanges } from '../../webview/editing/change-resolve';
 import type { ChangeResolvePorts } from '../../webview/editing/change-resolve';
 import { captureRange } from '../../webview/selection/selection-capture';
 import { mountRoot, readElement } from './helpers/format-dom';
@@ -357,6 +357,73 @@ describe('accepting or rejecting every change mark', () => {
       [`begin:${CHANGE_EDIT_KIND.acceptAll}`, 'abort'],
       false,
       '<p><ins>a</ins></p>',
+      [],
+    ]);
+  });
+});
+
+describe('accepting or rejecting the chosen change marks', () => {
+  it('accepts only the chosen marks in document order in one acceptSelected edit, and leaves the others marked', () => {
+    const root = mountRoot('<p><ins id="a">a</ins><del id="b">b</del></p><p><ins id="c">c</ins></p><p><del id="d">d</del></p>');
+    const { ports, attempts, returns } = createPorts(root);
+
+    const changed = resolveSelectedChanges(ports, new Set([readElement(root, '#d'), readElement(root, '#a')]), 'accept');
+
+    expect([changed, root.innerHTML, attempts, returns]).toEqual([
+      true,
+      '<p>a<del id="b">b</del></p><p><ins id="c">c</ins></p><p><br></p>',
+      [`begin:${CHANGE_EDIT_KIND.acceptSelected}`, 'complete'],
+      [],
+    ]);
+  });
+
+  it('rejects only the chosen marks in one rejectSelected edit', () => {
+    const root = mountRoot('<p><ins id="a">a</ins>x<del id="b">b</del></p><p><ins id="c">c</ins></p>');
+    const { ports, attempts } = createPorts(root);
+
+    const changed = resolveSelectedChanges(ports, new Set([readElement(root, '#a'), readElement(root, '#b')]), 'reject');
+
+    expect([changed, root.innerHTML, attempts]).toEqual([
+      true,
+      '<p>xb</p><p><ins id="c">c</ins></p>',
+      [`begin:${CHANGE_EDIT_KIND.rejectSelected}`, 'complete'],
+    ]);
+  });
+
+  it('decides a chosen replacement pair as one: accepting takes the deletion out and keeps the insertion', () => {
+    const root = mountRoot('<p><del id="d">old</del> <ins id="i">new</ins></p><p><ins id="c">c</ins></p>');
+    const { ports } = createPorts(root);
+
+    resolveSelectedChanges(ports, new Set([readElement(root, '#d')]), 'accept');
+
+    expect(root.innerHTML).toBe('<p> new</p><p><ins id="c">c</ins></p>');
+  });
+
+  it('takes the marks inside a chosen insertion out with it on rejecting, even when they are not chosen', () => {
+    const root = mountRoot('<p>x<ins id="a">a<del id="b">b</del></ins></p>');
+    const { ports, diagnostics } = createPorts(root);
+
+    resolveSelectedChanges(ports, new Set([readElement(root, '#a')]), 'reject');
+
+    expect([root.innerHTML, diagnostics]).toEqual(['<p>x</p>', []]);
+  });
+
+  it('opens no completed attempt when no chosen mark is in the tree, and does nothing while input is stopped', () => {
+    const gone = mountRoot('<p><ins id="a">a</ins></p>');
+    const goneMark = readElement(gone, '#a');
+    goneMark.remove();
+    const gonePorts = createPorts(gone);
+    const goneResult = resolveSelectedChanges(gonePorts.ports, new Set([goneMark]), 'accept');
+
+    const stopped = mountRoot('<p><ins id="a">a</ins></p>');
+    const stoppedPorts = createPorts(stopped, { isInputStopped: () => true });
+    const stoppedResult = resolveSelectedChanges(stoppedPorts.ports, new Set([readElement(stopped, '#a')]), 'reject');
+
+    expect([goneResult, gonePorts.attempts, stoppedResult, stopped.innerHTML, stoppedPorts.attempts]).toEqual([
+      false,
+      [`begin:${CHANGE_EDIT_KIND.acceptSelected}`, 'abort'],
+      false,
+      '<p><ins id="a">a</ins></p>',
       [],
     ]);
   });

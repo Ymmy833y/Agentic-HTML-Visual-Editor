@@ -1,7 +1,7 @@
 ---
 name: agentic-html-visual-editor-authoring
 description: Write, edit, and review HTML documents that are opened in the Agentic HTML Visual Editor extension for VS Code. Use when creating or changing an HTML deliverable such as design notes, a report, or a task list for that editor, when adding or answering its inline comment annotations, when listing the comments in a document, for example only the unresolved ones, and when checking the markup of those comments.
-compatibility: The comment scripts (scripts/list_comments.py and scripts/check_comments.py) require Python 3.11 or later. Everything else works without them.
+compatibility: The comment scripts (scripts/list_comments.py, scripts/check_comments.py, and scripts/add_reply.py) require Python 3.11 or later. Everything else works without them.
 ---
 
 # Authoring documents for Agentic HTML Visual Editor
@@ -18,10 +18,12 @@ Do not use it for general web pages. It describes what this editor accepts, not 
 
 ## Workflow
 
-1. Identify the target. Find out which file you are writing and whether it already exists. Read an existing file in full before you change it, including its comments.
-2. Read the references that the task needs, and only those. [References](#references) says when to read each one.
-3. Write or edit the HTML.
-4. Check the result against [Before you deliver](#before-you-deliver).
+1. Identify the target. Find out which file you are writing and whether it already exists.
+2. When you only answer the comments in a document, follow [references/replying.md](references/replying.md) instead of the steps below. It reads only the threads that wait for your answer and the lines around them, not the whole file.
+3. Otherwise, read an existing file in full before you change it, including its comments.
+4. Read the references that the task needs, and only those. [References](#references) says when to read each one.
+5. Write or edit the HTML.
+6. Check the result against [Before you deliver](#before-you-deliver).
 
 ## Core rules
 
@@ -36,38 +38,11 @@ Paths are relative to the directory of this skill.
 - Read [references/html-document.md](references/html-document.md) when you create a new document, or when you add or change tags and attributes. It covers the document skeleton, the allowed and forbidden tags, the attributes the editor disables, and how the editor formats HTML on save.
 - Read [references/formatting.md](references/formatting.md) when you write tables, links, images, collapsible sections, or alerts, or when the content will be pasted into the editor or exported as PDF. It covers text and block markup, file links, `details`, alert blockquotes, the styles that survive a paste, and PDF output.
 - Read [references/mermaid.md](references/mermaid.md) when you create or change a Mermaid diagram.
-- Read [references/comments.md](references/comments.md) when you create a comment, reply to one, or need to know what the comments in a document say. It covers the markup of comments, how to choose the format of an entry, and the scripts that list and check comments. When an entry holds a table, an alert, or another block, also read [references/formatting.md](references/formatting.md).
+- Read [references/replying.md](references/replying.md) when you answer the comments in a document. It covers how to find the threads that wait for your answer, how to write the content of an entry, and the script that appends a reply.
+- Read [references/comments.md](references/comments.md) when you create, change, or resolve a comment, or list or check the comments of a document. It covers the markup of comments and the scripts that list and check them. For the content of an entry, also read [references/replying.md](references/replying.md#writing-an-entry), and when an entry holds a table, an alert, or another block, [references/formatting.md](references/formatting.md).
 - Read [references/change-marks.md](references/change-marks.md) when you revise a document that a person reviews, to mark what you added and removed so that the editor shows each change and lets it be accepted or rejected.
 
-## Listing comments
-
-To see the comments of one or more documents without opening the editor, run the bundled script:
-
-```bash
-python3 scripts/list_comments.py --status unresolved path/to/document.html
-```
-
-- `scripts/list_comments.py` is relative to the directory of this skill. Give each document as an absolute path, or as a path relative to the directory you run the command in.
-- `--status` takes `all` (the default), `unresolved`, or `resolved`. You can pass several files.
-- The script prints a JSON array to standard output and never changes a file. When it fails, it prints the reason to standard error, prints no JSON, and exits with code 1.
-- It needs Python 3.11 or later. On Windows the interpreter is usually `python` instead of `python3`.
-
-[references/comments.md](references/comments.md) describes the fields of the JSON.
-
-## Checking comments
-
-After you add or change comments, check their markup with the bundled script:
-
-```bash
-python3 scripts/check_comments.py path/to/document.html
-```
-
-- The script prints a JSON array of the problems it finds, each an `error` or a `warning`, and never changes a file. It checks only the comments, not the rest of the document.
-- It exits with code 0 when there is no error, even with warnings, and with 1 otherwise. When a file cannot be checked, it prints the reason to standard error, prints no JSON, and exits with code 1.
-- Fix every `error`. A `warning` is only a hint, and you may ignore it when the entry reads well as it is, for example a long plain-text entry that needs no list or table.
-- Paths and the Python requirement are the same as for `scripts/list_comments.py`.
-
-[references/comments.md](references/comments.md) lists the rules it checks.
+The scripts that the references run, in `scripts/`, are relative to the directory of this skill too. They need Python 3.11 or later, and on Windows the interpreter is usually `python` instead of `python3`.
 
 ## Before you deliver
 

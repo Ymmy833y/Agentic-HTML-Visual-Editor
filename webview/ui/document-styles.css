@@ -214,11 +214,14 @@
 
 /* A diagram shown at another zoom level. Grown past the column, it scrolls sideways inside its block, and a hidden
    block neither shows a scroll bar nor scrolls on the wheel, so the block is made visible. It stays read-only, so the
-   caret passes over its source as before, and the source has no size or color. The block draws the frame itself,
-   because the frame laid over it would scroll away with the diagram; the padding gives back the width of the border. */
+   caret passes over its source as before, and the source has no size or color. It cannot be selected either: the
+   browser raises no deletion for a range that starts at a visible read-only block, so select-all followed by Delete
+   would leave a zoomed diagram at the start of the document. The block draws the frame itself, because the frame laid
+   over it would scroll away with the diagram; the padding gives back the width of the border. */
 :is(#editor-root, .comment-thread-field-text, .comment-popup-entry) pre[*|data-ahve-diagram-zoomed] {
   visibility: visible;
   -webkit-user-modify: read-only;
+  user-select: none;
   color: transparent;
   background: none;
   border: 1px solid var(--ahve-border);

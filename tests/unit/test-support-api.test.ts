@@ -57,6 +57,7 @@ function createDependencies(
     clearSaveEntryInspection: () => undefined,
     backupAccess: () => undefined,
     exportPdfForTest: () => Promise.resolve(false),
+    addFileToChatForTest: () => Promise.resolve([]),
     ...overrides,
   };
 }
@@ -90,6 +91,21 @@ describe('test support API', () => {
     const exported = await api.exportPdfForTest('file:///document.html', 'file:///out.pdf');
 
     expect([exported, exports]).toEqual([false, 0]);
+  });
+
+  it('returns no attached file without running "Add File to Chat" when disabled', async () => {
+    let runs = 0;
+    const api = createTestSupportApi(createDependencies({
+      enabled: false,
+      addFileToChatForTest: () => {
+        runs += 1;
+        return Promise.resolve(['file:///document.html']);
+      },
+    }));
+
+    const attached = await api.addFileToChatForTest(undefined);
+
+    expect([attached, runs]).toEqual([[], 0]);
   });
 
   it('returns the session inspection as-is when enabled', () => {

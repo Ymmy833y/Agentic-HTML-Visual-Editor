@@ -51,6 +51,7 @@ export const MESSAGE_KEYS = [
   'restoreFailure.discardFailed',
   'openInWysiwyg.failed.message',
   'openInHtml.failed.message',
+  'addFileToChat.failed.message',
   'splitEditor.unavailable.message',
   'toolbar.save',
   'toolbar.bold',
@@ -236,6 +237,8 @@ export const MESSAGE_KEYS = [
   'exportPdf.exported',
   'exportPdf.saveDialog.title',
   'exportPdf.saveDialog.filter',
+  'sidebar.acceptSelected',
+  'sidebar.rejectSelected',
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

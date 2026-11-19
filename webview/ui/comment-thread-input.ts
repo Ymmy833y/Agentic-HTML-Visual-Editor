@@ -8,7 +8,7 @@ import {
 } from '../editing/comment-entry-content';
 import { isCommentInTree, readCommentEntries } from '../editing/comment-read';
 import type { CommentEntryWrite, CommentWriteOutcome } from '../editing/comment-thread-write';
-import { CommentField } from './comment-field';
+import { CommentField, IME_PROCESS_KEY_CODE } from './comment-field';
 import type { CommentFieldPorts } from './comment-field';
 import type { CommentConfirmTarget } from './comment-confirm';
 
@@ -84,10 +84,6 @@ export interface CommentThreadInputPorts {
    */
   reportDiagnostic(detail: string): void;
 }
-
-// keyCode of a key the IME is processing. Some browsers deliver the key that starts a composition without
-// isComposing set, so this is also used to tell it apart.
-const IME_PROCESS_KEY_CODE = 229;
 
 // Order of committing on close or switch. The edit (including deleting a body emptied by editing) is written first.
 // If the body addition came first, the body about to be deleted would still be there, and the added body would
@@ -246,10 +242,12 @@ export class CommentThreadInputs {
    * Commits all active inputs in one edit attempt, as a set in the order edit, body, reply.
    *
    * Called on close and switch, and on moving to the previous or next comment. Inputs that could not be written are
-   * not held back; they are discarded and recorded in the diagnostics.
+   * not held back; they are discarded and recorded in the diagnostics. The fields are emptied even without an active
+   * input, so that the history of a draft typed and deleted again is not carried to the next comment.
    */
   commitAll(): void {
     if (!this.hasActiveInput()) {
+      this.clearFields();
       return;
     }
     const pending = COMMIT_ORDER.flatMap((field) => {
@@ -272,10 +270,12 @@ export class CommentThreadInputs {
    * Discards all active inputs without writing them.
    *
    * Closing by a tree change or an exception happens inside another edit attempt, and writing there would nest
-   * attempts, so nothing is written. This is called after closing, so no redraw is requested.
+   * attempts, so nothing is written. This is called after closing, so no redraw is requested. The fields are emptied
+   * even without an active input, as on `commitAll`.
    */
   discardAll(): void {
     if (!this.hasActiveInput()) {
+      this.clearFields();
       return;
     }
     this.endAll();
@@ -521,6 +521,13 @@ export class CommentThreadInputs {
   private endAll(): void {
     for (const field of COMMIT_ORDER) {
       this.detach(field);
+    }
+    this.clearFields();
+  }
+
+  /** Empties the three fields, dropping their histories. */
+  private clearFields(): void {
+    for (const field of COMMIT_ORDER) {
       this.clearField(field);
     }
   }
