@@ -2377,30 +2377,31 @@ body:has(#editor-overlay .conflict-resolution) :is(#action-dialog, #action-dialo
 }
 
 /* The tooltip. The ID matches the constant in tooltip.ts.
-   It takes no pointer events: taking them would read as leaving the target, and the tooltip would
-   be shown and hidden over and over.
+   It takes pointer events and its text can be selected, so that the pointer can be moved onto it, out of the way of
+   the text, and the text copied. The script keeps it shown while the pointer is on it.
    It is drawn inverted, in the text color on the background color, so it stands apart from the surface it explains.
-   The script puts it flush against its target, above or below. The element itself is left unpainted and carries a
-   6px margin of air at the top and the bottom; the drawn box is a pseudo-element inside that air, so it stays a little
-   away from the target on either side. A drop shadow follows the drawn shape. */
+   The element is the drawn box alone. The script keeps it a little away from its target, above or below, and leaves
+   the space between them out of it, so that a press there reaches what lies under it. The box is painted by a
+   pseudo-element that fills the element, and a drop shadow follows the drawn shape. */
 #editor-tooltip {
   position: fixed;
   z-index: 5;
   max-width: 24em;
-  padding: calc(6px + 0.3em) 0.65em;
+  padding: 0.3em 0.65em;
   color: var(--ahve-bg);
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.28));
   font-size: 0.9em;
   font-weight: 500;
   line-height: 1.4;
-  pointer-events: none;
+  -webkit-user-select: text;
+  user-select: text;
   animation: bar-fade-in 120ms ease-out;
 }
 
 #editor-tooltip::before {
   content: "";
   position: absolute;
-  inset: 6px 0;
+  inset: 0;
   z-index: -1;
   background: color-mix(in srgb, var(--ahve-fg) 94%, var(--ahve-bg));
   border: 1px solid transparent;

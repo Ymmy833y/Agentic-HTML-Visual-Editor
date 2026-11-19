@@ -102,3 +102,37 @@ describe('the resolver scope', () => {
     expect(shown).toEqual([undefined, 'Follow link']);
   });
 });
+
+describe('a press on the tooltip', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is over when it is cancelled, so that a later focus move still hides the tooltip', () => {
+    const controller = createController();
+    controller.attachFocusTrigger();
+    const first = document.createElement('button');
+    const second = document.createElement('button');
+    document.body.append(first, second);
+    controller.registerTarget(first, 'Save');
+    controller.registerTarget(second, 'Bold');
+    first.dispatchEvent(new Event('pointerover', { bubbles: true }));
+    vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    const tooltip = document.querySelector('[role="tooltip"]');
+    // Dragging the selected text away ends the press with a cancel instead of a release, and the pointer then leaves.
+    tooltip?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    tooltip?.dispatchEvent(new Event('pointercancel', { bubbles: true }));
+    tooltip?.dispatchEvent(new Event('pointerout', { bubbles: true }));
+    second.dispatchEvent(new Event('pointerover', { bubbles: true }));
+    vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+
+    document.getElementById(EDITOR_ROOT_ELEMENT_ID)?.dispatchEvent(new Event('focusout', { bubbles: true }));
+
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+});

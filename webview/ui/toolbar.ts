@@ -215,7 +215,9 @@ export class Toolbar {
       this.activateSlot(slot);
     });
 
-    this.ports.tooltip.registerTarget(button, label);
+    // While its popup is open, the item shows no tooltip. Hanging below the item, the tooltip would lie over the first
+    // items of the popup and take the presses meant for them.
+    this.ports.tooltip.registerTarget(button, label, () => button.getAttribute('aria-expanded') !== 'true');
     this.render();
     return true;
   }

@@ -8,6 +8,15 @@ export const TOOLTIP_ELEMENT_ID = 'editor-tooltip';
  */
 export const TOOLTIP_DELAY_MS = 500;
 
+/** The space between a tooltip placed above its target and the target. */
+const GAP_ABOVE_PX = 6;
+
+/**
+ * The space between a tooltip placed below its target and the target. It is wider than above, so that the pointer
+ * resting on the target does not cover the text.
+ */
+const GAP_BELOW_PX = 24;
+
 /**
  * The resolver that returns the message for a target inside the editor root. It returns `undefined`
  * when there is no message.
@@ -52,25 +61,29 @@ export class TooltipController {
   // the same target does not hide the tooltip.
   private current: TooltipTarget | undefined;
 
+  // Set while a press on the tooltip is in progress, so that the focus move the press causes does not hide it.
+  private pressingTooltip = false;
+
+  // Set while the pointer crosses the bridge between the target and its tooltip. Leaving the bridge over the element it
+  // was entered over reports no pointerout, so pointer moves are followed while this is set.
+  private crossing = false;
+
   private readonly onPointerOver = (event: PointerEvent): void => {
     const target = event.target;
     if (!(target instanceof Element)) {
       return;
     }
-
-    const resolved = this.resolveTarget(target);
-    if (isSameTarget(resolved, this.current)) {
-      // The pointer only moved within the same target. Hiding on every move from a button to the
-      // icon inside it would keep the message away until the pointer comes to rest again and the
-      // delay passes once more.
+    if (this.isInTooltip(target)) {
+      // Moving onto the tooltip keeps it, so that the pointer can be moved off the target and out of the way of the
+      // text.
+      this.crossing = false;
       return;
     }
-
-    this.hide();
-    if (resolved === undefined) {
+    if (this.holdWhileCrossing(event)) {
+      // A target under the bridge is passed over, so that it does not take the tooltip away on the way to it.
       return;
     }
-    this.wait(resolved);
+    this.enter(target);
   };
 
   private readonly onFocusIn = (event: FocusEvent): void => {
@@ -91,9 +104,56 @@ export class TooltipController {
 
   private readonly onPointerOut = (event: PointerEvent): void => {
     const related = event.relatedTarget;
+    if (this.isInTooltip(related)) {
+      return;
+    }
     if (related instanceof Element && isSameTarget(this.resolveTarget(related), this.current)) {
       // This is a move into the same target. Hiding on the way out would come too late for the way
       // in to keep the tooltip shown.
+      return;
+    }
+    if (this.holdWhileCrossing(event)) {
+      return;
+    }
+    this.hide();
+  };
+
+  private readonly onPointerMove = (event: PointerEvent): void => {
+    if (!this.crossing || this.isInBridge(event.clientX, event.clientY)) {
+      return;
+    }
+    this.crossing = false;
+    const target = event.target;
+    if (target instanceof Element && !this.isInTooltip(target)) {
+      // What lies under the pointer was passed over while it was in the bridge, so it is taken up now.
+      this.enter(target);
+    }
+  };
+
+  private readonly onPointerDown = (event: PointerEvent): void => {
+    if (this.isInTooltip(event.target)) {
+      // A press on the tooltip starts selecting its text, so that the text can be copied.
+      this.pressingTooltip = true;
+      return;
+    }
+    this.pressingTooltip = false;
+    this.hide();
+  };
+
+  private readonly onPointerUp = (): void => {
+    this.pressingTooltip = false;
+  };
+
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    // While the selection is in the tooltip, keys such as the one that copies it keep it shown. Esc still hides it.
+    if (event.key !== 'Escape' && this.isSelectionInTooltip()) {
+      return;
+    }
+    this.hide();
+  };
+
+  private readonly onFocusOut = (): void => {
+    if (this.pressingTooltip) {
       return;
     }
     this.hide();
@@ -110,8 +170,12 @@ export class TooltipController {
     const document = view.document;
     document.addEventListener('pointerover', this.onPointerOver, true);
     document.addEventListener('pointerout', this.onPointerOut, true);
-    document.addEventListener('pointerdown', this.onHide, true);
-    document.addEventListener('keydown', this.onHide, true);
+    document.addEventListener('pointermove', this.onPointerMove, true);
+    document.addEventListener('pointerdown', this.onPointerDown, true);
+    document.addEventListener('pointerup', this.onPointerUp, true);
+    // A press can also end in a cancel instead of a release, as when the selected text is dragged away.
+    document.addEventListener('pointercancel', this.onPointerUp, true);
+    document.addEventListener('keydown', this.onKeyDown, true);
     // A scroll in an element inside does not bubble out, so it is received in the capture phase.
     document.addEventListener('scroll', this.onHide, true);
   }
@@ -126,7 +190,7 @@ export class TooltipController {
   attachFocusTrigger(): void {
     const document = this.view.document;
     document.addEventListener('focusin', this.onFocusIn, true);
-    document.addEventListener('focusout', this.onHide, true);
+    document.addEventListener('focusout', this.onFocusOut, true);
   }
 
   /**
@@ -179,11 +243,47 @@ export class TooltipController {
    */
   hide(): void {
     this.current = undefined;
+    this.crossing = false;
     if (this.timer !== undefined) {
       this.view.clearTimeout(this.timer);
       this.timer = undefined;
     }
     this.view.document.getElementById(TOOLTIP_ELEMENT_ID)?.remove();
+  }
+
+  /**
+   * Waits for the tooltip of the element the pointer is over, hiding the one shown for another target.
+   *
+   * @param target The element the pointer is over.
+   */
+  private enter(target: Element): void {
+    const resolved = this.resolveTarget(target);
+    if (isSameTarget(resolved, this.current)) {
+      // The pointer only moved within the same target. Hiding on every move from a button to the
+      // icon inside it would keep the message away until the pointer comes to rest again and the
+      // delay passes once more.
+      return;
+    }
+
+    this.hide();
+    if (resolved === undefined) {
+      return;
+    }
+    this.wait(resolved);
+  }
+
+  /**
+   * Keeps the tooltip while the pointer is in its bridge, and follows the pointer from then on.
+   *
+   * @param event The pointer event, which tells where the pointer is.
+   * @returns Whether the pointer is in the bridge.
+   */
+  private holdWhileCrossing(event: PointerEvent): boolean {
+    if (!this.isInBridge(event.clientX, event.clientY)) {
+      return false;
+    }
+    this.crossing = true;
+    return true;
   }
 
   /**
@@ -226,17 +326,17 @@ export class TooltipController {
 
     const bounds = target.getBoundingClientRect();
     tooltip.style.left = `${bounds.left}px`;
-    tooltip.style.top = `${bounds.bottom}px`;
+    tooltip.style.top = `${bounds.top}px`;
     document.body.append(tooltip);
     this.keepInsideView(tooltip, bounds);
   }
 
   /**
-   * Folds back whatever would fall outside the viewport.
+   * Chooses the side of the target and folds back whatever would fall outside the viewport.
    *
-   * The width and height depend on the message, so they are measured after the tooltip is placed.
-   * Anything outside the viewport cannot be read, and since the element is fixed positioned,
-   * scrolling does not bring it into view either.
+   * The side above comes first: below the target, the pointer itself covers the text. The width and height depend on
+   * the message, so they are measured after the tooltip is placed. Anything outside the viewport cannot be read, and
+   * since the element is fixed positioned, scrolling does not bring it into view either.
    *
    * @param tooltip The tooltip that was placed.
    * @param bounds The target's position.
@@ -244,17 +344,77 @@ export class TooltipController {
   private keepInsideView(tooltip: HTMLElement, bounds: DOMRect): void {
     // Compared against the visible area, which excludes the width of the scrollbar.
     const view = tooltip.ownerDocument.documentElement;
-    const own = tooltip.getBoundingClientRect();
 
-    if (bounds.left + own.width > view.clientWidth) {
-      tooltip.style.left = `${Math.max(0, view.clientWidth - own.width)}px`;
+    const width = tooltip.getBoundingClientRect().width;
+    if (bounds.left + width > view.clientWidth) {
+      tooltip.style.left = `${Math.max(0, view.clientWidth - width)}px`;
     }
 
-    if (bounds.bottom + own.height > view.clientHeight) {
-      // When there is no room below, it goes above the target. Shifting it up from the bottom edge
-      // instead would cover the target itself.
-      tooltip.style.top = `${Math.max(0, bounds.top - own.height)}px`;
+    // Measured after the shift: text that wrapped against the right edge may take fewer lines once shifted.
+    const height = tooltip.getBoundingClientRect().height;
+    if (height + GAP_ABOVE_PX <= bounds.top) {
+      tooltip.dataset.placement = 'above';
+      tooltip.style.top = `${bounds.top - GAP_ABOVE_PX - height}px`;
+      return;
     }
+
+    if (bounds.bottom + GAP_BELOW_PX + height <= view.clientHeight) {
+      tooltip.dataset.placement = 'below';
+      tooltip.style.top = `${bounds.bottom + GAP_BELOW_PX}px`;
+      return;
+    }
+
+    // With room on neither side, it goes to the top edge. Shifting it up from the bottom edge instead would leave the
+    // top of the text cut off.
+    tooltip.dataset.placement = 'above';
+    tooltip.style.top = '0px';
+  }
+
+  /**
+   * Returns whether a node is inside the tooltip shown now.
+   *
+   * @param node The node to decide on.
+   */
+  private isInTooltip(node: EventTarget | null): boolean {
+    const tooltip = this.view.document.getElementById(TOOLTIP_ELEMENT_ID);
+    return tooltip !== null && node instanceof Node && tooltip.contains(node);
+  }
+
+  /**
+   * Returns whether a point lies in the bridge of the tooltip shown now: the band between the target and the tooltip,
+   * as wide as the two together.
+   *
+   * The bridge only keeps the tooltip shown while the pointer crosses it. It is no part of the tooltip, so a press there
+   * reaches what lies under it.
+   *
+   * @param x The horizontal position in the viewport.
+   * @param y The vertical position in the viewport.
+   */
+  private isInBridge(x: number, y: number): boolean {
+    const tooltip = this.view.document.getElementById(TOOLTIP_ELEMENT_ID);
+    if (tooltip === null || this.current === undefined) {
+      return false;
+    }
+    const box = tooltip.getBoundingClientRect();
+    const target = this.current.owner.getBoundingClientRect();
+    const below = tooltip.dataset.placement === 'below';
+    const top = below ? target.bottom : box.bottom;
+    const bottom = below ? box.top : target.top;
+    // A tooltip pushed against the top edge may overlap its target, and then there is no bridge.
+    return top < bottom
+      && y >= top
+      && y <= bottom
+      && x >= Math.min(target.left, box.left)
+      && x <= Math.max(target.right, box.right);
+  }
+
+  /** Returns whether the selection lies entirely inside the tooltip shown now. */
+  private isSelectionInTooltip(): boolean {
+    const selection = this.view.getSelection();
+    return selection !== null
+      && selection.rangeCount > 0
+      && this.isInTooltip(selection.anchorNode)
+      && this.isInTooltip(selection.focusNode);
   }
 
   /**
