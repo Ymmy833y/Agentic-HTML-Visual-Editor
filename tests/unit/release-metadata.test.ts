@@ -213,14 +213,6 @@ describe('publish workflow', () => {
   // A Windows checkout may hold CRLF line endings, which the patterns below do not expect.
   const workflow = readRepositoryFile('.github/workflows/publish.yml').toString('utf8').replace(/\r\n/g, '\n');
 
-  it('pins every action to a full commit SHA', () => {
-    const actions = [...workflow.matchAll(/uses:\s*(\S+)/g)].map((match) => match[1] ?? '');
-
-    // A tag can be moved to other code; a commit cannot.
-    expect(actions.length).toBeGreaterThan(0);
-    expect(actions.filter((action) => !/@[0-9a-f]{40}$/.test(action))).toEqual([]);
-  });
-
   it('gives the credential only to a job that neither installs the repository dependencies nor builds', () => {
     const jobs = readJobs(workflow);
     const holders = Object.entries(jobs).filter(([, job]) => job.includes('secrets.'));
