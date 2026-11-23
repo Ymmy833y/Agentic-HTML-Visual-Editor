@@ -1,4 +1,5 @@
 import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { readEditorSource, waitForEditorEntryToClose } from '../helpers/editor-tabs';
@@ -8,6 +9,18 @@ const EXTENSION_ID = 'YuyaMiyamoto.agentic-html-visual-editor';
 // This must match the declaration in package.json. The explicit-open case fails if the declaration
 // and registration diverge.
 const HTML_EDITOR_VIEW_TYPE = 'ahve.editor';
+
+// Upper bound and polling interval for waiting on a setting to reach the extension host.
+const STATE_TIMEOUT_MS = 20000;
+const POLLING_INTERVAL_MS = 100;
+
+// A webview takes the focus a moment after it opens. Cases that read where the focus is wait this long first, so that
+// a focus arriving late is not missed.
+const FOCUS_SETTLE_MS = 500;
+
+// The focus cases select one file in the Explorer and open another one through the entry.
+const EXPLORER_FILE_NAME = 'crlf.html';
+const OPENED_FILE_NAME = 'sample.html';
 
 const activationIt = process.platform === 'darwin' ? it.skip : it;
 
@@ -54,6 +67,45 @@ function openTabs(): readonly vscode.Tab[] {
 
 function activeTabInput(): unknown {
   return vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntil(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + STATE_TIMEOUT_MS;
+  for (;;) {
+    if (condition()) {
+      return;
+    }
+    assert.ok(Date.now() < deadline, `timed out waiting until ${description}`);
+    await delay(POLLING_INTERVAL_MS);
+  }
+}
+
+// The update returns before the extension host sees the new value, and the entry reads it there.
+async function setGlobalSetting(section: string, key: string, value: unknown): Promise<void> {
+  await vscode.workspace.getConfiguration(section).update(key, value, vscode.ConfigurationTarget.Global);
+  await waitUntil(
+    () => vscode.workspace.getConfiguration(section).inspect(key)?.globalValue === value,
+    `${section}.${key} became ${String(value)}`,
+  );
+}
+
+async function openThroughEntry(options: vscode.TextDocumentShowOptions): Promise<void> {
+  const uri = fixtureUri(OPENED_FILE_NAME);
+  await vscode.commands.executeCommand('vscode.openWith', uri, HTML_EDITOR_VIEW_TYPE, options);
+  await waitForEditorEntryToClose(uri);
+  await delay(FOCUS_SETTLE_MS);
+}
+
+// Copy Path takes the Explorer's selection only while the Explorer holds the focus, and the active editor's file
+// otherwise, so the name of the copied file tells where the focus is.
+async function readCopiedFileName(): Promise<string> {
+  await vscode.env.clipboard.writeText('');
+  await vscode.commands.executeCommand('copyFilePath');
+  return path.basename(await vscode.env.clipboard.readText());
 }
 
 // The extension is activated only once, so the transition cannot be observed if a case in another
@@ -179,5 +231,52 @@ describe('Custom editor registration', () => {
 
     assert.strictEqual(untrustedWorkspaces['supported'], true);
     assert.strictEqual(capabilities['virtualWorkspaces'], true);
+  });
+});
+
+// Each case passes the options that the Explorer passes for the click it stands for.
+describe('Focus when a file opens through the entry', () => {
+  beforeEach(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    // Revealing the opened file would move the Explorer's selection onto it, and Copy Path could no longer tell the
+    // Explorer apart from the view.
+    await setGlobalSetting('explorer', 'autoReveal', false);
+    // This also gives the Explorer the focus, as clicking a file in it does.
+    await vscode.commands.executeCommand('revealInExplorer', fixtureUri(EXPLORER_FILE_NAME));
+  });
+
+  afterEach(async () => {
+    await setGlobalSetting('explorer', 'autoReveal', undefined);
+    await setGlobalSetting('workbench.editor', 'enablePreview', undefined);
+    // Later cases do not expect the Explorer to hold the focus.
+    await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+  });
+
+  it('keeps the focus in the Explorer when a single click opens the file as a preview tab', async () => {
+    await openThroughEntry({ preview: true, preserveFocus: true });
+
+    assert.strictEqual(await readCopiedFileName(), EXPLORER_FILE_NAME);
+  });
+
+  it('moves the focus to the view when a double click opens the file as a non-preview tab', async () => {
+    await openThroughEntry({ preview: false, preserveFocus: false });
+
+    assert.strictEqual(await readCopiedFileName(), OPENED_FILE_NAME);
+  });
+
+  it('keeps the focus in the Explorer when previews are disabled and a single click opens the file', async () => {
+    await setGlobalSetting('workbench.editor', 'enablePreview', false);
+
+    await openThroughEntry({ preview: true, preserveFocus: true });
+
+    assert.strictEqual(await readCopiedFileName(), EXPLORER_FILE_NAME);
+  });
+
+  it('keeps the focus in the Explorer when previews are disabled, even for a double click', async () => {
+    await setGlobalSetting('workbench.editor', 'enablePreview', false);
+
+    await openThroughEntry({ preview: false, preserveFocus: false });
+
+    assert.strictEqual(await readCopiedFileName(), EXPLORER_FILE_NAME);
   });
 });
