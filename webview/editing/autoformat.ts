@@ -5,6 +5,8 @@ import { runBlockOperation } from './block-command';
 import type { BlockCommandPorts, BlockOperation } from './block-command';
 import { BLOCK_KIND, isConvertibleBlock } from './block-format';
 import { placeCaret, placeCaretAtStart } from './caret';
+import { readCellRun } from './cell-wrap';
+import type { CellRun } from './cell-wrap';
 import type { DiagnosticReporter, InputRuleResult } from './input-dispatcher';
 import { isBareBlockquote, keepEmptyLastLine, selectCaretLine } from './quote-code-block';
 
@@ -45,7 +47,7 @@ export interface AutoformatEntry {
 
   /**
    * Called after the caret has been placed at the start of the block (on a line of a bare blockquote, where the line
-   * was), and rebuilds the block.
+   * was, and in a cell run, where the marker was), and rebuilds the block.
    *
    * @returns Whether the tree was changed.
    */
@@ -63,19 +65,38 @@ export interface AutoformatMatch {
   readonly entry: AutoformatEntry;
 
   /**
-   * The innermost block containing the caret, which is a convertible paragraph or div, or a bare blockquote when the
-   * match is on a line of it.
+   * The innermost block containing the caret, which is a convertible paragraph or div, a bare blockquote when the
+   * match is on a line of it, or a table cell when the match is in a bare run directly inside it.
    */
   readonly block: Element;
 
   /**
    * The range to delete as the marker. For a space, from the start of the block to the caret; for Enter, the whole
-   * content. On a line of a bare blockquote, the line takes the place of the block.
+   * content. On a line of a bare blockquote, the line takes the place of the block, and in a cell run, the run does.
    */
   readonly removal: Range;
 
   /** Whether the match is on a line of a bare blockquote. */
   readonly quoteLine: boolean;
+
+  /**
+   * Whether the match is in a bare run directly inside a table cell.
+   *
+   * The run is matched as if it were a paragraph. The entry's operation wraps the run holding the caret in a paragraph
+   * before it rebuilds anything, the same as when the operation is chosen from the toolbar.
+   */
+  readonly cellRun: boolean;
+}
+
+/**
+ * The children of the block that are compared with the markers, as a span of child offsets: all of a paragraph's or
+ * div's children, or only the nodes of a cell run.
+ */
+interface ComparedChildren {
+  /** The offset of the first child. */
+  readonly start: number;
+  /** The offset right after the last child. */
+  readonly end: number;
 }
 
 // Whitespace not counted when matching the marker. This includes parts that are not displayed, such as newlines and
@@ -129,18 +150,26 @@ export class AutoformatTable {
       return undefined;
     }
 
-    const block = findBlock(range.startContainer, root);
-    if (block === undefined) {
+    const innermost = findBlock(range.startContainer, root);
+    if (innermost === undefined) {
       return undefined;
     }
     // In a bare blockquote Enter inserts a line break, so a marker is matched against the caret's line rather than
     // the whole blockquote.
-    const quoteLine = isBareBlockquote(block);
-    if (!quoteLine && (!AUTOFORMAT_BLOCK_TAG_NAMES.has(block.localName) || !isConvertibleBlock(block))) {
+    const quoteLine = isBareBlockquote(innermost);
+    const convertible = AUTOFORMAT_BLOCK_TAG_NAMES.has(innermost.localName) && isConvertibleBlock(innermost);
+    // Bare text directly inside a table cell is matched as if it were a paragraph, so that a marker typed in a table
+    // works as it does elsewhere. Only the run holding the caret counts, which is the run the operation then wraps.
+    const cellRun = quoteLine || convertible
+      ? undefined
+      : readCellRun(root, range.startContainer, range.startOffset);
+    if (!quoteLine && !convertible && cellRun === undefined) {
       return undefined;
     }
+    const block = cellRun?.cell ?? innermost;
+    const children = readComparedChildren(block, cellRun);
 
-    const compared = createComparedRange(commit, block, range, quoteLine);
+    const compared = createComparedRange(commit, block, range, quoteLine, children);
     const text = readComparedText(block, compared);
     if (text === undefined) {
       return undefined;
@@ -161,10 +190,28 @@ export class AutoformatTable {
     if (commit === 'enter' && !quoteLine) {
       // Include the trailing br that was left out of the comparison in the removal too. Once it is removed, the
       // placeholder is put back in as for an empty block.
-      compared.setEnd(block, block.childNodes.length);
+      compared.setEnd(block, children.end);
     }
-    return { entry, block, removal: compared, quoteLine };
+    return { entry, block, removal: compared, quoteLine, cellRun: cellRun !== undefined };
   }
+}
+
+/**
+ * Returns the children of the block that are compared with the markers.
+ *
+ * @param block The block. In a cell run, the cell.
+ * @param cellRun The cell run, or `undefined` when the caret is not in one.
+ * @returns All of the block's children, or in a cell run only the nodes of the run.
+ */
+function readComparedChildren(block: Element, cellRun: CellRun | undefined): ComparedChildren {
+  if (cellRun === undefined) {
+    return { start: 0, end: block.childNodes.length };
+  }
+  const children = [...block.childNodes];
+  return {
+    start: children.indexOf(cellRun.nodes[0]),
+    end: children.indexOf(cellRun.nodes[cellRun.nodes.length - 1]) + 1,
+  };
 }
 
 /**
@@ -176,6 +223,7 @@ export class AutoformatTable {
  * @param block The block.
  * @param range The collapsed range at the caret.
  * @param quoteLine Whether the block is a bare blockquote and the caret's line is compared.
+ * @param children The children compared when the caret's line is not.
  * @returns The range to compare.
  */
 function createComparedRange(
@@ -183,6 +231,7 @@ function createComparedRange(
   block: Element,
   range: Range,
   quoteLine: boolean,
+  children: ComparedChildren,
 ): Range {
   if (quoteLine) {
     // The br elements that separate the lines belong to no line, so they stay out of the comparison and the removal.
@@ -194,16 +243,16 @@ function createComparedRange(
   }
 
   const compared = block.ownerDocument.createRange();
-  compared.setStart(block, 0);
+  compared.setStart(block, children.start);
   if (commit === 'space') {
     compared.setEnd(range.startContainer, range.startOffset);
     return compared;
   }
   // A single trailing br is regarded as a placeholder that only gives an empty line its height, and is left out of
   // the comparison.
-  const last = block.lastChild;
+  const last = block.childNodes[children.end - 1];
   const trailingBreak = last instanceof Element && last.localName === 'br';
-  compared.setEnd(block, block.childNodes.length - (trailingBreak ? 1 : 0));
+  compared.setEnd(block, children.end - (trailingBreak ? 1 : 0));
   return compared;
 }
 
@@ -281,9 +330,10 @@ export function applyAutoformat(
       // Likewise a last line left without content would disappear from the blockquote.
       keepEmptyLastLine(match.block, match.removal);
     }
-    if (match.quoteLine) {
-      // The operations matched on a line of a bare blockquote work on the caret's line, so the caret stays where the
-      // line was.
+    if (match.quoteLine || match.cellRun) {
+      // The operations matched on a line of a bare blockquote work on the caret's line, and those matched in a cell
+      // run wrap the run holding the caret, so the caret stays where the marker was. The start of the cell could be
+      // before another block, outside the run.
       placeCaret(match.removal.startContainer, match.removal.startOffset);
     } else {
       placeCaretAtStart(match.block);

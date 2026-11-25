@@ -14,8 +14,9 @@ import { INLINE_RUN_TAG_NAMES } from './target-block';
  *
  * Recreating the editing session on replacement loses the rule, so this is called on every mount. The built-in Enter
  * is in the fallback queue, so this rule is tried first. Its condition for taking over (the start is directly inside
- * a cell) does not overlap with the Enter rules inside code blocks, blockquotes, details titles and list items, so
- * registration order is not relied on.
+ * a cell) does not overlap with the Enter rules inside code blocks, blockquotes, details titles and list items. It
+ * does overlap with the markdown-style autoformat rule on a cell run holding only ``` or ---, so it is registered
+ * after that rule, which turns such a run into a code block or a horizontal rule instead of splitting the cell.
  *
  * @param session The editing session. Also received for calling the split preprocessors.
  * @param ports The block command ports. Only the diagnostic is used.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { BlockRewriteProgress } from '../../webview/editing/block-format';
-import { findDirectCell, wrapCellRuns } from '../../webview/editing/cell-wrap';
+import { findDirectCell, readCellRun, wrapCellRuns } from '../../webview/editing/cell-wrap';
 import { createRange, mountRoot, readChildText, readElement, select } from './helpers/format-dom';
 
 /**
@@ -162,5 +162,30 @@ describe('deciding a direct child of a cell', () => {
     ];
 
     expect(found).toEqual([cell, undefined]);
+  });
+});
+
+describe('reading the bare run of a cell', () => {
+  it('returns the run holding the position, without the neighboring elements that are not phrasing content, and leaves the tree unchanged', () => {
+    const html = '<table><tbody><tr><td><p>x</p>a<b>c</b>d<ul><li>y</li></ul></td></tr></tbody></table>';
+    const root = mountRoot(html);
+    const cell = readElement(root, 'td');
+
+    const run = readCellRun(root, readChildText(cell, 1), 1);
+
+    expect([run?.cell === cell, run?.nodes.map((node) => node.textContent), root.innerHTML])
+      .toEqual([true, ['a', 'c', 'd'], html]);
+  });
+
+  it('returns undefined when the position is inside a paragraph of the cell or outside cells', () => {
+    const root = mountRoot('<p>z</p><table><tbody><tr><td><p>x</p>a</td></tr></tbody></table>');
+    const cell = readElement(root, 'td');
+
+    const found = [
+      readCellRun(root, readChildText(readElement(cell, 'p'), 0), 0),
+      readCellRun(root, readChildText(readElement(root, 'p'), 0), 0),
+    ];
+
+    expect(found).toEqual([undefined, undefined]);
   });
 });

@@ -46,6 +46,23 @@ type StartRun =
   | { readonly kind: 'run'; readonly head: Node }
   | { readonly kind: 'empty'; readonly reference: Node | null };
 
+/** A bare run directly inside a cell. */
+export interface CellRun {
+  /** The innermost cell that has the run directly inside it. */
+  readonly cell: Element;
+  /** The nodes of the run, in document order. Never empty. */
+  readonly nodes: readonly ChildNode[];
+}
+
+/**
+ * The cell's child at a position: the run member it decides the run by, and the child to insert before when there is
+ * no run.
+ */
+interface PositionChild {
+  readonly member: ChildNode | null;
+  readonly reference: ChildNode | null;
+}
+
 /**
  * Returns the innermost cell that has the position's node as a direct child. Changes neither the tree nor the
  * selection.
@@ -71,6 +88,28 @@ export function findDirectCell(root: Element, node: Node): Element | undefined {
     current = current.parentElement;
   }
   return cell;
+}
+
+/**
+ * Returns the bare run directly inside the innermost cell that holds a position. Changes neither the tree nor the
+ * selection.
+ *
+ * The run is found from the position the same way wrapping finds the start's run, so an operation that wraps after
+ * this run was read moves the same nodes into its paragraph.
+ *
+ * @param root The editor root.
+ * @param container The position's container.
+ * @param offset The position's offset.
+ * @returns The run. `undefined` when the position is not directly inside a cell, and when no child at the position
+ *   belongs in a run.
+ */
+export function readCellRun(root: Element, container: Node, offset: number): CellRun | undefined {
+  const cell = findDirectCell(root, container);
+  if (cell === undefined) {
+    return undefined;
+  }
+  const { member } = readPositionChild(cell, container, offset);
+  return member === null ? undefined : { cell, nodes: readRun(member) };
 }
 
 /**
@@ -163,18 +202,7 @@ export function wrapCellRuns(root: Element, range: Range, progress: BlockRewrite
  * @returns How the start's run is handled.
  */
 function readStartRun(cell: Element, container: Node, offset: number): StartRun {
-  let member: ChildNode | null;
-  let reference: ChildNode | null;
-  if (container === cell) {
-    const before = cell.childNodes[offset - 1] ?? null;
-    const after = cell.childNodes[offset] ?? null;
-    member = isRunMember(before) ? before : isRunMember(after) ? after : null;
-    reference = after;
-  } else {
-    const child = [...cell.childNodes].find((candidate) => candidate.contains(container)) ?? null;
-    member = isRunMember(child) ? child : null;
-    reference = child;
-  }
+  const { member, reference } = readPositionChild(cell, container, offset);
   if (member === null) {
     return { kind: 'empty', reference };
   }
@@ -186,6 +214,25 @@ function readStartRun(cell: Element, container: Node, offset: number): StartRun 
   // A whitespace-only run is the line breaks and indentation between tables or lists. The paragraph is inserted
   // before it, so the text of the neighboring block's line does not change.
   return { kind: 'empty', reference: run[0] };
+}
+
+/**
+ * Decides the cell's child at a position. When the child containing the position, or the child before or after the
+ * position, belongs in a run, that child decides the run.
+ *
+ * @param cell The cell. The position is directly inside it.
+ * @param container The position's container.
+ * @param offset The position's offset.
+ * @returns The run member, or `null` when no child at the position belongs in a run, and the child to insert before.
+ */
+function readPositionChild(cell: Element, container: Node, offset: number): PositionChild {
+  if (container === cell) {
+    const before = cell.childNodes[offset - 1] ?? null;
+    const after = cell.childNodes[offset] ?? null;
+    return { member: isRunMember(before) ? before : isRunMember(after) ? after : null, reference: after };
+  }
+  const child = [...cell.childNodes].find((candidate) => candidate.contains(container)) ?? null;
+  return { member: isRunMember(child) ? child : null, reference: child };
 }
 
 /**
