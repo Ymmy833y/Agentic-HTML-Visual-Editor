@@ -221,7 +221,7 @@ describe('Matching markers', () => {
     expect([match.entry.marker, match.removal.toString()]).toEqual(['#', '#']);
   });
 
-  it("on a space, does not match when the caret's block is h1 to h6, blockquote, pre, li, summary or td, or in a bare run", () => {
+  it("on a space, does not match when the caret's block is h1 to h6, blockquote, pre, li or summary, or in a bare run directly inside the editor root", () => {
     const table = createTable();
     const cases: [string, string][] = [
       ['<h1>#</h1>', 'h1'],
@@ -234,7 +234,6 @@ describe('Matching markers', () => {
       ['<pre>#</pre>', 'pre'],
       ['<ul><li>#</li></ul>', 'li'],
       ['<details><summary>#</summary></details>', 'summary'],
-      ['<table><tbody><tr><td>#</td></tr></tbody></table>', 'td'],
     ];
 
     const matched = cases.map(([html, selector]) => {
@@ -244,7 +243,63 @@ describe('Matching markers', () => {
     const bareRoot = mountRoot('#');
     matched.push(table.findMatch('space', bareRoot, caretAt(readChildText(bareRoot, 0), 1)));
 
-    expect(matched).toEqual(new Array(12).fill(undefined));
+    expect(matched).toEqual(new Array(11).fill(undefined));
+  });
+
+  it('in a bare run directly inside a td or th, # followed by a space matches the heading 1 entry, and the removal runs from the start of the run to the caret', () => {
+    const table = createTable();
+
+    const matched = ['td', 'th'].map((tagName) => {
+      const root = mountRoot(`<table><tbody><tr><${tagName}>#ab</${tagName}></tr></tbody></table>`);
+      const cell = readElement(root, tagName);
+      const match = requireMatch(table.findMatch('space', root, caretAt(readChildText(cell, 0), 1)));
+      return [match.entry.marker, match.block === cell, match.cellRun, match.removal.toString()];
+    });
+
+    expect(matched).toEqual([['#', true, true, '#'], ['#', true, true, '#']]);
+  });
+
+  it('on Enter, a cell run holding ``` or --- matches the code block or horizontal rule entry ignoring a single trailing br, and the removal is the whole run including that br', () => {
+    const table = createTable();
+
+    const matched = ['```', '---'].map((marker) => {
+      const root = mountRoot(`<table><tbody><tr><td>${marker}<br></td></tr></tbody></table>`);
+      const cell = readElement(root, 'td');
+      const match = requireMatch(table.findMatch('enter', root, caretAt(readChildText(cell, 0), 3)));
+      return [match.entry.marker, serializeRange(match.removal)];
+    });
+
+    expect(matched).toEqual([['```', '```<br>'], ['---', '---<br>']]);
+  });
+
+  it('in a run that follows a paragraph in the same cell, compares from the start of the run to the caret and matches', () => {
+    const root = mountRoot('<table><tbody><tr><td><p>x</p>#ab</td></tr></tbody></table>');
+    const cell = readElement(root, 'td');
+
+    const match = requireMatch(createTable().findMatch('space', root, caretAt(readChildText(cell, 1), 1)));
+
+    expect([match.entry.marker, match.removal.toString()]).toEqual(['#', '#']);
+  });
+
+  it('in a cell run, does not match on a space when a br comes before the caret', () => {
+    const root = mountRoot('<table><tbody><tr><td>ab<br>#</td></tr></tbody></table>');
+    const cell = readElement(root, 'td');
+
+    const match = createTable().findMatch('space', root, caretAt(readChildText(cell, 2), 1));
+
+    expect(match).toBeUndefined();
+  });
+
+  it('in a cell run of a table inside a blockquote, matches neither > nor > with an alert kind with a space', () => {
+    const table = createTable();
+    const cases: [string, number][] = [['&gt;', 1], ['&gt;note', 5]];
+
+    const matched = cases.map(([marker, offset]) => {
+      const root = mountRoot(`<blockquote><table><tbody><tr><td>${marker}</td></tr></tbody></table></blockquote>`);
+      return table.findMatch('space', root, caretAt(readChildText(readElement(root, 'td'), 0), offset));
+    });
+
+    expect(matched).toEqual([undefined, undefined]);
   });
 
   it("on Enter, matches the code block entry when the caret's line of a bare blockquote is ```, and the removal is the content of that line", () => {
@@ -460,6 +515,39 @@ describe('Applying markdown-style autoformat', () => {
     applyAutoformat(match, () => undefined);
 
     expect(seen).toEqual(['ab<br><br>', true, 2]);
+  });
+
+  it("applying a match in a cell run leaves the text after the marker, and calls the entry's operation after placing the caret where the marker was", () => {
+    const root = mountRoot('<table><tbody><tr><td><p>x</p>#ab</td></tr></tbody></table>');
+    const cell = readElement(root, 'td');
+    const seen: unknown[] = [];
+    const table = new AutoformatTable();
+    table.addEntry({
+      commit: 'space',
+      marker: '#',
+      run: () => {
+        const range = window.getSelection()?.getRangeAt(0);
+        seen.push(cell.innerHTML, range?.startContainer === cell, range?.startOffset);
+        return true;
+      },
+    });
+    const match = requireMatch(table.findMatch('space', root, caretAt(readChildText(cell, 1), 1)));
+
+    applyAutoformat(match, () => undefined);
+
+    expect(seen).toEqual(['<p>x</p>ab', true, 1]);
+  });
+
+  it('a cell holding only the marker gets exactly one placeholder br after the deletion', () => {
+    const root = mountRoot('<table><tbody><tr><td>#</td></tr></tbody></table>');
+    const cell = readElement(root, 'td');
+    const table = new AutoformatTable();
+    table.addEntry({ commit: 'space', marker: '#', run: () => true });
+    const match = requireMatch(table.findMatch('space', root, caretAt(readChildText(cell, 0), 1)));
+
+    applyAutoformat(match, () => undefined);
+
+    expect([cell.innerHTML, cell.childNodes.length]).toEqual(['<br>', 1]);
   });
 
   it('when an element follows the marker, the text left empty by the deletion is not kept in the tree', () => {

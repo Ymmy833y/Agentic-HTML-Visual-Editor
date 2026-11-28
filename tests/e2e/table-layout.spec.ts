@@ -2330,13 +2330,63 @@ test.describe('block operations from a bare run in a cell', () => {
     expect(await page.locator('#a').innerHTML()).toBe('<strong>ab</strong>');
   });
 
-  test('does not make a heading when "# " is typed at the start of a bare cell, leaving the typed characters as they are', async ({ page }) => {
+  test('turns the cell content into a heading 1 without inserting the space when "# " is typed at the start of a bare cell', async ({ page }) => {
     await openLayoutEditor(page, TABLE_BODY);
     await placeCaretInText(page, '#a', 0);
 
     await page.keyboard.type('# ');
 
-    expect(await page.locator('#a').innerHTML()).toMatch(/^#( |&nbsp;)ab$/u);
+    expect(await page.locator('#a').innerHTML()).toBe('\n<h1>ab</h1>');
+  });
+
+  test('makes an empty heading 1 when "# " is typed in an empty cell, and characters typed next go into the heading', async ({ page }) => {
+    await openLayoutEditor(page, oneRowBody('<br>', 'cd'));
+    await placeCaretAtElement(page, '#a', 0);
+
+    await page.keyboard.type('# ');
+    const converted = await page.locator('#a').innerHTML();
+    await page.keyboard.type('x');
+
+    expect([converted, await page.locator('#a').innerHTML()]).toEqual(['\n<h1><br></h1>', '\n<h1>x</h1>']);
+  });
+
+  test('creates a bulleted list inside the cell whose item holds the cell content when "- " is typed at the start of a bare cell', async ({ page }) => {
+    await openLayoutEditor(page, TABLE_BODY);
+    await placeCaretInText(page, '#a', 0);
+
+    await page.keyboard.type('- ');
+
+    expect(await page.locator('#a').innerHTML()).toBe('\n<ul><li>ab</li></ul>');
+  });
+
+  test('turns the cell content into a bare blockquote when "> " is typed at the start of a bare cell', async ({ page }) => {
+    await openLayoutEditor(page, TABLE_BODY);
+    await placeCaretInText(page, '#a', 0);
+
+    await page.keyboard.type('> ');
+
+    expect(await page.locator('#a').innerHTML()).toBe('\n<blockquote>ab</blockquote>');
+  });
+
+  test('makes an empty code block inside the cell when Enter is pressed at the end of a cell holding only ```, and characters typed next go inside the code', async ({ page }) => {
+    await openLayoutEditor(page, oneRowBody('```', 'cd'));
+    await placeCaretInText(page, '#a', 3);
+
+    await page.keyboard.press('Enter');
+    const converted = await page.locator('#a').innerHTML();
+    await page.keyboard.type('x');
+
+    expect([converted, await page.locator('#a').innerHTML()])
+      .toEqual(['\n<pre><code></code></pre>', '\n<pre><code>x</code></pre>']);
+  });
+
+  test('inserts one hr inside the cell and keeps the caret in the empty paragraph after it when Enter is pressed at the end of a cell holding only ---', async ({ page }) => {
+    await openLayoutEditor(page, oneRowBody('---', 'cd'));
+    await placeCaretInText(page, '#a', 3);
+
+    await page.keyboard.press('Enter');
+
+    expect([await readChildNames(page, '#a'), await readCaretOffsetIn(page, '#a p')]).toEqual([['hr', 'p'], 0]);
   });
 
   test('turns the cell content into a heading when a heading is chosen even in a bare cell of a table inside the body of a details section', async ({ page }) => {

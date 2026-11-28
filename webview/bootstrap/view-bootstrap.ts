@@ -641,7 +641,8 @@ function applyDocumentText(text: string, target: MountTarget): UnopenableReason 
   registerQuoteDeleteRules(nextEditingSession, blockCommandPorts);
   registerBlockRules(nextEditingSession, blockCommandPorts);
   // Rules are tried in the order they are registered. Autoformat comes before the blockquote rule, which would
-  // otherwise turn the Enter after ``` on a line of a bare blockquote into a line break.
+  // otherwise turn the Enter after ``` on a line of a bare blockquote into a line break, and before the cell Enter
+  // rule, which would otherwise split a bare cell holding ``` or --- into paragraphs.
   registerAutoformatRules(
     nextEditingSession,
     autoformatTable,
